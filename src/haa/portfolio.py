@@ -7,6 +7,25 @@ from typing import Iterable, Mapping
 
 SUPPORTED_CURRENCIES = ("USD", "ILS")
 
+# Execution labels are deliberately separate from canonical strategy asset
+# codes.  The latter remain stable for data retrieval and signal calculation.
+EXECUTION_SECURITY_LABELS = {
+    ("ILS", "CSPX_IL"): "CSPX — 1159250",
+    ("ILS", "IEF_IL"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
+    ("ILS", "AYALON_KASPIT"): "Keren Kaspit — 5136866",
+    ("ILS", "IEF"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
+    ("ILS", "XLK"): "XLK — iShares S&P 500 IT UCITS — 1159193",
+    ("ILS", "XLU"): "XLU — MTF S&P Utilities — 1150507",
+    ("ILS", "XLE"): "XLE — KSM ETF S&P Energy — 1145903",
+    ("ILS", "XLP"): "XLP — MTF S&P Consumer Staples — 1150366",
+    ("USD", "BIL"): "BIL USD - 5139076",
+}
+
+
+def execution_security_label(asset: str, currency: str) -> str:
+    """Return the broker-facing security label without changing canonical symbols."""
+    return EXECUTION_SECURITY_LABELS.get((currency, asset), asset)
+
 
 def total_weight(sleeves: Iterable[Mapping[str, object]]) -> float:
     return sum(float(sleeve["weight"]) for sleeve in sleeves)
