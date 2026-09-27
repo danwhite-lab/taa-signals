@@ -1,6 +1,6 @@
 import pytest
 
-from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, funding_plan, total_weight
+from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 
 
 def test_aggregate_holdings_combines_duplicate_and_multi_asset_sleeves():
@@ -58,3 +58,16 @@ def test_holdings_are_grouped_by_execution_currency():
 
     assert grouped["USD"]["SPY"]["weight"] == .5
     assert grouped["ILS"]["CSPX_IL"]["weight"] == .5
+
+
+def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_logic():
+    assert execution_security_label("CSPX_IL", "ILS") == "CSPX — 1159250"
+    assert execution_security_label("IEF_IL", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
+    assert execution_security_label("AYALON_KASPIT", "ILS") == "Keren Kaspit — 5136866"
+    assert execution_security_label("XLE", "ILS") == "XLE — KSM ETF S&P Energy — 1145903"
+    assert execution_security_label("XLK", "ILS") == "XLK — iShares S&P 500 IT UCITS — 1159193"
+    assert execution_security_label("XLU", "ILS") == "XLU — MTF S&P Utilities — 1150507"
+    assert execution_security_label("XLP", "ILS") == "XLP — MTF S&P Consumer Staples — 1150366"
+    assert execution_security_label("IEF", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
+    assert execution_security_label("BIL", "USD") == "BIL USD - 5139076"
+    assert execution_security_label("SPY", "USD") == "SPY"

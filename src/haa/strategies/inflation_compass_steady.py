@@ -20,6 +20,7 @@ class InflationCompassBase:
     risk_warning = "Concentrated sector allocation. T5YIE is a market-implied inflation measure and is read with a one-trading-day lag."
     momentum_window = 80
     sma_window = 200
+    backtest_available = True
 
     positive_weights = {"XLE": 0.5, "XLI": 1 / 6, "XLF": 1 / 6, "XLB": 1 / 6}
     negative_weights = {"XLU": 1 / 3, "XLV": 1 / 3, "XLP": 1 / 3}
@@ -130,3 +131,24 @@ class InflationCompassFast(InflationCompassBase):
 
     name = "Inflation Compass Fast (40-day)"
     momentum_window = 40
+
+
+class InflationCompassSteadyIsrael(InflationCompassSteady):
+    """Israel execution labels with the unchanged USD Compass signal inputs."""
+
+    name = "Inflation Compass Steady (80-day) Israel"
+    backtest_available = False
+
+
+class InflationCompassStandardIsrael(InflationCompassStandard):
+    """Israel execution labels with the unchanged USD Compass signal inputs."""
+
+    name = "Inflation Compass Standard Israel"
+    backtest_available = False
+
+
+class InflationCompassFastIsrael(InflationCompassFast):
+    """Israel execution labels with the unchanged USD Compass signal inputs."""
+
+    name = "Inflation Compass Fast (40-day) Israel"
+    backtest_available = False

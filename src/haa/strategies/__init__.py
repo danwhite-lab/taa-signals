@@ -1,10 +1,10 @@
 from .haa_4 import HAA4
 from .haa_4_leveraged_2x import HAA4Leveraged2x
-from .inflation_compass_steady import InflationCompassFast, InflationCompassStandard, InflationCompassSteady
+from .inflation_compass_steady import InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteady, InflationCompassSteadyIsrael
 from .haa_classic_no_qqq import HAAClassicNoQQQ
 from .haa_classic_leveraged_no_qqq import HAAClassicLeveragedNoQQQ
 from .haa_simple import HAASimple
 from .haa_simple_leveraged_2x import HAASimpleLeveraged2x
 from .haa_simple_israel import HAASimpleIsrael
 
-__all__ = ["HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassStandard", "InflationCompassSteady"]
+__all__ = ["HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael"]

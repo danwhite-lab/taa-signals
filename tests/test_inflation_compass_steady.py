@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from haa.strategies import InflationCompassFast, InflationCompassStandard, InflationCompassSteady
+from haa.strategies import InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteady, InflationCompassSteadyIsrael
 
 
 ASSETS = ("SPY", "XLE", "XLK", "XLU", "XLP", "IEF", "XLI", "XLF", "XLB", "XLV", "T5YIE")
@@ -94,3 +94,14 @@ def test_fast_standard_and_steady_agree_when_all_windows_confirm_the_same_regime
     prices = daily_prices()
     decisions = [model().decisions(prices).iloc[-1] for model in (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)]
     assert [decision["target_weights"] for decision in decisions] == [{"XLE": 1.0}] * 3
+
+
+def test_israel_execution_variants_use_the_identical_usd_compass_calculations():
+    prices = daily_prices()
+    pairs = (
+        (InflationCompassFast, InflationCompassFastIsrael),
+        (InflationCompassStandard, InflationCompassStandardIsrael),
+        (InflationCompassSteady, InflationCompassSteadyIsrael),
+    )
+    for original, israel in pairs:
+        assert original().decisions(prices).equals(israel().decisions(prices))
