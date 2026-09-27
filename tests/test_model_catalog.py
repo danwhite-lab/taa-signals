@@ -8,6 +8,8 @@ def test_catalog_exposes_every_stable_model_once():
     labels = [item.label for item in MODEL_CATALOG]
     assert len(labels) == len(set(labels))
     assert definition_for_label("HAA-Simple Israel").model_class is HAASimpleIsrael
+    assert definition_for_label("HAA-Simple Israel").execution_currency == "ILS"
+    assert definition_for_label("HAA-Simple").execution_currency == "USD"
 
 
 def test_israel_implementation_is_only_available_for_simple_haa():
