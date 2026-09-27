@@ -6,5 +6,6 @@ from .haa_classic_leveraged_no_qqq import HAAClassicLeveragedNoQQQ
 from .haa_simple import HAASimple
 from .haa_simple_leveraged_2x import HAASimpleLeveraged2x
 from .haa_simple_israel import HAASimpleIsrael
+from .buy_and_hold import TA125SmartMomentum
 
-__all__ = ["HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael"]
+__all__ = ["HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "TA125SmartMomentum"]

@@ -1,5 +1,6 @@
 ASSETS = ("SPY", "TIP", "IEF", "BIL")
 ISRAEL_SIMPLE_ASSETS = ("TIP", "CSPX_IL", "IEF_IL", "AYALON_KASPIT")
+TA125_SMART_MOMENTUM_ASSET = "TA125_SMART_MOMENTUM"
 LEVERAGED_ASSETS = ("SSO",)
 # IEF belongs to Classic HAA's eight-asset risk-on ranking as well as its
 # defensive pair; BIL is defensive-only. QQQ is intentionally absent.

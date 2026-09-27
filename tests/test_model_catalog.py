@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael
+from haa.strategies import HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, TA125SmartMomentum
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -21,7 +21,7 @@ def test_israel_implementations_are_available_for_simple_haa_and_inflation_compa
 
 
 def test_catalog_selection_resolves_existing_stable_model_class():
-    assert strategies() == ("HAA", "Inflation Compass")
+    assert strategies() == ("HAA", "Inflation Compass", "Momentum")
     assert "HAA 4" in variants("HAA")
     assert resolve("Inflation Compass", "Standard", "Original").model_class is InflationCompassStandard
     assert resolve("Inflation Compass", "Fast (40-day)", "Original").model_class is InflationCompassFast
@@ -31,5 +31,11 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("Inflation Compass", "Standard", "Israel").execution_currency == "ILS"
     assert not resolve("Inflation Compass", "Standard", "Israel").model_class.backtest_available
     assert resolve("HAA", "Simple", "Israel").model_class is HAASimpleIsrael
+    momentum = resolve("Momentum", "TA-125 Smart Momentum", "Migdal MTF TA-125 Smart Momentum")
+    assert momentum.model_class is TA125SmartMomentum
+    assert momentum.execution_currency == "ILS"
+    assert momentum.strategy_mode == "buy_and_hold"
+    assert momentum.signal_mode == "internal"
+    assert momentum.suggested_max_weight == 0.20
     with pytest.raises(ValueError, match="Unknown model selection"):
         resolve("HAA", "HAA 4", "Israel")

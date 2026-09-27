@@ -18,6 +18,7 @@ from .strategies import (
     InflationCompassStandardIsrael,
     InflationCompassSteady,
     InflationCompassSteadyIsrael,
+    TA125SmartMomentum,
 )
 
 
@@ -29,6 +30,10 @@ class ModelDefinition:
     label: str
     model_class: type
     execution_currency: str = "USD"
+    strategy_mode: str = "externally_timed"
+    signal_mode: str = "external"
+    suggested_max_weight: float | None = None
+    description: str | None = None
 
 
 MODEL_CATALOG: tuple[ModelDefinition, ...] = (
@@ -45,6 +50,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Inflation Compass", "Standard", "Israel", "Inflation Compass Standard Israel", InflationCompassStandardIsrael, "ILS"),
     ModelDefinition("Inflation Compass", "Fast (40-day)", "Original", "Inflation Compass Fast (40-day)", InflationCompassFast),
     ModelDefinition("Inflation Compass", "Fast (40-day)", "Israel", "Inflation Compass Fast (40-day) Israel", InflationCompassFastIsrael, "ILS"),
+    ModelDefinition("Momentum", "TA-125 Smart Momentum", "Migdal MTF TA-125 Smart Momentum", "TA-125 Smart Momentum", TA125SmartMomentum, "ILS", "buy_and_hold", "internal", 0.20, "Israeli equity momentum held through fund 5134713. The underlying TA-125 Smart Momentum index adjusts TA-125 weights internally using momentum/trend strength, including its 50-day and 200-day moving-average relationship. Investors hold the fund continuously; there is no investor-level timing signal."),
 )
 
 

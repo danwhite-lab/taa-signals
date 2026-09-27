@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS
+from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, TA125_SMART_MOMENTUM_ASSET
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
@@ -17,12 +17,13 @@ from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady
+from haa.strategies import HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
     "HAA 4 Leveraged 2x": """**HAA 4 Leveraged 2x:** HAA-4's TIP gate, Top-2 ranking, and sleeve-level defensive replacement all use unleveraged TIP, SPY, VEA, VNQ, IEF, and BIL momentum. Only after that decision are holdings mapped: SPY→SSO, VEA→EFO, VNQ→URE, IEF→UST, and BIL→BIL. If TIP is zero or negative, the defensive winner is held at 100%; otherwise each selected non-positive sleeve is replaced by that defensive winner. EFO and URE are practical execution proxies, not exact tracker matches for VEA and VNQ.
@@ -47,7 +48,7 @@ MODEL_RULES = {
 **Risk:** high-drawdown leveraged satellite, not a core holding. A monthly signal cannot prevent losses from a fast intramonth crash.""",
 }
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
-TASE_ASSETS = tuple(asset for asset in ISRAEL_SIMPLE_ASSETS if asset != "TIP")
+TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS))
 
 st.set_page_config(page_title="TAA Signals", layout="wide", initial_sidebar_state="collapsed")
@@ -338,6 +339,7 @@ if page == "Rules":
     model_name = model_selector("rules", "Choose model")
 
 strategy = MODEL_OPTIONS[model_name]()
+model_definition = definition_for_label(model_name)
 if page in {"Backtest", "Rules"} and not getattr(strategy, "backtest_available", True):
     title_column.title(strategy.name)
     st.info("Signals and Portfolio use the unchanged USD Compass inputs and map the final holdings to Israeli securities. Backtesting is unavailable until reliable historical prices for those Israeli execution securities are configured.")
@@ -621,6 +623,10 @@ if page == "Portfolio":
 
     sleeve_total = total_weight(updated_sleeves)
     plan = funding_plan(updated_sleeves, total_ils, ils_per_usd)
+    for sleeve in updated_sleeves:
+        definition = definition_for_label(sleeve["model"])
+        if definition.suggested_max_weight is not None and sleeve["weight"] > definition.suggested_max_weight * 100:
+            st.info(f"{sleeve['model']} is above its suggested {definition.suggested_max_weight:.0%} portfolio maximum. This is guidance only; the allocation remains available.")
     if abs(sleeve_total - 100.0) > 1e-9:
         st.warning(f"Sleeve weights total {sleeve_total:.2f}%. Set them to exactly 100% before using the combined allocation.")
     else:
@@ -815,7 +821,8 @@ if page == "Signals":
         signal_model_name = model_selector("signals", columns=st.columns([1.1, 1.25, 1.45]), implementation_dropdown=True)
     st.session_state["signals_model_name"] = signal_model_name
     signal_strategy = MODEL_OPTIONS[signal_model_name]()
-    signal_execution_currency = definition_for_label(signal_model_name).execution_currency
+    signal_definition = definition_for_label(signal_model_name)
+    signal_execution_currency = signal_definition.execution_currency
     signal_data_assets = getattr(signal_strategy, "data_assets", ASSETS)
     signal_momentum_assets = getattr(signal_strategy, "signal_assets", signal_data_assets)
     signal_prices = all_prices.loc[:, signal_data_assets]
@@ -824,7 +831,20 @@ if page == "Signals":
     signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly
     signal_decisions = signal_strategy.decisions(signal_decision_prices)
     signal_status = latest_actionable_signal(signal_decisions, signal_monthly, signal_market_assets)
-    if signal_status.decision is None:
+    if signal_definition.strategy_mode == "buy_and_hold":
+        title_column.title("TA-125 Smart Momentum")
+        title_column.caption("Internally managed momentum strategy · Israeli equity / momentum growth sleeve")
+        if signal_status.decision is None:
+            st.error(signal_status.reason)
+        else:
+            st.dataframe(pd.DataFrame([{
+                "Current allocation": "100% TA-125 Smart Momentum (5134713)",
+                "External signal": "None — Buy & Hold",
+                "Internal strategy": "Momentum weighting handled by the underlying index",
+            }]), use_container_width=True, hide_index=True)
+            st.info("This fund is held continuously. The TA-125 Smart Momentum index performs its own momentum selection and reweighting; the app does not produce BUY, SELL, or CASH timing instructions.")
+            st.caption("Fund 5134713 uses public TASE/Maya history only. No synthetic or pre-fund history is used; Backtest and Compare begin at the actual available fund history.")
+    elif signal_status.decision is None:
         title_column.title("Signal")
         title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
         st.error(signal_status.reason)
@@ -947,6 +967,9 @@ if page == "Rules":
     title_column.title("Rules")
     st.subheader("Model rules")
     st.markdown(MODEL_RULES[model_name])
+    if model_definition.strategy_mode == "buy_and_hold":
+        st.info("Internally managed momentum strategy: the fund is held continuously and the underlying index manages momentum weighting. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
+        st.write("**Market:** Israel  \\n+**Fund:** Migdal MTF TA-125 Smart Momentum (5134713)  \\n+**Underlying index:** TA-125 Smart Momentum  \\n+**Implementation:** Buy & Hold  \\n+**Signal frequency:** None  \\n+**Review frequency:** Annual  \\n+**Evidence status:** Limited / developing  \\n+**Suggested portfolio maximum:** 20% (guidance only)")
 
     st.markdown("""**13612U:** `(1-month return + 3-month return + 6-month return + 12-month return) / 4`. Each return is `price at signal date / price at its historical month-end - 1`. This implementation therefore requires 12 earlier observations of each asset it actually needs and uses no later prices.
 

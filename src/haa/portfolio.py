@@ -18,6 +18,7 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "XLU"): "XLU — MTF S&P Utilities — 1150507",
     ("ILS", "XLE"): "XLE — KSM ETF S&P Energy — 1145903",
     ("ILS", "XLP"): "XLP — MTF S&P Consumer Staples — 1150366",
+    ("ILS", "TA125_SMART_MOMENTUM"): "Migdal MTF TA-125 Smart Momentum — 5134713",
     ("USD", "BIL"): "BIL USD - 5139076",
 }
 
