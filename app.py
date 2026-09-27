@@ -16,6 +16,7 @@ from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
+from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
 from haa.strategies import HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
@@ -283,6 +284,9 @@ for key, value in {
     "portfolio_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "portfolio_next_id": 2,
     "portfolio_base_currency": "USD",
+    "backtest_mode": "Single strategy",
+    "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
+    "backtest_next_id": 2,
 }.items():
     st.session_state.setdefault(key, value)
 seed_model_selection("signals", st.session_state["signals_model_name"])
@@ -327,10 +331,47 @@ if page == "Backtest":
     backtest_configuration = st.container(key="backtest-configuration")
     with backtest_configuration:
         st.header("Backtest configuration")
-        model_name = model_selector("backtest", "Model")
-        st.session_state["model_name"] = model_name
-        st.toggle("Israeli capital-gains tax", key="tax_enabled")
-        st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
+        backtest_mode = st.radio("Backtest mode", ("Single strategy", "Portfolio"), horizontal=True, key="backtest_mode")
+        if backtest_mode == "Single strategy":
+            model_name = model_selector("backtest", "Model")
+            st.session_state["model_name"] = model_name
+            st.toggle("Israeli capital-gains tax", key="tax_enabled")
+            st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
+        else:
+            st.subheader("Portfolio sleeves")
+            st.caption("Each sleeve uses the same strategy selection as Portfolio. Sleeve weights reset to their targets at every month-end.")
+            configured_sleeves = st.session_state["backtest_sleeves"]
+            controls, add_column, remove_column = st.columns([7, 0.5, 0.5])
+            with add_column:
+                add_backtest_sleeve = st.button("+", key="backtest_add_sleeve", help="Add sleeve")
+            with remove_column:
+                remove_backtest_sleeve = st.button("-", key="backtest_remove_sleeve", help="Remove the last sleeve", disabled=len(configured_sleeves) == 1)
+            updated_backtest_sleeves = []
+            for sleeve in configured_sleeves:
+                sleeve_id = sleeve["id"]
+                prefix = f"backtest_sleeve_{sleeve_id}"
+                seed_model_selection(prefix, sleeve.get("model", DEFAULT_MODEL))
+                with st.container(key=f"{prefix}-row"):
+                    strategy_column, variant_column, implementation_column, weight_column = st.columns([1.15, 1.3, 1.6, 0.7])
+                    sleeve_model = model_selector(prefix, columns=(strategy_column, variant_column, implementation_column), implementation_dropdown=True)
+                    with weight_column:
+                        sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"{prefix}_weight")
+                updated_backtest_sleeves.append({"id": sleeve_id, "weight": float(sleeve_weight), "model": sleeve_model})
+            st.session_state["backtest_sleeves"] = updated_backtest_sleeves
+            if add_backtest_sleeve:
+                next_id = st.session_state["backtest_next_id"]
+                st.session_state["backtest_next_id"] = next_id + 1
+                st.session_state["backtest_sleeves"].append({"id": next_id, "weight": 0.0, "model": DEFAULT_MODEL})
+                st.rerun()
+            if remove_backtest_sleeve:
+                st.session_state["backtest_sleeves"] = updated_backtest_sleeves[:-1]
+                st.rerun()
+            backtest_weight_total = total_weight(updated_backtest_sleeves)
+            if abs(backtest_weight_total - 100.0) > 1e-9:
+                st.warning(f"Sleeve weights total {backtest_weight_total:.2f}%. Set them to exactly 100% to run the portfolio backtest.")
+            else:
+                st.success("Sleeve weights total 100%.")
+            st.info("Portfolio backtests show pre-tax results. Transaction costs within each tactical sleeve are included; portfolio-level capital-gains tax accounting will be added separately.")
         ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
         uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
     st.session_state["ticker_text"] = ticker_text
@@ -338,9 +379,10 @@ if page == "Backtest":
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
 
+backtest_mode = st.session_state["backtest_mode"]
 strategy = MODEL_OPTIONS[model_name]()
 model_definition = definition_for_label(model_name)
-if page in {"Backtest", "Rules"} and not getattr(strategy, "backtest_available", True):
+if page in {"Backtest", "Rules"} and backtest_mode == "Single strategy" and not getattr(strategy, "backtest_available", True):
     title_column.title(strategy.name)
     st.info("Signals and Portfolio use the unchanged USD Compass inputs and map the final holdings to Israeli securities. Backtesting is unavailable until reliable historical prices for those Israeli execution securities are configured.")
     st.stop()
@@ -423,6 +465,91 @@ for asset in FRED_ASSETS:
     source_metadata.loc[asset] = {"source": "FRED", "identifier": asset, "price_field": "Daily observation"}
 for asset in replacements:
     source_metadata.loc[asset] = {"source": "User CSV replacement", "identifier": asset, "price_field": "Adj Close or Close"}
+
+if page == "Backtest" and backtest_mode == "Portfolio":
+    percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
+    ratio_rows = ["Sharpe", "Sortino", "Calmar"]
+    numeric_rows = ["Final value", "Allocation changes", "Average changes/year"]
+    portfolio_sleeves = st.session_state["backtest_sleeves"]
+    portfolio_weight_total = total_weight(portfolio_sleeves)
+    if abs(portfolio_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in portfolio_sleeves):
+        title_column.title("Portfolio backtest")
+        st.info("Set one or more positive sleeve weights totaling exactly 100% to run the portfolio backtest.")
+        st.stop()
+    try:
+        portfolio_inputs = {}
+        for sleeve in portfolio_sleeves:
+            sleeve_name = sleeve["model"]
+            sleeve_key = f"{sleeve_name} ({sleeve['id']})"
+            sleeve_strategy = MODEL_OPTIONS[sleeve_name]()
+            if not getattr(sleeve_strategy, "backtest_available", True):
+                raise ValueError(f"{sleeve_name} is not available for backtesting.")
+            sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), "SPY")))
+            sleeve_daily = all_prices.loc[:, sleeve_assets]
+            sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
+            sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else to_month_end(sleeve_daily.loc[:, list(sleeve_market_assets)])
+            sleeve_monthly = to_month_end(sleeve_daily)
+            portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
+                sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, "SPY"
+            ))
+        preliminary_portfolio = run_portfolio_backtest(portfolio_inputs, initial, cost_pct)
+    except (ValueError, KeyError) as exc:
+        title_column.title("Portfolio backtest")
+        st.error(str(exc))
+        st.stop()
+
+    portfolio_start_min = preliminary_portfolio.common_index.min().date()
+    portfolio_end_max = preliminary_portfolio.common_index.max().date()
+    saved_portfolio_start = st.session_state.get("portfolio_backtest_start", portfolio_start_min)
+    saved_portfolio_end = st.session_state.get("portfolio_backtest_end", portfolio_end_max)
+    portfolio_start = min(max(saved_portfolio_start, portfolio_start_min), portfolio_end_max)
+    portfolio_end = min(max(saved_portfolio_end, portfolio_start_min), portfolio_end_max)
+    if portfolio_start > portfolio_end:
+        portfolio_start = portfolio_start_min
+    with backtest_configuration:
+        st.caption(f"Common executable holding periods: {portfolio_start_min} to {portfolio_end_max}. The start date reflects the shortest available sleeve history.")
+        portfolio_start = st.date_input("Portfolio backtest start", value=portfolio_start, min_value=portfolio_start_min, max_value=portfolio_end_max)
+        portfolio_end = st.date_input("Portfolio backtest end", value=portfolio_end, min_value=portfolio_start_min, max_value=portfolio_end_max)
+    st.session_state.update({"portfolio_backtest_start": portfolio_start, "portfolio_backtest_end": portfolio_end})
+    try:
+        portfolio_result = run_portfolio_backtest(
+            portfolio_inputs, initial, cost_pct, pd.Timestamp(portfolio_start), pd.Timestamp(portfolio_end)
+        )
+    except ValueError as exc:
+        title_column.title("Portfolio backtest")
+        st.error(str(exc))
+        st.stop()
+
+    title_column.title("Portfolio backtest")
+    st.caption("Monthly sleeve rebalancing: sleeve weights reset to their target percentages at each month-end. Results are pre-tax and use only the shared available history.")
+    st.caption(f"Holding periods: {portfolio_result.monthly.index.min().date()} through {portfolio_result.monthly.index.max().date()}. SPY is the buy-and-hold benchmark.")
+    portfolio_label = "Portfolio pre-tax"
+    benchmark_label = "SPY buy-and-hold"
+    summary = pd.DataFrame({
+        portfolio_label: performance_metrics(portfolio_result.monthly["pre_tax_value"], initial),
+        benchmark_label: performance_metrics(portfolio_result.monthly["benchmark_value"], initial),
+    })
+    styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
+    st.subheader("Results")
+    st.dataframe(styled_summary, use_container_width=True)
+    curves = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_value"], benchmark_label: portfolio_result.monthly["benchmark_value"]})
+    st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
+    st.plotly_chart(px.line(curves.div(curves.cummax()).sub(1), title="Drawdown"), use_container_width=True)
+    st.subheader("Selected sleeves")
+    sleeve_summary = pd.DataFrame([
+        {"Sleeve": sleeve["model"], "Target weight": sleeve["weight"] / 100,
+         "CAGR": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("CAGR"),
+         "Total return": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("Total return")}
+        for sleeve in portfolio_sleeves
+    ])
+    st.dataframe(sleeve_summary.style.format({"Target weight": "{:.2%}", "CAGR": "{:.2%}", "Total return": "{:.2%}"}), use_container_width=True, hide_index=True)
+    st.subheader("Annual returns")
+    annual = pd.DataFrame({portfolio_label: annual_returns(portfolio_result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(portfolio_result.monthly["benchmark_monthly_return"])})
+    st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+    st.subheader("Monthly returns")
+    monthly_returns = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_monthly_return"], benchmark_label: portfolio_result.monthly["benchmark_monthly_return"]})
+    st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+    st.stop()
 prices = all_prices.loc[:, data_assets]
 market_data_assets = getattr(strategy, "market_data_assets", data_assets)
 monthly = to_month_end(prices.loc[:, list(market_data_assets)])
