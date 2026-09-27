@@ -25,11 +25,12 @@ class ModelDefinition:
     implementation: str
     label: str
     model_class: type
+    execution_currency: str = "USD"
 
 
 MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("HAA", "Simple", "Original", "HAA-Simple", HAASimple),
-    ModelDefinition("HAA", "Simple", "Israel", "HAA-Simple Israel", HAASimpleIsrael),
+    ModelDefinition("HAA", "Simple", "Israel", "HAA-Simple Israel", HAASimpleIsrael, "ILS"),
     ModelDefinition("HAA", "Simple Leveraged 2x", "Original", "HAA-Simple Leveraged 2x (SSO)", HAASimpleLeveraged2x),
     ModelDefinition("HAA", "HAA 4", "Original", "HAA 4", HAA4),
     ModelDefinition("HAA", "HAA 4 Leveraged 2x", "Original", "HAA 4 Leveraged 2x", HAA4Leveraged2x),
