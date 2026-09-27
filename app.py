@@ -15,12 +15,13 @@ from haa.data import combine_replacements, common_monthly_period, date_ranges, d
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
-from haa.portfolio import aggregate_holdings_by_currency, convert_currency, funding_plan, total_weight
+from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.signals import first_trading_day_after, latest_actionable_signal
 from haa.strategies import HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
+BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
@@ -337,6 +338,10 @@ if page == "Rules":
     model_name = model_selector("rules", "Choose model")
 
 strategy = MODEL_OPTIONS[model_name]()
+if page in {"Backtest", "Rules"} and not getattr(strategy, "backtest_available", True):
+    title_column.title(strategy.name)
+    st.info("Signals and Portfolio use the unchanged USD Compass inputs and map the final holdings to Israeli securities. Backtesting is unavailable until reliable historical prices for those Israeli execution securities are configured.")
+    st.stop()
 data_assets = getattr(strategy, "data_assets", ASSETS)
 benchmark_asset = getattr(strategy, "benchmark_asset", "SPY")
 benchmark_label = f"{benchmark_asset} buy-and-hold"
@@ -528,6 +533,11 @@ def current_portfolio_signal(model_label: str):
     return {"decision": decision, "weights": dict(weights), "strategy": sleeve_strategy}, None
 
 
+def display_allocation(weights: dict[str, float], currency: str) -> str:
+    """Format an executable allocation with broker-facing security labels."""
+    return ", ".join(f"{execution_security_label(asset, currency)} {weight:.0%}" for asset, weight in weights.items())
+
+
 if page == "Portfolio":
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
@@ -624,7 +634,7 @@ if page == "Portfolio":
         if error:
             base_row.update({"Current signal": "Unavailable", "Status": error})
         else:
-            target = ", ".join(f"{asset} {weight:.0%}" for asset, weight in signal["weights"].items())
+            target = display_allocation(signal["weights"], sleeve["currency"])
             base_row.update({"Current signal": target, "Status": f"Ready · {signal['decision']['regime']}"})
             valid_sleeves.append({"name": sleeve["model"], "weight": sleeve["weight"], "currency": sleeve["currency"], "target_weights": signal["weights"]})
         sleeve_rows.append(base_row)
@@ -645,7 +655,7 @@ if page == "Portfolio":
             for asset, values in sorted(holdings.items()):
                 ils_allocation = plan["total_ils"] * values["weight"]
                 holding_rows.append({
-                    "Holding": asset,
+                    "Holding": execution_security_label(asset, currency),
                     "Combined weight": values["weight"],
                     f"Allocation ({currency})": convert_currency(ils_allocation, "ILS", currency, ils_per_usd),
                     "ILS equivalent": ils_allocation,
@@ -656,8 +666,9 @@ if page == "Portfolio":
 if page == "Compare":
     title_column.title("Compare")
     st.caption("Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.")
-    default_comparison = [model_name, next(name for name in MODEL_OPTIONS if name != model_name)]
-    selected_models = st.multiselect("Models", tuple(MODEL_OPTIONS), default=default_comparison, key="compare_models")
+    default_model = model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))
+    default_comparison = [default_model, next(name for name in BACKTEST_MODEL_OPTIONS if name != default_model)]
+    selected_models = st.multiselect("Models", tuple(BACKTEST_MODEL_OPTIONS), default=default_comparison, key="compare_models")
     if len(selected_models) < 2:
         st.info("Select at least two models to compare.")
     else:
@@ -665,7 +676,7 @@ if page == "Compare":
             comparison_inputs = {}
             comparison_bounds = []
             for selected_name in selected_models:
-                selected_strategy = MODEL_OPTIONS[selected_name]()
+                selected_strategy = BACKTEST_MODEL_OPTIONS[selected_name]()
                 selected_assets = getattr(selected_strategy, "data_assets", ASSETS)
                 selected_daily = all_prices.loc[:, selected_assets]
                 selected_market_assets = getattr(selected_strategy, "market_data_assets", selected_assets)
@@ -773,6 +784,7 @@ if page == "Signals":
         signal_model_name = model_selector("signals", columns=st.columns([1.1, 1.25, 1.45]), implementation_dropdown=True)
     st.session_state["signals_model_name"] = signal_model_name
     signal_strategy = MODEL_OPTIONS[signal_model_name]()
+    signal_execution_currency = definition_for_label(signal_model_name).execution_currency
     signal_data_assets = getattr(signal_strategy, "data_assets", ASSETS)
     signal_momentum_assets = getattr(signal_strategy, "signal_assets", signal_data_assets)
     signal_prices = all_prices.loc[:, signal_data_assets]
@@ -793,10 +805,12 @@ if page == "Signals":
         weights = signal.get("target_weights", {signal["selected_asset"]: 1.0})
         if getattr(signal_strategy, "is_multi_asset", False):
             action = "Hold allocation" if not bool(signal["trade"]) else ("Establish allocation" if previous == "No prior allocation" else "Rebalance allocation")
-            target_allocation = ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items())
+            target_allocation = display_allocation(weights, signal_execution_currency)
         else:
-            action = "Hold" if not bool(signal["trade"]) else (f"Buy {signal['selected_asset']}" if previous == "No prior allocation" else f"Switch {previous} → {signal['selected_asset']}")
-            target_allocation = f"100% {signal['selected_asset']}"
+            selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
+            previous_security = execution_security_label(str(previous), signal_execution_currency) if previous != "No prior allocation" else previous
+            action = "Hold" if not bool(signal["trade"]) else (f"Buy {selected_security}" if previous == "No prior allocation" else f"Switch {previous_security} → {selected_security}")
+            target_allocation = f"100% {selected_security}"
         title_column.title(f"Signal - {target_allocation}")
         title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
         signal_summary = pd.DataFrame([{
@@ -834,9 +848,10 @@ if page == "Signals":
             else:
                 st.write(f"TIP 13612U momentum is not positive, so the model selects the higher-momentum defensive asset: {signal['selected_asset']}.")
         elif isinstance(signal_strategy, HAASimpleIsrael) and signal["regime"] == "risk-on":
-            st.write("TIP and CSPX_IL 13612U momentum are both strictly positive, so the model selects CSPX_IL.")
+            st.write("TIP and CSPX_IL 13612U momentum are both strictly positive, so the model selects CSPX — 1159250.")
         elif isinstance(signal_strategy, HAASimpleIsrael):
-            st.write(f"At least one of TIP or CSPX_IL 13612U momentum is not positive, so the model selects the higher-momentum Israeli defensive asset: {signal['selected_asset']}.")
+            selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
+            st.write(f"At least one of TIP or CSPX_IL 13612U momentum is not positive, so the model selects the higher-momentum Israeli defensive security: {selected_security}.")
         elif signal["regime"] == "risk-on":
             holding = "SSO" if isinstance(signal_strategy, HAASimpleLeveraged2x) else "SPY"
             st.write(f"SPY and TIP 13612U momentum are both strictly positive, so the model selects {holding}.")
