@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
-from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
+from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -538,9 +538,33 @@ def display_allocation(weights: dict[str, float], currency: str) -> str:
     return ", ".join(f"{execution_security_label(asset, currency)} {weight:.0%}" for asset, weight in weights.items())
 
 
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def latest_usd_ils_quote() -> tuple[float, pd.Timestamp]:
+    """Get a short-lived Portfolio-only USD/ILS quote from Yahoo Finance."""
+    return download_latest_yahoo_close("USDILS=X")
+
+
+def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
+    """Seed the editable Portfolio FX field once without overwriting overrides."""
+    if "portfolio_fx_rate" in st.session_state:
+        return st.session_state.get("portfolio_fx_quote_timestamp"), st.session_state.get("portfolio_fx_error")
+    try:
+        rate, quote_timestamp = latest_usd_ils_quote()
+        st.session_state["portfolio_fx_rate"] = rate
+        st.session_state["portfolio_fx_quote_timestamp"] = quote_timestamp
+        st.session_state["portfolio_fx_error"] = None
+        return quote_timestamp, None
+    except Exception as exc:
+        st.session_state["portfolio_fx_rate"] = 3.7
+        error = f"Could not retrieve the latest USD/ILS quote from Yahoo Finance ({exc}). Using the fallback rate; you can edit it below."
+        st.session_state["portfolio_fx_error"] = error
+        return None, error
+
+
 if page == "Portfolio":
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
+    fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
     with st.container(key="portfolio-investment-settings"):
         # Keep a third, deliberately empty column so this row replaces all
         # three Signal-selector columns after navigation rather than leaving a
@@ -549,9 +573,16 @@ if page == "Portfolio":
         with base_column:
             total_ils = st.number_input("Total available capital (ILS)", min_value=0.0, value=100_000.0, step=1_000.0, key="portfolio_total_ils")
         with rate_column:
-            ils_per_usd = st.number_input("ILS per 1 USD", min_value=0.0001, value=3.7, step=0.01, format="%.4f", key="portfolio_fx_rate")
+            ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.4f", key="portfolio_fx_rate")
         with spacer_column:
             st.empty()
+    if fx_error:
+        st.info(fx_error)
+    elif fx_quote_timestamp is not None:
+        st.caption(
+            f"Latest USD/ILS from Yahoo Finance (quote time: {fx_quote_timestamp:%Y-%m-%d %H:%M UTC}; cached for up to 6 hours). "
+            "Edit the rate above to use a manual override for this session."
+        )
 
     sleeves = st.session_state["portfolio_sleeves"]
     with st.container(key="portfolio-sleeve-heading"):

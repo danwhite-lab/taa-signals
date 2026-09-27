@@ -89,6 +89,26 @@ def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None) -> pd.Dat
     return _clean_prices(result)
 
 
+def download_latest_yahoo_close(ticker: str) -> tuple[float, pd.Timestamp]:
+    """Return Yahoo Finance's most recent available close and its timestamp.
+
+    A short intraday history makes this suitable for an informational quote in
+    the Portfolio page.  It deliberately does not participate in backtests.
+    """
+    import yfinance as yf
+
+    history = yf.Ticker(ticker).history(period="5d", interval="1h", auto_adjust=False)
+    if history.empty or "Close" not in history:
+        raise RuntimeError(f"Yahoo Finance returned no recent close for {ticker}.")
+    closes = pd.to_numeric(history["Close"], errors="coerce").dropna()
+    if closes.empty:
+        raise RuntimeError(f"Yahoo Finance returned no usable close for {ticker}.")
+    timestamp = pd.Timestamp(closes.index[-1])
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+    return float(closes.iloc[-1]), timestamp
+
+
 def download_fred_series(series_ids: Iterable[str]) -> pd.DataFrame:
     """Download public daily FRED observations without fabricating gaps."""
     series = tuple(series_ids)
