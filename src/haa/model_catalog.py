@@ -13,8 +13,11 @@ from .strategies import (
     HAASimpleIsrael,
     HAASimpleLeveraged2x,
     InflationCompassFast,
+    InflationCompassFastIsrael,
     InflationCompassStandard,
+    InflationCompassStandardIsrael,
     InflationCompassSteady,
+    InflationCompassSteadyIsrael,
 )
 
 
@@ -37,8 +40,11 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("HAA", "Classic (No QQQ)", "Original", "HAA Classic (No QQQ)", HAAClassicNoQQQ),
     ModelDefinition("HAA", "Classic Leveraged 2x (No QQQ)", "Original", "HAA Classic Leveraged 2x (No QQQ)", HAAClassicLeveragedNoQQQ),
     ModelDefinition("Inflation Compass", "Steady (80-day)", "Original", "Inflation Compass Steady (80-day)", InflationCompassSteady),
+    ModelDefinition("Inflation Compass", "Steady (80-day)", "Israel", "Inflation Compass Steady (80-day) Israel", InflationCompassSteadyIsrael, "ILS"),
     ModelDefinition("Inflation Compass", "Standard", "Original", "Inflation Compass Standard", InflationCompassStandard),
+    ModelDefinition("Inflation Compass", "Standard", "Israel", "Inflation Compass Standard Israel", InflationCompassStandardIsrael, "ILS"),
     ModelDefinition("Inflation Compass", "Fast (40-day)", "Original", "Inflation Compass Fast (40-day)", InflationCompassFast),
+    ModelDefinition("Inflation Compass", "Fast (40-day)", "Israel", "Inflation Compass Fast (40-day) Israel", InflationCompassFastIsrael, "ILS"),
 )
 
 
