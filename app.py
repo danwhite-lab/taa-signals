@@ -529,7 +529,9 @@ if page == "Backtest" and backtest_mode == "Portfolio":
         portfolio_label: performance_metrics(portfolio_result.monthly["pre_tax_value"], initial),
         benchmark_label: performance_metrics(portfolio_result.monthly["benchmark_value"], initial),
     })
-    styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
+    portfolio_percentage_rows = [row for row in percentage_rows if row in summary.index]
+    portfolio_numeric_rows = [row for row in ratio_rows + numeric_rows if row in summary.index]
+    styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[portfolio_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[portfolio_numeric_rows, :])
     st.subheader("Results")
     st.dataframe(styled_summary, use_container_width=True)
     curves = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_value"], benchmark_label: portfolio_result.monthly["benchmark_value"]})
