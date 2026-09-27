@@ -1,6 +1,6 @@
 import pytest
 
-from haa.portfolio import aggregate_holdings, total_weight
+from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, funding_plan, total_weight
 
 
 def test_aggregate_holdings_combines_duplicate_and_multi_asset_sleeves():
@@ -16,3 +16,45 @@ def test_aggregate_holdings_combines_duplicate_and_multi_asset_sleeves():
 
 def test_total_weight_allows_drafts_to_be_flagged_by_the_ui():
     assert total_weight([{"weight": 45}, {"weight": 50}]) == 95
+
+
+def test_mixed_currency_funding_plan_uses_one_total_ils_portfolio_value():
+    plan = funding_plan(
+        [
+            {"id": 1, "weight": 50, "currency": "USD"},
+            {"id": 2, "weight": 50, "currency": "ILS"},
+        ],
+        total_ils=370_000,
+        ils_per_usd=3.7,
+    )
+
+    assert plan["total_ils"] == 370_000
+    assert plan["total_usd"] == 100_000
+    assert plan["required"] == {"USD": 50_000, "ILS": 185_000}
+    assert plan["sleeves"][0]["allocation_ils"] == 185_000
+    assert plan["sleeves"][0]["allocation_native"] == 50_000
+
+
+def test_ils_only_funding_plan_needs_no_usd_amount():
+    plan = funding_plan(
+        [
+            {"id": 1, "weight": 100, "currency": "ILS"},
+        ],
+        total_ils=222_000,
+        ils_per_usd=3.7,
+    )
+
+    assert plan["total_ils"] == 222_000
+    assert plan["total_usd"] == 60_000
+    assert plan["required"] == {"USD": 0.0, "ILS": 222_000}
+    assert convert_currency(10_000, "USD", "ILS", 3.7) == 37_000
+
+
+def test_holdings_are_grouped_by_execution_currency():
+    grouped = aggregate_holdings_by_currency([
+        {"name": "USD sleeve", "weight": 50, "currency": "USD", "target_weights": {"SPY": 1.0}},
+        {"name": "ILS sleeve", "weight": 50, "currency": "ILS", "target_weights": {"CSPX_IL": 1.0}},
+    ])
+
+    assert grouped["USD"]["SPY"]["weight"] == .5
+    assert grouped["ILS"]["CSPX_IL"]["weight"] == .5
