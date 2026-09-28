@@ -636,7 +636,16 @@ numeric_rows = ["Final value", "Allocation changes", "Average changes/year"]
 
 if page == "Research":
     title_column.title("Research")
-    title_column.caption("Validation runs are research-only. They reuse the published production decisions and never modify live strategy rules or select an optimised setting.")
+    title_column.caption("Stress-test the selected strategy to see whether its historical result remains broadly credible when timing, costs, parameters, periods, data, and return sequences change. Validation runs are research-only and never modify live strategy rules.")
+    with st.expander("How to read this page", expanded=True):
+        st.markdown("""- **Summary** compares the published backtest with every completed stress-test scenario.
+- **Parameters & Execution** asks whether nearby settings, small timing changes, costs, tax, or minor input-price changes materially alter the result.
+- **Periods** shows whether the strategy worked across rolling 5-, 10-, and 20-year windows and named market eras, rather than only across one favourable start date.
+- **Proxies & Data** checks practical implementation substitutes where declared and flags missing, stale, invalid, or potentially look-ahead-biased data.
+- **Monte Carlo** reorders blocks of the strategy's actual monthly returns into many plausible paths. It is scenario analysis, not a forecast.
+- **Robustness Scorecard** condenses the completed evidence. A stronger grade means the worst completed tests stayed closer to the published baseline; it is not an investment recommendation.
+
+The useful question is not which strategy has the highest historical CAGR. It is whether a strategy remains reasonably similar when realistic assumptions change.""")
     st.info(f"Profile: **{research_profile.profile_id}** · Data confidence: **{research_profile.data_confidence.title()}**")
     with st.expander("Published baseline and declared research scope"):
         parameters = pd.DataFrame([
@@ -732,7 +741,7 @@ if page == "Research":
             overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
             if not overall.empty:
                 st.metric("Overall robustness", str(overall.iloc[0]["Grade"]))
-            st.caption("This is an evidence summary, not an investment rating. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
+            st.caption("This is an evidence summary, not an investment rating or forecast. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
             st.dataframe(report.scorecard, use_container_width=True, hide_index=True)
             st.download_button("Download robustness scorecard CSV", report.scorecard.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_robustness_scorecard.csv", "text/csv")
     st.stop()
