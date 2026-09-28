@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..constants import GROWTH_INFLATION_ASSETS
+from ..constants import GROWTH_INFLATION_ASSETS, GROWTH_INFLATION_ISRAEL_DATA_ASSETS
 
 
 class GrowthInflationBase:
@@ -23,10 +23,12 @@ class GrowthInflationBase:
     allocations: dict[tuple[bool, bool], tuple[str, dict[str, float]]] = {}
 
     def decisions(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
-        missing = set(self.data_assets) - set(daily_prices.columns)
+        missing = set(self.signal_assets) - set(daily_prices.columns)
         if missing:
             raise ValueError(f"{self.name} is missing assets: {sorted(missing)}")
-        prices = daily_prices.loc[:, self.data_assets].sort_index().dropna(how="any")
+        # Local-execution variants may carry extra TASE holdings in
+        # ``data_assets``.  Their U.S. regime calculation remains identical.
+        prices = daily_prices.loc[:, self.signal_assets].sort_index().dropna(how="any")
         positive_basket = prices.loc[:, self.positive_sectors].mean(axis=1)
         negative_basket = prices.loc[:, self.negative_sectors].mean(axis=1)
         inflation_ratio = positive_basket / negative_basket
@@ -45,7 +47,7 @@ class GrowthInflationBase:
             regime, weights = self.allocations[(growth_up, inflation_on)]
             rows.append({
                 "signal_date": date,
-                **{f"{asset}_price": prices.loc[date, asset] for asset in self.data_assets},
+                **{f"{asset}_price": prices.loc[date, asset] for asset in self.signal_assets},
                 "SPY_200d_sma": float(spy_sma.loc[date]),
                 "positive_sector_basket": float(positive_basket.loc[date]),
                 "negative_sector_basket": float(negative_basket.loc[date]),
@@ -86,4 +88,20 @@ class GrowthInflationDiversified(GrowthInflationBase):
         (True, False): ("goldilocks", {"XLK": 0.5, "XLY": 0.5}),
         (False, True): ("stagflation", {"XLE": 0.5, "XLB": 0.5}),
         (False, False): ("deflation", {"XLV": 0.5, "XLP": 0.5}),
+    }
+
+
+class GrowthInflationConcentratedIsrael(GrowthInflationConcentrated):
+    """Original U.S. regime signals, executed through TASE-listed ETFs in ILS."""
+
+    name = "Growth-Inflation Concentrated Israel"
+    data_assets = GROWTH_INFLATION_ISRAEL_DATA_ASSETS
+    # Keep local security series in backtests while deriving every regime from
+    # the unchanged U.S. signal inputs.
+    market_data_assets = GROWTH_INFLATION_ISRAEL_DATA_ASSETS
+    allocations = {
+        (True, True): ("reflation", {"XLE_IL": 1.0}),
+        (True, False): ("goldilocks", {"XLK_IL": 1.0}),
+        (False, True): ("stagflation", {"XLV_IL": 1.0}),
+        (False, False): ("deflation", {"XLP_IL": 1.0}),
     }

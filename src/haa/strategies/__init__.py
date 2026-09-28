@@ -7,8 +7,8 @@ from .haa_simple import HAASimple
 from .haa_simple_leveraged_2x import HAASimpleLeveraged2x
 from .haa_simple_israel import HAASimpleIsrael
 from .buy_and_hold import TA125SmartMomentum
-from .growth_inflation import GrowthInflationConcentrated, GrowthInflationDiversified
+from .growth_inflation import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified
 from .orthogonal_alpha import OrthogonalAlpha
 from .vaa import VAAG4
 
-__all__ = ["GrowthInflationConcentrated", "GrowthInflationDiversified", "HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]
+__all__ = ["GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]

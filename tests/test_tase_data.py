@@ -25,6 +25,10 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "IEF_IL": "1159268",
         "AYALON_KASPIT": "5136866",
         "TA125_SMART_MOMENTUM": "5134713",
+        "XLE_IL": "1145903",
+        "XLK_IL": "1159193",
+        "XLV_IL": "1150390",
+        "XLP_IL": "1150366",
     }
 
 

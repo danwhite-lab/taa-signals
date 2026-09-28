@@ -68,6 +68,7 @@ def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_log
     assert execution_security_label("XLK", "ILS") == "XLK — iShares S&P 500 IT UCITS — 1159193"
     assert execution_security_label("XLU", "ILS") == "XLU — MTF S&P Utilities — 1150507"
     assert execution_security_label("XLP", "ILS") == "XLP — MTF S&P Consumer Staples — 1150366"
+    assert execution_security_label("XLV_IL", "ILS") == "MTF סל S&P Health Care (4D) — 1150390"
     assert execution_security_label("IEF", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
     assert execution_security_label("BIL", "USD") == "BIL USD - 5139076"
     assert execution_security_label("SPY", "USD") == "SPY"

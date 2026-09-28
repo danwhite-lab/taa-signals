@@ -18,12 +18,13 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Growth-Inflation Concentrated Israel": """**Growth-Inflation Concentrated Israel:** Uses the original strategy's completed U.S. daily signals—SPY versus its 200-day SMA for growth and the inflation-positive/negative sector ratio versus its 200-day SMA for inflation—but executes each selected regime through TASE-listed instruments in ILS: reflation → KSM ETF S&P Energy (1145903); goldilocks → iShares S&P 500 IT UCITS (1159193); stagflation → MTF סל S&P Health Care (4D) (1150390); deflation → MTF S&P Consumer Staples (1150366). Decisions are made at month-end and take effect on the following available TASE trading day.""",
     "Orthogonal Alpha (BTAL/QLD)": """**Orthogonal Alpha (BTAL/QLD):** Thomas Carlson's monthly core-satellite allocation holds a permanent 25% QLD and 25% BTAL core. The remaining 50% satellite compares BTAL and BIL using equal-weighted 1-, 3-, 6-, and 12-month returns. If BTAL's blended momentum is strictly greater than BIL's, the satellite holds BTAL (25% QLD / 75% BTAL); otherwise, including a tie, it holds QLD (75% QLD / 25% BTAL). The month-end decision takes effect from the next trading day.""",
     "VAA-G4 (T1/B1)": """**VAA-G4 (T1/B1):** At each completed month-end, calculate 13612W for SPY, EFA, EEM, AGG, LQD, IEF, and SHY: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If any offensive asset (SPY, EFA, EEM, AGG) has non-positive momentum, VAA holds 100% of the best defensive asset (LQD, IEF, SHY). Otherwise it holds 100% of the highest-momentum offensive asset. It is deliberately aggressive: `B=1` means one weak offensive asset activates full defense.""",
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
@@ -1023,6 +1024,8 @@ if page == "Signals":
             st.write(f"Growth is {'up' if signal['growth_up'] else 'down'} and inflation is {'on' if signal['inflation_on'] else 'off'}, producing the {signal['regime'].replace('-', ' ')} allocation.")
         elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
             st.write(f"Growth is {'high' if signal['growth_up'] else 'low'} because SPY is {'above' if signal['growth_up'] else 'at or below'} its 200-day SMA. Inflation is {'high' if signal['inflation_on'] else 'low'} because the sector ratio is {'above' if signal['inflation_on'] else 'at or below'} its 200-day SMA, producing the {signal['regime']} allocation.")
+            if isinstance(signal_strategy, GrowthInflationConcentratedIsrael):
+                st.caption("The regime is calculated from U.S. market data; the displayed allocation is the corresponding TASE-listed ILS execution security.")
         elif isinstance(signal_strategy, VAAG4):
             if signal["regime"] == "risk-on":
                 st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
@@ -1184,7 +1187,7 @@ if page == "Rules":
     if isinstance(strategy, OrthogonalAlpha):
         audit_columns += ["BTAL_13612u", "BIL_13612u", "satellite_asset", "target_weights", "previous_weights"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
-    audit = result.audit[audit_columns]
+    audit = result.audit[[column for column in audit_columns if column in result.audit.columns]]
     with st.expander("Monthly audit table"):
         st.dataframe(audit.style.format("{:.6f}", subset=[c for c in audit.columns if c.endswith("13612u") or c.endswith("return")]), use_container_width=True)
         st.download_button("Download audit CSV", audit.to_csv().encode("utf-8"), f"{strategy.name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_monthly_audit.csv", "text/csv")
