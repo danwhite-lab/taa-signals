@@ -9,6 +9,7 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+import numpy as np
 import pandas as pd
 
 from .engine import BacktestResult, run_backtest
@@ -47,6 +48,16 @@ class ExecutionSpec:
 
 
 @dataclass(frozen=True)
+class BootstrapSpec:
+    """Fixed, reproducible block-bootstrap assumptions for return-path research."""
+
+    simulations: int = 2_000
+    block_months: int = 6
+    horizons_years: tuple[int, ...] = (5, 10, 20)
+    seed: int = 20_260_927
+
+
+@dataclass(frozen=True)
 class ValidationProfile:
     """Research contract attached to a strategy class.
 
@@ -62,6 +73,7 @@ class ValidationProfile:
     proxy_substitutions: tuple[ProxySpec, ...] = ()
     rolling_windows_years: tuple[int, ...] = (5, 10, 20)
     signal_perturbation_bps: tuple[float, ...] = (10.0,)
+    bootstrap: BootstrapSpec = field(default_factory=BootstrapSpec)
     data_confidence: str = "moderate"
     notes: str = ""
 
@@ -105,6 +117,7 @@ class ValidationReport:
     subperiods: pd.DataFrame
     data_quality: pd.DataFrame
     scorecard: pd.DataFrame
+    monte_carlo: pd.DataFrame
 
 
 DEFAULT_SUBPERIODS: tuple[tuple[str, str, str], ...] = (
@@ -221,7 +234,7 @@ def _grade_delta(delta: float) -> tuple[str, int]:
     return "Weak", 1
 
 
-def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame, data_quality: pd.DataFrame, profile: ValidationProfile) -> pd.DataFrame:
+def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame, data_quality: pd.DataFrame, profile: ValidationProfile, monte_carlo: pd.DataFrame | None = None) -> pd.DataFrame:
     """Summarise evidence without selecting an optimised strategy setting."""
     baseline_rows = scenarios.loc[(scenarios.get("test") == "baseline") & (scenarios.get("status") == "complete")] if not scenarios.empty else pd.DataFrame()
     if baseline_rows.empty:
@@ -243,6 +256,14 @@ def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame,
     scenario_category("Execution robustness", ("execution_delay", "rebalance_shift", "signal_perturbation"))
     scenario_category("Costs and tax resilience", ("transaction_cost", "israeli_tax"))
     scenario_category("Proxy robustness", ("proxy_substitution",))
+
+    if monte_carlo is None or monte_carlo.empty or not (monte_carlo["status"] == "complete").any():
+        rows.append({"Category": "Bootstrap downside resilience", "Grade": "Not assessed", "Evidence": "No completed block-bootstrap simulation.", "Score": 0})
+    else:
+        completed_bootstrap = monte_carlo.loc[monte_carlo["status"] == "complete"]
+        worst_p10 = float(completed_bootstrap["CAGR p10"].min())
+        grade, score = _grade_delta(worst_p10 - baseline_cagr)
+        rows.append({"Category": "Bootstrap downside resilience", "Grade": grade, "Evidence": f"Worst horizon 10th-percentile simulated CAGR {worst_p10:.2%} versus published {baseline_cagr:.2%}.", "Score": score})
 
     complete_rolling = rolling_periods.loc[rolling_periods.get("status") == "complete"] if not rolling_periods.empty else pd.DataFrame()
     if complete_rolling.empty:
@@ -268,7 +289,7 @@ def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame,
     assessed = [int(row["Score"]) for row in rows if int(row["Score"]) > 0]
     average = sum(assessed) / len(assessed) if assessed else 0.0
     overall = "Not assessed" if len(assessed) < 4 else ("A" if average >= 2.75 else "B+" if average >= 2.4 else "B" if average >= 2 else "C" if average >= 1.5 else "D")
-    rows.append({"Category": "Overall robustness", "Grade": overall, "Evidence": f"{len(assessed)} of 6 evidence categories assessed; fixed evidence bands use worst completed CAGR relative to published CAGR.", "Score": round(average, 2)})
+    rows.append({"Category": "Overall robustness", "Grade": overall, "Evidence": f"{len(assessed)} of 7 evidence categories assessed; fixed evidence bands use worst completed CAGR relative to published CAGR.", "Score": round(average, 2)})
     return pd.DataFrame(rows)
 
 
@@ -384,6 +405,49 @@ def _window_rows(test: str, periods: pd.Series, initial_investment: float, windo
     return rows
 
 
+def block_bootstrap_report(monthly_returns: pd.Series, spec: BootstrapSpec) -> pd.DataFrame:
+    """Resample contiguous return blocks into reproducible future paths.
+
+    Circular blocks preserve local serial dependence and volatility clustering
+    present in the realised monthly history.  They are scenario analysis, not
+    forecasts or confidence intervals.
+    """
+    returns = pd.to_numeric(monthly_returns, errors="coerce").dropna().to_numpy(dtype=float)
+    if len(returns) < spec.block_months:
+        return pd.DataFrame([
+            {"status": "unavailable", "detail": f"Need at least {spec.block_months} realised monthly returns for a {spec.block_months}-month block."}
+        ])
+    rows: list[dict[str, object]] = []
+    random = np.random.default_rng(spec.seed)
+    for years in spec.horizons_years:
+        months = years * 12
+        blocks_needed = (months + spec.block_months - 1) // spec.block_months
+        starts = random.integers(0, len(returns), size=(spec.simulations, blocks_needed))
+        offsets = np.arange(spec.block_months)
+        paths = returns[(starts[:, :, None] + offsets) % len(returns)].reshape(spec.simulations, -1)[:, :months]
+        values = (1 + paths).cumprod(axis=1)
+        cagr = values[:, -1] ** (12 / months) - 1
+        drawdowns = values / np.maximum.accumulate(values, axis=1) - 1
+        max_drawdown = drawdowns.min(axis=1)
+        rows.append({
+            "status": "complete",
+            "horizon": f"{years}y",
+            "simulations": spec.simulations,
+            "block_months": spec.block_months,
+            "seed": spec.seed,
+            "CAGR p10": float(np.quantile(cagr, 0.10)),
+            "CAGR median": float(np.quantile(cagr, 0.50)),
+            "CAGR p90": float(np.quantile(cagr, 0.90)),
+            "Final multiple p10": float(np.quantile(values[:, -1], 0.10)),
+            "Final multiple median": float(np.quantile(values[:, -1], 0.50)),
+            "Maximum drawdown p10": float(np.quantile(max_drawdown, 0.10)),
+            "Maximum drawdown median": float(np.quantile(max_drawdown, 0.50)),
+            "Worst simulated maximum drawdown": float(max_drawdown.min()),
+            "detail": "Circular block bootstrap of realised monthly strategy returns; fixed seed for reproducibility.",
+        })
+    return pd.DataFrame(rows)
+
+
 def run_deterministic_validation(input_data: ValidationInput, initial_investment: float = 100_000.0) -> ValidationReport:
     """Run declared, deterministic robustness checks without altering live rules.
 
@@ -401,7 +465,8 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
         unavailable = _scenario_row("baseline", "published", None, initial_investment, detail=str(exc))
         quality = data_quality_report(input_data)
         scenarios = pd.DataFrame([unavailable])
-        return ValidationReport(scenarios, pd.DataFrame(), pd.DataFrame(), quality, robustness_scorecard(scenarios, pd.DataFrame(), quality, input_data.profile))
+        empty_bootstrap = pd.DataFrame()
+        return ValidationReport(scenarios, pd.DataFrame(), pd.DataFrame(), quality, robustness_scorecard(scenarios, pd.DataFrame(), quality, input_data.profile, empty_bootstrap), empty_bootstrap)
     rows.append(_scenario_row("baseline", "published", baseline, initial_investment))
 
     if "execution_delay" in profile.applicable_tests:
@@ -499,4 +564,5 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
     rolling_frame = pd.DataFrame(rolling)
     subperiod_frame = pd.DataFrame(subperiod_rows)
     quality = data_quality_report(input_data, baseline)
-    return ValidationReport(scenarios, rolling_frame, subperiod_frame, quality, robustness_scorecard(scenarios, rolling_frame, quality, profile))
+    monte_carlo = block_bootstrap_report(baseline.monthly["pre_tax_monthly_return"], profile.bootstrap) if "block_bootstrap" in profile.applicable_tests else pd.DataFrame()
+    return ValidationReport(scenarios, rolling_frame, subperiod_frame, quality, robustness_scorecard(scenarios, rolling_frame, quality, profile, monte_carlo), monte_carlo)

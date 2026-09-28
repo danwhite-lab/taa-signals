@@ -79,6 +79,6 @@ class VAAG4(VAABase):
             ParameterSpec("momentum_formula", "13612W", (), "Published weighted 1/3/6/12-month momentum."),
         ),
         execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
-        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "data_quality"}),
+        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
         notes="T=1/B=1 is the production baseline; alternate T/B combinations are explicitly research-only.",
     )

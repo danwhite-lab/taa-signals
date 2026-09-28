@@ -70,9 +70,13 @@ def test_declared_parameter_and_monthly_rebalance_variants_recompute_a_research_
     assert perturbation["scenario"] == "±10 bps deterministic input noise"
     assert set(report.scorecard["Category"]) == {
         "Parameter stability", "Execution robustness", "Costs and tax resilience",
-        "Proxy robustness", "Rolling-period resilience", "Data confidence", "Overall robustness",
+        "Proxy robustness", "Rolling-period resilience", "Bootstrap downside resilience", "Data confidence", "Overall robustness",
     }
     assert report.scorecard.loc[report.scorecard["Category"] == "Overall robustness", "Grade"].item() != "Not assessed"
+    assert set(report.monte_carlo["horizon"]) == {"5y", "10y", "20y"}
+    assert set(report.monte_carlo["status"]) == {"complete"}
+    repeated = run_deterministic_validation(input_data, 10_000)
+    pd.testing.assert_frame_equal(report.monte_carlo, repeated.monte_carlo)
     assert strategy.sma_months == 10
 
 

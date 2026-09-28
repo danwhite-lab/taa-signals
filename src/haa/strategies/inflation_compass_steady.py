@@ -132,7 +132,7 @@ class InflationCompassStandard(InflationCompassBase):
             ParameterSpec("growth_sma_window", 200, (), "SPY trend moving-average window.", "trading days"),
         ),
         execution=ExecutionSpec("monthly", "Next available trading-day close after the final NYSE trading-day signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
-        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "data_quality"}),
+        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
         notes="The 60-day published configuration remains the production baseline; all alternatives are research-only.",
     )
 

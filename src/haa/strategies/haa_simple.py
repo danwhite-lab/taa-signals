@@ -16,7 +16,7 @@ class HAASimple:
             ParameterSpec("momentum_formula", "13612U", (), "Equal-weighted 1/3/6/12-month momentum."),
         ),
         execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
-        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "proxy_substitution", "signal_perturbation", "data_quality"}),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "proxy_substitution", "signal_perturbation", "block_bootstrap", "data_quality"}),
         proxy_substitutions=(ProxySpec("SPY", "CSPX_IL", "Israeli-listed S&P 500 UCITS execution proxy.", "ILS"),),
         notes="The published 13612U formula is immutable; this profile declares no parameter sweep.",
     )

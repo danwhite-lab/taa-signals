@@ -677,7 +677,7 @@ if page == "Research":
     if report is None:
         st.caption("Run the validation to generate standardized execution, cost, tax, period, proxy, and data-quality results.")
     else:
-        summary_tab, execution_tab, periods_tab, proxy_data_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Robustness Scorecard"])
+        summary_tab, execution_tab, periods_tab, proxy_data_tab, monte_carlo_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Monte Carlo", "Robustness Scorecard"])
         with summary_tab:
             complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
             baseline_row = complete.loc[complete["test"] == "baseline"]
@@ -713,6 +713,17 @@ if page == "Research":
             st.subheader("Data quality and timing")
             st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
             st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
+        with monte_carlo_tab:
+            st.caption("Circular block bootstrap of realised monthly strategy returns. It preserves short return sequences from history, uses a fixed seed for reproducibility, and is scenario analysis—not a forecast.")
+            if report.monte_carlo.empty:
+                st.info("This strategy has no declared block-bootstrap analysis.")
+            else:
+                st.dataframe(report.monte_carlo, use_container_width=True, hide_index=True)
+                complete_bootstrap = report.monte_carlo.loc[report.monte_carlo["status"] == "complete"]
+                if not complete_bootstrap.empty:
+                    bootstrap_chart = complete_bootstrap.melt(id_vars="horizon", value_vars=["CAGR p10", "CAGR median", "CAGR p90"], var_name="Outcome", value_name="CAGR")
+                    st.plotly_chart(px.bar(bootstrap_chart, x="horizon", y="CAGR", color="Outcome", barmode="group", title="Bootstrap CAGR range by horizon"), use_container_width=True)
+                st.download_button("Download Monte Carlo CSV", report.monte_carlo.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_block_bootstrap.csv", "text/csv")
         with scorecard_tab:
             overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
             if not overall.empty:

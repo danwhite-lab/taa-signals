@@ -26,7 +26,7 @@ class OrthogonalAlpha:
             ParameterSpec("core_satellite_weights", "25/25/50", (), "Fixed QLD/BTAL core and conditional satellite weights."),
         ),
         execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
-        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "data_quality"}),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
         data_confidence="moderate",
         notes="The published core-satellite weights and relative-momentum formula are immutable; this profile declares no parameter sweep.",
     )

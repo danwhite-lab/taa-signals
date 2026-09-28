@@ -22,6 +22,7 @@ def test_profile_keeps_published_baseline_and_research_candidates_separate():
     assert window.candidate_values == (40, 50, 60, 70, 80)
     assert "parameter_sweep" in profile.applicable_tests
     assert "signal_perturbation" in profile.applicable_tests
+    assert "block_bootstrap" in profile.applicable_tests
 
 
 def test_historical_formula_without_declared_variants_cannot_be_swept():
