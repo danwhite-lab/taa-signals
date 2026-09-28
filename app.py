@@ -18,13 +18,14 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import CenturyMomentum, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Century Momentum": """**Century Momentum:** At each completed month-end, compare SPMO's close with its 10-month simple moving average, calculated from the ten completed month-end closes including the current signal close. If SPMO is strictly above the average, hold 100% SPMO; if it is equal to or below the average, hold 100% IEF. The decision takes effect from the following available trading day. The backtest deliberately starts with SPMO's actual ETF history; it does not splice in the non-investable academic Fama-French momentum-decile history.""",
     "Growth-Inflation Concentrated Israel": """**Growth-Inflation Concentrated Israel:** Uses the original strategy's completed U.S. daily signals—SPY versus its 200-day SMA for growth and the inflation-positive/negative sector ratio versus its 200-day SMA for inflation—but executes each selected regime through TASE-listed instruments in ILS: reflation → KSM ETF S&P Energy (1145903); goldilocks → iShares S&P 500 IT UCITS (1159193); stagflation → MTF סל S&P Health Care (4D) (1150390); deflation → MTF S&P Consumer Staples (1150366). Decisions are made at month-end and take effect on the following available TASE trading day.""",
     "Orthogonal Alpha (BTAL/QLD)": """**Orthogonal Alpha (BTAL/QLD):** Thomas Carlson's monthly core-satellite allocation holds a permanent 25% QLD and 25% BTAL core. The remaining 50% satellite compares BTAL and BIL using equal-weighted 1-, 3-, 6-, and 12-month returns. If BTAL's blended momentum is strictly greater than BIL's, the satellite holds BTAL (25% QLD / 75% BTAL); otherwise, including a tie, it holds QLD (75% QLD / 25% BTAL). The month-end decision takes effect from the next trading day.""",
     "VAA-G4 (T1/B1)": """**VAA-G4 (T1/B1):** At each completed month-end, calculate 13612W for SPY, EFA, EEM, AGG, LQD, IEF, and SHY: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If any offensive asset (SPY, EFA, EEM, AGG) has non-positive momentum, VAA holds 100% of the best defensive asset (LQD, IEF, SHY). Otherwise it holds 100% of the highest-momentum offensive asset. It is deliberately aggressive: `B=1` means one weak offensive asset activates full defense.""",
@@ -1130,6 +1131,9 @@ if page == "Signals":
                 st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
             else:
                 st.write("BTAL's blended 1/3/6/12-month momentum is at or below BIL's, so the 50% satellite holds QLD alongside the permanent 25% QLD / 25% BTAL core.")
+        elif isinstance(signal_strategy, CenturyMomentum):
+            comparison = "above" if signal["trend_up"] else "at or below"
+            st.write(f"SPMO's completed month-end close is {comparison} its 10-month SMA, so Century Momentum holds {signal['selected_asset']}.")
         elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
             if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
                 st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
@@ -1201,6 +1205,14 @@ if page == "Signals":
             }])
             st.dataframe(alpha_inputs.style.format({"BTAL blended momentum": "{:.6f}", "BIL blended momentum": "{:.6f}"}), use_container_width=True, hide_index=True)
             st.caption("Blended momentum = (1-month return + 3-month return + 6-month return + 12-month return) / 4. A tie allocates the satellite to QLD.")
+        elif isinstance(signal_strategy, CenturyMomentum):
+            century_inputs = pd.DataFrame([{
+                "SPMO close": signal["SPMO_price"],
+                "SPMO 10-month SMA": signal["SPMO_10m_sma"],
+                "Trend state": "Above SMA — hold SPMO" if signal["trend_up"] else "At/below SMA — hold IEF",
+            }])
+            st.dataframe(century_inputs.style.format({"SPMO close": "{:.4f}", "SPMO 10-month SMA": "{:.4f}"}), use_container_width=True, hide_index=True)
+            st.caption("The SMA uses the ten completed month-end closes including the current signal close. A tie selects IEF; the decision takes effect on the next available trading day.")
         else:
             price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
             momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
@@ -1262,7 +1274,7 @@ if page == "Rules":
     st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
-    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
+    if not isinstance(strategy, (CenturyMomentum, GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
         audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):
         audit_columns += [f"{asset}_rank" for asset in strategy.offensive_assets] + ["selected_assets", "target_weights", "previous_weights"]
@@ -1280,6 +1292,8 @@ if page == "Rules":
         audit_columns += [f"{asset}_13612w" for asset in data_assets] + ["breadth_bad_count", "breadth_threshold", "offensive_winner", "defensive_winner", "target_weights", "previous_weights"]
     if isinstance(strategy, OrthogonalAlpha):
         audit_columns += ["BTAL_13612u", "BIL_13612u", "satellite_asset", "target_weights", "previous_weights"]
+    if isinstance(strategy, CenturyMomentum):
+        audit_columns += ["SPMO_10m_sma", "trend_up"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
     audit = result.audit[[column for column in audit_columns if column in result.audit.columns]]
     with st.expander("Monthly audit table"):

@@ -56,6 +56,7 @@ VAA_G4_DATA_ASSETS = (*VAA_OFFENSIVE_ASSETS, *VAA_DEFENSIVE_ASSETS)
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL")
+CENTURY_MOMENTUM_DATA_ASSETS = ("SPMO", "IEF", "SPY")
 STRATEGY_NAME = "HAA-Simple"
 MOMENTUM_LOOKBACKS = (1, 3, 6, 12)
 DEFAULT_TAX_RATE = 0.25

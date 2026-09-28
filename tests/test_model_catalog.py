@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import CenturyMomentum, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -37,6 +37,7 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert momentum.strategy_mode == "buy_and_hold"
     assert momentum.signal_mode == "internal"
     assert momentum.suggested_max_weight == 0.20
+    assert resolve("Momentum", "Century Momentum", "Standard").model_class is CenturyMomentum
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Original").model_class is GrowthInflationConcentrated
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Israel").model_class is GrowthInflationConcentratedIsrael
     assert resolve("Growth-Inflation Sector Timing", "Diversified", "Original").model_class is GrowthInflationDiversified
