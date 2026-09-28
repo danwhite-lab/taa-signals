@@ -5,6 +5,7 @@ change a strategy's production parameters, current signal, or backtest path.
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -87,6 +88,11 @@ class ValidationInput:
     # decisions; the proxy is never allowed to rewrite their inputs.
     proxy_monthly_prices: Mapping[str, pd.Series] = field(default_factory=dict)
     proxy_daily_prices: Mapping[str, pd.Series] = field(default_factory=dict)
+    # The immutable production instance and exact input used to generate its
+    # decisions.  Research copies this instance before applying a declared
+    # candidate, so no live strategy object is ever modified.
+    strategy: object | None = None
+    signal_prices: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +148,51 @@ def _run(input_data: ValidationInput, initial_investment: float, *, transaction_
     )
 
 
+def _with_decisions(input_data: ValidationInput, decisions: pd.DataFrame) -> ValidationInput:
+    """Keep every immutable validation input while substituting research decisions."""
+    return ValidationInput(
+        input_data.name, decisions, input_data.monthly_prices, input_data.daily_prices,
+        input_data.benchmark_asset, input_data.profile, input_data.proxy_monthly_prices,
+        input_data.proxy_daily_prices, input_data.strategy, input_data.signal_prices,
+    )
+
+
+def _shifted_monthly_signal_prices(daily_prices: pd.DataFrame, shift_business_days: int) -> pd.DataFrame:
+    """Sample one real close per calendar month at a bounded shifted date.
+
+    The output retains the actual sampled trading date.  It therefore forces
+    the strategy to recalculate its complete lookback series at those dates,
+    rather than treating a later execution as a shifted signal.
+    """
+    prices = daily_prices.sort_index()
+    sampled_dates: list[pd.Timestamp] = []
+    for _, dates in prices.index.to_series().groupby(prices.index.to_period("M")):
+        month_end = dates.iloc[-1]
+        position = prices.index.get_indexer([month_end])[0] + shift_business_days
+        if 0 <= position < len(prices.index):
+            sampled_dates.append(prices.index[position])
+    return prices.loc[pd.DatetimeIndex(sampled_dates)].loc[lambda frame: ~frame.index.duplicated(keep="last")]
+
+
+def _recompute_decisions(input_data: ValidationInput, parameters: Mapping[str, Any] | None = None, rebalance_shift_business_days: int | None = None) -> pd.DataFrame:
+    """Recompute a declared research variant from copied strategy state."""
+    if input_data.strategy is None or input_data.signal_prices is None:
+        raise ValueError("This validation input has no strategy recomputation adapter.")
+    strategy = copy.copy(input_data.strategy)
+    for key, value in (parameters or {}).items():
+        if not any(item.key == key and value in item.candidate_values for item in input_data.profile.published_parameters):
+            raise ValueError(f"{key}={value!r} is not a declared research candidate.")
+        setattr(strategy, key, value)
+    signal_prices = input_data.signal_prices
+    if rebalance_shift_business_days is not None:
+        if getattr(strategy, "uses_daily_signals", False):
+            raise ValueError("Daily-signal strategies require a strategy-specific rebalance-date adapter.")
+        if input_data.daily_prices is None:
+            raise ValueError("Daily prices are required to recompute shifted month-end signals.")
+        signal_prices = _shifted_monthly_signal_prices(input_data.daily_prices, rebalance_shift_business_days)
+    return strategy.decisions(signal_prices)
+
+
 def _replace_execution_asset(decisions: pd.DataFrame, source_asset: str, proxy_asset: str) -> pd.DataFrame:
     """Return research-only decisions with a holding role substituted.
 
@@ -189,6 +240,8 @@ def _proxy_input(input_data: ValidationInput, proxy: ProxySpec) -> ValidationInp
         input_data.profile,
         input_data.proxy_monthly_prices,
         input_data.proxy_daily_prices,
+        input_data.strategy,
+        input_data.signal_prices,
     )
 
 
@@ -299,21 +352,35 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
             except ValueError as exc:
                 rows.append(_scenario_row("alternate_start", str(year), None, initial_investment, detail=str(exc)))
 
-    if "rebalance_shift" in profile.applicable_tests:
-        rows.append({
-            "test": "rebalance_shift",
-            "scenario": "declared shifts",
-            "status": "requires_strategy_adapter",
-            "detail": "A decision-date shift must recompute strategy signals on shifted dates; it is not approximated as an execution delay.",
-        })
-
     if "parameter_sweep" in profile.applicable_tests:
-        rows.append({
-            "test": "parameter_sweep",
-            "scenario": "declared candidates",
-            "status": "requires_strategy_adapter",
-            "detail": "Candidate parameters are declared in the profile; a strategy-specific constructor adapter is required to recompute decisions.",
-        })
+        candidates = [
+            (parameter.key, value)
+            for parameter in profile.published_parameters
+            for value in parameter.candidate_values
+        ]
+        if not candidates:
+            rows.append({"test": "parameter_sweep", "scenario": "declared candidates", "status": "unavailable", "detail": "No candidate values are declared by this profile."})
+        for key, value in candidates:
+            try:
+                decisions = _recompute_decisions(input_data, {key: value})
+                result = _run(_with_decisions(input_data, decisions), initial_investment)
+                detail = "Published baseline" if value == next(item.published_value for item in profile.published_parameters if item.key == key) else "Research-only candidate"
+                rows.append(_scenario_row("parameter_sweep", f"{key}={value}", result, initial_investment, detail=detail))
+            except ValueError as exc:
+                rows.append(_scenario_row("parameter_sweep", f"{key}={value}", None, initial_investment, detail=str(exc)))
+
+    if "rebalance_shift" in profile.applicable_tests:
+        for shift in profile.execution.rebalance_shifts_business_days:
+            try:
+                # The production baseline uses canonical calendar month-end
+                # labels.  Preserve it exactly at zero; shifted variants use
+                # their real sampled trading dates and recompute from there.
+                decisions = input_data.decisions if shift == 0 else _recompute_decisions(input_data, rebalance_shift_business_days=shift)
+                result = _run(_with_decisions(input_data, decisions), initial_investment)
+                detail = "Published month-end sampling" if shift == 0 else "Research-only shifted signal sampling"
+                rows.append(_scenario_row("rebalance_shift", f"{shift:+d} business day(s)", result, initial_investment, detail=detail))
+            except ValueError as exc:
+                rows.append(_scenario_row("rebalance_shift", f"{shift:+d} business day(s)", None, initial_investment, detail=str(exc)))
 
     if "proxy_substitution" in profile.applicable_tests:
         for proxy in profile.proxy_substitutions:

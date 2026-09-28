@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from haa.engine import run_backtest
-from haa.strategies import HAASimple
+from haa.strategies import CenturyMomentum, HAASimple
 from haa.validation import ValidationInput, data_quality_report, profile_for, run_deterministic_validation
 
 
@@ -33,13 +33,39 @@ def test_validation_runs_baseline_delay_cost_tax_and_start_scenarios_without_cha
     pd.testing.assert_frame_equal(input_data.decisions, original)
 
 
-def test_validation_reports_real_rolling_subperiod_and_adapter_requirements():
+def test_validation_reports_real_rolling_subperiod_and_unconfigured_recompute_is_unavailable():
     report = run_deterministic_validation(validation_input())
     assert set(report.rolling_periods.loc[report.rolling_periods["status"] == "complete", "scenario"]) == {"5y", "10y"}
     assert not report.subperiods.loc[report.subperiods["status"] == "complete"].empty
-    adapter_tests = report.scenarios.loc[report.scenarios["status"] == "requires_strategy_adapter", "test"].tolist()
-    assert adapter_tests == ["rebalance_shift"]
+    shifts = report.scenarios.loc[report.scenarios["test"] == "rebalance_shift"]
+    assert shifts.loc[shifts["scenario"] == "+0 business day(s)", "status"].item() == "complete"
+    assert set(shifts.loc[shifts["scenario"] != "+0 business day(s)", "status"]) == {"unavailable"}
     assert report.scenarios.loc[report.scenarios["test"] == "proxy_substitution", "status"].item() == "unavailable"
+
+
+def test_declared_parameter_and_monthly_rebalance_variants_recompute_a_research_copy():
+    monthly_index = pd.date_range("2010-01-31", periods=156, freq="ME")
+    monthly = pd.DataFrame({
+        "SPMO": 100 * (1.01 ** np.arange(len(monthly_index))),
+        "IEF": 100 * (1.002 ** np.arange(len(monthly_index))),
+        "SPY": 100 * (1.008 ** np.arange(len(monthly_index))),
+    }, index=monthly_index)
+    daily_index = pd.bdate_range("2010-01-01", monthly_index.max() + pd.Timedelta(days=5))
+    daily = monthly.reindex(daily_index).ffill().bfill()
+    strategy = CenturyMomentum()
+    input_data = ValidationInput(
+        strategy.name, strategy.decisions(monthly), monthly, daily, "SPY", profile_for(strategy),
+        strategy=strategy, signal_prices=monthly,
+    )
+
+    report = run_deterministic_validation(input_data, 10_000)
+    parameters = report.scenarios.loc[report.scenarios["test"] == "parameter_sweep"]
+    shifts = report.scenarios.loc[report.scenarios["test"] == "rebalance_shift"]
+    assert set(parameters["scenario"]) == {"sma_months=8", "sma_months=9", "sma_months=10", "sma_months=11", "sma_months=12"}
+    assert set(parameters["status"]) == {"complete"}
+    assert set(shifts["scenario"]) == {"-2 business day(s)", "-1 business day(s)", "+0 business day(s)", "+1 business day(s)", "+2 business day(s)"}
+    assert set(shifts["status"]) == {"complete"}
+    assert strategy.sma_months == 10
 
 
 def test_execution_delay_moves_entries_after_the_production_execution_day():
