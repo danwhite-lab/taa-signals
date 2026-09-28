@@ -224,7 +224,12 @@ def model_selector(prefix: str, heading: str | None = None, columns=None, implem
             available_variants = variants(selected_strategy)
             if st.session_state.get(variant_key) not in available_variants:
                 st.session_state[variant_key] = available_variants[0]
-            selected_variant = st.selectbox("Variant", available_variants, key=variant_key)
+            if available_variants == (None,):
+                selected_variant = None
+                st.session_state[variant_key] = None
+                st.caption("No variants")
+            else:
+                selected_variant = st.selectbox("Variant", available_variants, key=variant_key)
             available_implementations = implementations(selected_strategy, selected_variant)
             if st.session_state.get(implementation_key) not in available_implementations:
                 st.session_state[implementation_key] = available_implementations[0]
@@ -240,7 +245,12 @@ def model_selector(prefix: str, heading: str | None = None, columns=None, implem
         if st.session_state.get(variant_key) not in available_variants:
             st.session_state[variant_key] = available_variants[0]
         with variant_column:
-            selected_variant = st.selectbox("Variant", available_variants, key=variant_key)
+            if available_variants == (None,):
+                selected_variant = None
+                st.session_state[variant_key] = None
+                st.caption("No variant")
+            else:
+                selected_variant = st.selectbox("Variant", available_variants, key=variant_key)
         available_implementations = implementations(selected_strategy, selected_variant)
         if st.session_state.get(implementation_key) not in available_implementations:
             st.session_state[implementation_key] = available_implementations[0]
@@ -895,7 +905,7 @@ if page == "Portfolio":
         signal, error = current_portfolio_signal(sleeve["model"])
         allocation = allocations_by_id[sleeve["id"]]
         base_row = {
-            "Sleeve": sleeve["model"], "Strategy": definition.strategy, "Variant": definition.variant,
+            "Sleeve": sleeve["model"], "Strategy": definition.strategy, "Variant": definition.variant or "—",
             "Implementation": definition.implementation, "Currency": sleeve["currency"], "Weight": sleeve["weight"] / 100,
             "Target allocation (ILS)": allocation["allocation_ils"],
             "Native allocation": allocation["allocation_native"],

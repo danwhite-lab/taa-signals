@@ -32,7 +32,7 @@ from .strategies import (
 @dataclass(frozen=True)
 class ModelDefinition:
     strategy: str
-    variant: str
+    variant: str | None
     implementation: str
     label: str
     model_class: type
@@ -58,13 +58,13 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Inflation Compass", "Fast (40-day)", "Original", "Inflation Compass Fast (40-day)", InflationCompassFast),
     ModelDefinition("Inflation Compass", "Fast (40-day)", "Israel", "Inflation Compass Fast (40-day) Israel", InflationCompassFastIsrael, "ILS"),
     ModelDefinition("Momentum", "TA-125 Smart Momentum", "Migdal MTF TA-125 Smart Momentum", "TA-125 Smart Momentum", TA125SmartMomentum, "ILS", "buy_and_hold", "internal", 0.20, "Israeli equity momentum held through fund 5134713. The underlying TA-125 Smart Momentum index adjusts TA-125 weights internally using momentum/trend strength, including its 50-day and 200-day moving-average relationship. Investors hold the fund continuously; there is no investor-level timing signal."),
-    ModelDefinition("Momentum", "Century Momentum", "Standard", "Century Momentum", CenturyMomentum, "USD", "externally_timed", "external", None, "SPMO is held when its completed month-end close is above its 10-month moving average; otherwise the strategy holds IEF. Backtests use actual SPMO history only, without an academic pre-ETF splice."),
-    ModelDefinition("Momentum", "Century Momentum", "Israel", "Century Momentum Israel", CenturyMomentumIsrael, "ILS", "externally_timed", "external", None, "MTF Tracking S&P 500 Momentum (4D), 5140850, is held when its completed month-end close is above its 10-month moving average; otherwise the strategy holds iShares $ Treasury Bond 7–10yr UCITS, 1159268. Backtests use the actual TASE fund histories only."),
+    ModelDefinition("Century Momentum", "Standard", "Original", "Century Momentum", CenturyMomentum, "USD", "externally_timed", "external", None, "SPMO is held when its completed month-end close is above its 10-month moving average; otherwise the strategy holds IEF. Backtests use actual SPMO history only, without an academic pre-ETF splice."),
+    ModelDefinition("Century Momentum", "Standard", "Israel", "Century Momentum Israel", CenturyMomentumIsrael, "ILS", "externally_timed", "external", None, "MTF Tracking S&P 500 Momentum (4D), 5140850, is held when its completed month-end close is above its 10-month moving average; otherwise the strategy holds iShares $ Treasury Bond 7–10yr UCITS, 1159268. Backtests use the actual TASE fund histories only."),
     ModelDefinition("Growth-Inflation Sector Timing", "Concentrated", "Original", "Growth-Inflation Concentrated", GrowthInflationConcentrated),
     ModelDefinition("Growth-Inflation Sector Timing", "Concentrated", "Israel", "Growth-Inflation Concentrated Israel", GrowthInflationConcentratedIsrael, "ILS", "externally_timed", "external", None, "Uses the original U.S. growth and sector-ratio signals, then executes the selected sector through TASE-listed Israeli ETFs in ILS."),
     ModelDefinition("Growth-Inflation Sector Timing", "Diversified", "Original", "Growth-Inflation Diversified", GrowthInflationDiversified),
     ModelDefinition("VAA", "G4 (T1/B1)", "Original", "VAA-G4 (T1/B1)", VAAG4),
-    ModelDefinition("Tactical Allocation", "Orthogonal Alpha", "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
+    ModelDefinition("Orthogonal Alpha", None, "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
 )
 
 
@@ -72,15 +72,15 @@ def strategies() -> tuple[str, ...]:
     return tuple(dict.fromkeys(item.strategy for item in MODEL_CATALOG))
 
 
-def variants(strategy: str) -> tuple[str, ...]:
+def variants(strategy: str) -> tuple[str | None, ...]:
     return tuple(dict.fromkeys(item.variant for item in MODEL_CATALOG if item.strategy == strategy))
 
 
-def implementations(strategy: str, variant: str) -> tuple[str, ...]:
+def implementations(strategy: str, variant: str | None) -> tuple[str, ...]:
     return tuple(item.implementation for item in MODEL_CATALOG if item.strategy == strategy and item.variant == variant)
 
 
-def resolve(strategy: str, variant: str, implementation: str) -> ModelDefinition:
+def resolve(strategy: str, variant: str | None, implementation: str) -> ModelDefinition:
     for item in MODEL_CATALOG:
         if (item.strategy, item.variant, item.implementation) == (strategy, variant, implementation):
             return item
