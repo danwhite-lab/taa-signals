@@ -20,6 +20,7 @@ from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
 from haa.strategies import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
+from haa.validation import ValidationInput, profile_for, run_deterministic_validation
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
@@ -292,21 +293,23 @@ for key, value in {
     "backtest_mode": "Single strategy",
     "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "backtest_next_id": 2,
+    "research_model_name": DEFAULT_MODEL,
 }.items():
     st.session_state.setdefault(key, value)
 seed_model_selection("signals", st.session_state["signals_model_name"])
 seed_model_selection("backtest", st.session_state["model_name"])
 seed_model_selection("rules", st.session_state["model_name"])
+seed_model_selection("research", st.session_state["research_model_name"])
 st.session_state.setdefault("settings_cost_pct", st.session_state["cost_pct"] * 100)
 st.session_state.setdefault("settings_tax_rate", st.session_state["tax_rate"] * 100)
 if st.session_state["page"] == "Validation":
-    st.session_state["page"] = "Rules"
+    st.session_state["page"] = "Research"
 if st.session_state["page"] == "Compare Models":
     st.session_state["page"] = "Compare"
 st.session_state["ticker_text"] = append_missing_default_tickers(st.session_state["ticker_text"])
 
 with st.container(key="primary-navigation"):
-    page = st.radio("Primary navigation", ("Signals", "Portfolio", "Backtest", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
+    page = st.radio("Primary navigation", ("Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
 title_column = st.container()
 
 # This fixed popover extends Streamlit's toolbar with the settings that belong
@@ -383,13 +386,25 @@ if page == "Backtest":
 
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
+if page == "Research":
+    model_name = model_selector("research", "Model")
+    st.session_state["research_model_name"] = model_name
 
 backtest_mode = st.session_state["backtest_mode"]
 strategy = MODEL_OPTIONS[model_name]()
 model_definition = definition_for_label(model_name)
+research_profile = profile_for(strategy)
 if page in {"Backtest", "Rules"} and backtest_mode == "Single strategy" and not getattr(strategy, "backtest_available", True):
     title_column.title(strategy.name)
     st.info("Signals and Portfolio use the unchanged USD Compass inputs and map the final holdings to Israeli securities. Backtesting is unavailable until reliable historical prices for those Israeli execution securities are configured.")
+    st.stop()
+if page == "Research" and research_profile is None:
+    title_column.title("Research")
+    st.info(f"{strategy.name} does not yet declare a validation profile. Add one beside the strategy implementation before running research validation.")
+    st.stop()
+if page == "Research" and not getattr(strategy, "backtest_available", True):
+    title_column.title("Research")
+    st.info(f"{strategy.name} has a validation profile, but its executable historical-price data is not available for research backtests yet.")
     st.stop()
 data_assets = getattr(strategy, "data_assets", ASSETS)
 benchmark_asset = getattr(strategy, "benchmark_asset", "SPY")
@@ -606,6 +621,85 @@ except ValueError as exc:
 percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
 ratio_rows = ["Sharpe", "Sortino", "Calmar"]
 numeric_rows = ["Final value", "Allocation changes", "Average changes/year"]
+
+if page == "Research":
+    title_column.title("Research")
+    title_column.caption("Validation runs are research-only. They reuse the published production decisions and never modify live strategy rules or select an optimised setting.")
+    st.info(f"Profile: **{research_profile.profile_id}** · Data confidence: **{research_profile.data_confidence.title()}**")
+    with st.expander("Published baseline and declared research scope"):
+        parameters = pd.DataFrame([
+            {
+                "Parameter": item.key,
+                "Published value": item.published_value,
+                "Research candidates": ", ".join(map(str, item.candidate_values)) or "None — immutable",
+                "Description": item.description,
+            }
+            for item in research_profile.published_parameters
+        ])
+        st.dataframe(parameters, use_container_width=True, hide_index=True)
+        st.caption(research_profile.notes or "Only the tests declared by this profile are run.")
+
+    proxy_monthly_prices = {}
+    proxy_daily_prices = {}
+    for proxy in research_profile.proxy_substitutions:
+        if proxy.proxy_asset in all_prices:
+            proxy_monthly_prices[proxy.proxy_asset] = to_month_end(all_prices.loc[:, [proxy.proxy_asset]])[proxy.proxy_asset]
+            proxy_daily_prices[proxy.proxy_asset] = all_prices[proxy.proxy_asset]
+    research_input = ValidationInput(
+        model_name,
+        decisions,
+        monthly,
+        prices,
+        benchmark_asset,
+        research_profile,
+        proxy_monthly_prices,
+        proxy_daily_prices,
+    )
+    if st.button("Run Full Validation", type="primary", key="run_full_validation"):
+        st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
+        st.session_state["research_report_model"] = model_name
+
+    report = st.session_state.get("research_report") if st.session_state.get("research_report_model") == model_name else None
+    if report is None:
+        st.caption("Run the validation to generate standardized execution, cost, tax, period, proxy, and data-quality results.")
+    else:
+        summary_tab, execution_tab, periods_tab, proxy_data_tab = st.tabs(["Summary", "Execution & Costs", "Periods", "Proxies & Data"])
+        with summary_tab:
+            complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
+            baseline_row = complete.loc[complete["test"] == "baseline"]
+            if not baseline_row.empty:
+                baseline_metrics = baseline_row.iloc[0]
+                metric_cagr, metric_dd, metric_periods = st.columns(3)
+                metric_cagr.metric("Published baseline CAGR", f"{baseline_metrics['CAGR']:.2%}")
+                metric_dd.metric("Published baseline max drawdown", f"{baseline_metrics['Maximum drawdown']:.2%}")
+                metric_periods.metric("Completed holding periods", f"{int(baseline_metrics['holding_periods'])}")
+            st.subheader("Validation scenarios")
+            st.dataframe(report.scenarios, use_container_width=True, hide_index=True)
+            if not complete.empty:
+                st.plotly_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
+            st.download_button("Download validation scenarios CSV", report.scenarios.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_validation_scenarios.csv", "text/csv")
+        with execution_tab:
+            execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift"])]
+            st.dataframe(execution_tests, use_container_width=True, hide_index=True)
+            st.caption("A rebalance-date shift is intentionally marked as requiring a strategy-specific adapter until the shifted date recomputes the underlying signal rather than approximating it with a later trade.")
+        with periods_tab:
+            st.subheader("Rolling periods")
+            st.dataframe(report.rolling_periods, use_container_width=True, hide_index=True)
+            if not report.rolling_periods.empty and "CAGR" in report.rolling_periods:
+                completed_rolling = report.rolling_periods.loc[report.rolling_periods["status"] == "complete"]
+                if not completed_rolling.empty:
+                    st.plotly_chart(px.box(completed_rolling, x="scenario", y="CAGR", title="Distribution of rolling-period CAGR"), use_container_width=True)
+            st.subheader("Named subperiods")
+            st.dataframe(report.subperiods, use_container_width=True, hide_index=True)
+        with proxy_data_tab:
+            proxy_rows = report.scenarios.loc[report.scenarios["test"] == "proxy_substitution"]
+            st.subheader("Declared execution proxies")
+            st.dataframe(proxy_rows, use_container_width=True, hide_index=True)
+            st.caption("A proxy result is available only when the proxy's actual monthly and daily history is available. It replaces the executed holding, not the strategy's published signal input.")
+            st.subheader("Data quality and timing")
+            st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
+            st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
+    st.stop()
 
 if page == "Backtest":
     title_column.title(strategy.name)
