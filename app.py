@@ -637,7 +637,7 @@ numeric_rows = ["Final value", "Allocation changes", "Average changes/year"]
 if page == "Research":
     title_column.title("Research")
     title_column.caption("Stress-test the selected strategy to see whether its historical result remains broadly credible when timing, costs, parameters, periods, data, and return sequences change. Validation runs are research-only and never modify live strategy rules.")
-    with st.expander("How to read this page", expanded=True):
+    with st.expander("How to read this page", expanded=False):
         st.markdown("""- **Summary** compares the published backtest with every completed stress-test scenario.
 - **Parameters & Execution** asks whether nearby settings, small timing changes, costs, tax, or minor input-price changes materially alter the result.
 - **Periods** shows whether the strategy worked across rolling 5-, 10-, and 20-year windows and named market eras, rather than only across one favourable start date.
