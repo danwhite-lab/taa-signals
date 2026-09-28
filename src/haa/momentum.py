@@ -20,3 +20,18 @@ def momentum_13612u(monthly_prices: pd.Series) -> pd.Series:
     r6 = prices.div(prices.shift(6)).sub(1)
     r12 = prices.div(prices.shift(12)).sub(1)
     return (r1 + r3 + r6 + r12) / 4
+
+
+def momentum_13612w(monthly_prices: pd.Series) -> pd.Series:
+    """Return VAA's fast, weighted 13612W momentum.
+
+    The published weighted average annualizes each return horizon:
+    ``(12*R1 + 4*R3 + 2*R6 + R12) / 4``.  Like 13612U it only uses
+    completed historic month-ends and requires twelve earlier observations.
+    """
+    prices = pd.to_numeric(monthly_prices, errors="coerce")
+    r1 = prices.div(prices.shift(1)).sub(1)
+    r3 = prices.div(prices.shift(3)).sub(1)
+    r6 = prices.div(prices.shift(6)).sub(1)
+    r12 = prices.div(prices.shift(12)).sub(1)
+    return (12 * r1 + 4 * r3 + 2 * r6 + r12) / 4

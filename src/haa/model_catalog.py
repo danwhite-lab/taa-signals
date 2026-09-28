@@ -21,6 +21,7 @@ from .strategies import (
     TA125SmartMomentum,
     GrowthInflationConcentrated,
     GrowthInflationDiversified,
+    VAAG4,
 )
 
 
@@ -55,6 +56,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Momentum", "TA-125 Smart Momentum", "Migdal MTF TA-125 Smart Momentum", "TA-125 Smart Momentum", TA125SmartMomentum, "ILS", "buy_and_hold", "internal", 0.20, "Israeli equity momentum held through fund 5134713. The underlying TA-125 Smart Momentum index adjusts TA-125 weights internally using momentum/trend strength, including its 50-day and 200-day moving-average relationship. Investors hold the fund continuously; there is no investor-level timing signal."),
     ModelDefinition("Growth-Inflation Sector Timing", "Concentrated", "Original", "Growth-Inflation Concentrated", GrowthInflationConcentrated),
     ModelDefinition("Growth-Inflation Sector Timing", "Diversified", "Original", "Growth-Inflation Diversified", GrowthInflationDiversified),
+    ModelDefinition("VAA", "G4 (T1/B1)", "Original", "VAA-G4 (T1/B1)", VAAG4),
 )
 
 

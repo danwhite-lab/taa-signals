@@ -18,12 +18,13 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum
+from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "VAA-G4 (T1/B1)": """**VAA-G4 (T1/B1):** At each completed month-end, calculate 13612W for SPY, EFA, EEM, AGG, LQD, IEF, and SHY: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If any offensive asset (SPY, EFA, EEM, AGG) has non-positive momentum, VAA holds 100% of the best defensive asset (LQD, IEF, SHY). Otherwise it holds 100% of the highest-momentum offensive asset. It is deliberately aggressive: `B=1` means one weak offensive asset activates full defense.""",
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
@@ -1021,6 +1022,11 @@ if page == "Signals":
             st.write(f"Growth is {'up' if signal['growth_up'] else 'down'} and inflation is {'on' if signal['inflation_on'] else 'off'}, producing the {signal['regime'].replace('-', ' ')} allocation.")
         elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
             st.write(f"Growth is {'high' if signal['growth_up'] else 'low'} because SPY is {'above' if signal['growth_up'] else 'at or below'} its 200-day SMA. Inflation is {'high' if signal['inflation_on'] else 'low'} because the sector ratio is {'above' if signal['inflation_on'] else 'at or below'} its 200-day SMA, producing the {signal['regime']} allocation.")
+        elif isinstance(signal_strategy, VAAG4):
+            if signal["regime"] == "risk-on":
+                st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
+            else:
+                st.write(f"{signal['breadth_bad_count']} offensive asset(s) have non-positive 13612W momentum. With B=1, breadth protection is active and VAA holds the best defensive asset: {signal['defensive_winner']}.")
         elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
             if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
                 st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
@@ -1072,6 +1078,16 @@ if page == "Signals":
             }])
             st.dataframe(timing_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "Inflation-positive basket": "{:.4f}", "Inflation-negative basket": "{:.4f}", "Inflation ratio": "{:.6f}", "Inflation ratio 200-day SMA": "{:.6f}"}), use_container_width=True, hide_index=True)
             st.caption("The inflation ratio is the equal-weighted inflation-positive sector basket divided by the equal-weighted inflation-negative sector basket. Both states use completed daily data at month-end.")
+        elif isinstance(signal_strategy, VAAG4):
+            vaa_inputs = pd.DataFrame([{
+                "Bad offensive assets": signal["breadth_bad_count"],
+                "Breadth threshold (B)": signal["breadth_threshold"],
+                "Top offensive": signal["offensive_winner"],
+                "Top defensive": signal["defensive_winner"],
+                **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.data_assets},
+            }])
+            st.dataframe(vaa_inputs.style.format({column: "{:.6f}" for column in vaa_inputs.columns if column.endswith("13612W")}), use_container_width=True, hide_index=True)
+            st.caption("13612W = (12×1-month return + 4×3-month return + 2×6-month return + 12-month return) / 4. Momentum equal to zero is non-positive.")
         else:
             price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
             momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
@@ -1133,7 +1149,7 @@ if page == "Rules":
     st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
-    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4)):
         audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):
         audit_columns += [f"{asset}_rank" for asset in strategy.offensive_assets] + ["selected_assets", "target_weights", "previous_weights"]
@@ -1147,6 +1163,8 @@ if page == "Rules":
             audit_columns += ["selected_underlying_assets", "mapped_holding_assets"]
     if isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
         audit_columns += ["SPY_200d_sma", "positive_sector_basket", "negative_sector_basket", "inflation_ratio", "inflation_ratio_200d_sma", "growth_up", "inflation_on", "target_weights", "previous_weights"]
+    if isinstance(strategy, VAAG4):
+        audit_columns += [f"{asset}_13612w" for asset in data_assets] + ["breadth_bad_count", "breadth_threshold", "offensive_winner", "defensive_winner", "target_weights", "previous_weights"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
     audit = result.audit[audit_columns]
     with st.expander("Monthly audit table"):
