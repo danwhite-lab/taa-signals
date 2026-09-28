@@ -5,8 +5,8 @@ change a strategy's production parameters, current signal, or backtest path.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -83,6 +83,10 @@ class ValidationInput:
     daily_prices: pd.DataFrame | None
     benchmark_asset: str
     profile: ValidationProfile
+    # Execution-only proxy prices.  Signals remain the supplied published
+    # decisions; the proxy is never allowed to rewrite their inputs.
+    proxy_monthly_prices: Mapping[str, pd.Series] = field(default_factory=dict)
+    proxy_daily_prices: Mapping[str, pd.Series] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,7 @@ class ValidationReport:
     scenarios: pd.DataFrame
     rolling_periods: pd.DataFrame
     subperiods: pd.DataFrame
+    data_quality: pd.DataFrame
 
 
 DEFAULT_SUBPERIODS: tuple[tuple[str, str, str], ...] = (
@@ -137,6 +142,94 @@ def _run(input_data: ValidationInput, initial_investment: float, *, transaction_
     )
 
 
+def _replace_execution_asset(decisions: pd.DataFrame, source_asset: str, proxy_asset: str) -> pd.DataFrame:
+    """Return research-only decisions with a holding role substituted.
+
+    This intentionally changes only executed holdings.  The decisions were
+    calculated first from the production signal series, so a proxy cannot
+    leak into a published strategy's signal formula.
+    """
+    substituted = decisions.copy(deep=True)
+    if "target_weights" in substituted:
+        def replace_weights(weights: object) -> dict[str, float]:
+            result: dict[str, float] = {}
+            for asset, weight in dict(weights).items():
+                target = proxy_asset if asset == source_asset else asset
+                result[target] = result.get(target, 0.0) + float(weight)
+            return result
+        substituted["target_weights"] = substituted["target_weights"].map(replace_weights)
+    if "selected_asset" in substituted:
+        substituted["selected_asset"] = substituted["selected_asset"].replace(source_asset, proxy_asset)
+    for column in ("selected_assets", "previous_asset"):
+        if column in substituted:
+            substituted[column] = substituted[column].map(
+                lambda value: value.replace(source_asset, proxy_asset) if isinstance(value, str) else value
+            )
+    return substituted
+
+
+def _proxy_input(input_data: ValidationInput, proxy: ProxySpec) -> ValidationInput:
+    monthly_proxy = input_data.proxy_monthly_prices.get(proxy.proxy_asset)
+    if monthly_proxy is None:
+        raise ValueError(f"No monthly price series was supplied for declared proxy {proxy.proxy_asset}.")
+    monthly_prices = input_data.monthly_prices.drop(columns=proxy.proxy_asset, errors="ignore").join(monthly_proxy.rename(proxy.proxy_asset), how="outer")
+    if input_data.daily_prices is None:
+        daily_prices = None
+    else:
+        daily_proxy = input_data.proxy_daily_prices.get(proxy.proxy_asset)
+        if daily_proxy is None:
+            raise ValueError(f"No daily price series was supplied for declared proxy {proxy.proxy_asset}.")
+        daily_prices = input_data.daily_prices.drop(columns=proxy.proxy_asset, errors="ignore").join(daily_proxy.rename(proxy.proxy_asset), how="outer")
+    return ValidationInput(
+        input_data.name,
+        _replace_execution_asset(input_data.decisions, proxy.source_asset, proxy.proxy_asset),
+        monthly_prices,
+        daily_prices,
+        input_data.benchmark_asset,
+        input_data.profile,
+        input_data.proxy_monthly_prices,
+        input_data.proxy_daily_prices,
+    )
+
+
+def data_quality_report(input_data: ValidationInput, baseline: BacktestResult | None = None) -> pd.DataFrame:
+    """Summarise source coverage and execution-timing checks without repairs."""
+    prices = input_data.daily_prices if input_data.daily_prices is not None else input_data.monthly_prices
+    frequency = "daily" if input_data.daily_prices is not None else "monthly"
+    rows: list[dict[str, object]] = []
+    for asset in prices.columns:
+        series = pd.to_numeric(prices[asset], errors="coerce")
+        observed = series.dropna()
+        intervals = observed.index.to_series().diff().dt.days.dropna()
+        rows.append({
+            "kind": "asset",
+            "asset": asset,
+            "frequency": frequency,
+            "status": "complete" if not observed.empty else "unavailable",
+            "first_observation": observed.index.min() if not observed.empty else pd.NaT,
+            "last_observation": observed.index.max() if not observed.empty else pd.NaT,
+            "observations": len(observed),
+            "missing_observations": int(series.isna().sum()),
+            "non_positive_observations": int((observed <= 0).sum()),
+            "unchanged_observations": int(observed.diff().eq(0).sum()),
+            "max_calendar_gap_days": int(intervals.max()) if not intervals.empty else 0,
+        })
+    if baseline is None:
+        rows.append({"kind": "check", "check": "look_ahead", "status": "unavailable", "detail": "No executable baseline result was available."})
+    elif input_data.daily_prices is None:
+        rows.append({"kind": "check", "check": "look_ahead", "status": "not_verifiable", "detail": "Daily execution prices were not supplied."})
+    else:
+        audit = baseline.audit
+        passed = bool((pd.to_datetime(audit["execution_date"]) > pd.to_datetime(audit.index)).all())
+        rows.append({
+            "kind": "check",
+            "check": "look_ahead",
+            "status": "pass" if passed else "fail",
+            "detail": "Every execution date is strictly after its signal date." if passed else "At least one execution date is not after its signal date.",
+        })
+    return pd.DataFrame(rows)
+
+
 def _window_rows(test: str, periods: pd.Series, initial_investment: float, windows_years: tuple[int, ...]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for years in windows_years:
@@ -164,8 +257,9 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
 
     The caller supplies the normal production decisions.  This is deliberate:
     research scenarios cannot silently substitute optimised production signals.
-    Parameter sweeps, proxy substitutions, and decision-date shifts require
-    explicit strategy-specific adapters and are surfaced as unavailable here.
+    Parameter sweeps and decision-date shifts require explicit
+    strategy-specific adapters. Declared execution proxies are supported
+    when their local monthly and daily series are explicitly supplied.
     """
     profile = input_data.profile
     rows: list[dict[str, object]] = []
@@ -173,7 +267,7 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
         baseline = _run(input_data, initial_investment)
     except ValueError as exc:
         unavailable = _scenario_row("baseline", "published", None, initial_investment, detail=str(exc))
-        return ValidationReport(pd.DataFrame([unavailable]), pd.DataFrame(), pd.DataFrame())
+        return ValidationReport(pd.DataFrame([unavailable]), pd.DataFrame(), pd.DataFrame(), data_quality_report(input_data))
     rows.append(_scenario_row("baseline", "published", baseline, initial_investment))
 
     if "execution_delay" in profile.applicable_tests:
@@ -222,12 +316,13 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
         })
 
     if "proxy_substitution" in profile.applicable_tests:
-        rows.append({
-            "test": "proxy_substitution",
-            "scenario": "declared proxies",
-            "status": "requires_strategy_adapter",
-            "detail": "Proxy backtests require explicit execution-price substitution and cannot reuse the production decisions blindly.",
-        })
+        for proxy in profile.proxy_substitutions:
+            scenario = f"{proxy.source_asset} → {proxy.proxy_asset}"
+            try:
+                proxy_result = _run(_proxy_input(input_data, proxy), initial_investment)
+                rows.append(_scenario_row("proxy_substitution", scenario, proxy_result, initial_investment, detail=proxy.description))
+            except ValueError as exc:
+                rows.append(_scenario_row("proxy_substitution", scenario, None, initial_investment, detail=str(exc)))
 
     rolling = _window_rows("rolling_window", baseline.monthly["pre_tax_monthly_return"], initial_investment, profile.rolling_windows_years) if "rolling_windows" in profile.applicable_tests else []
     subperiod_rows: list[dict[str, object]] = []
@@ -239,4 +334,4 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
                 continue
             values = initial_investment * (1 + returns).cumprod()
             subperiod_rows.append({"test": "subperiod", "scenario": name, "status": "complete", "holding_periods": len(returns), "start": returns.index.min(), "end": returns.index.max(), **performance_metrics(values, initial_investment)})
-    return ValidationReport(pd.DataFrame(rows), pd.DataFrame(rolling), pd.DataFrame(subperiod_rows))
+    return ValidationReport(pd.DataFrame(rows), pd.DataFrame(rolling), pd.DataFrame(subperiod_rows), data_quality_report(input_data, baseline))
