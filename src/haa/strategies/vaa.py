@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..constants import VAA_DEFENSIVE_ASSETS, VAA_G4_DATA_ASSETS, VAA_OFFENSIVE_ASSETS
 from ..momentum import momentum_13612w
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class VAABase:
@@ -70,3 +71,14 @@ class VAAG4(VAABase):
     defensive_assets = VAA_DEFENSIVE_ASSETS
     top_selection = 1
     breadth_threshold = 1
+    validation_profile = ValidationProfile(
+        profile_id="vaa-g4-t1-b1",
+        published_parameters=(
+            ParameterSpec("top_selection", 1, (1, 2), "Number of equally weighted offensive winners."),
+            ParameterSpec("breadth_threshold", 1, (1, 2, 3, 4), "Non-positive offensive scores required to activate defense."),
+            ParameterSpec("momentum_formula", "13612W", (), "Published weighted 1/3/6/12-month momentum."),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "data_quality"}),
+        notes="T=1/B=1 is the production baseline; alternate T/B combinations are explicitly research-only.",
+    )

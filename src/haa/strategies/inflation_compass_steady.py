@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from ..constants import INFLATION_COMPASS_DATA_ASSETS, INFLATION_COMPASS_MARKET_ASSETS
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class InflationCompassBase:
@@ -124,6 +125,16 @@ class InflationCompassStandard(InflationCompassBase):
 
     name = "Inflation Compass Standard"
     momentum_window = 60
+    validation_profile = ValidationProfile(
+        profile_id="inflation-compass-standard",
+        published_parameters=(
+            ParameterSpec("momentum_window", 60, (40, 50, 60, 70, 80), "T5YIE and inflation-indicator confirmation window.", "trading days"),
+            ParameterSpec("growth_sma_window", 200, (), "SPY trend moving-average window.", "trading days"),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the final NYSE trading-day signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "data_quality"}),
+        notes="The 60-day published configuration remains the production baseline; all alternatives are research-only.",
+    )
 
 
 class InflationCompassFast(InflationCompassBase):
