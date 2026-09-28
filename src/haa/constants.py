@@ -45,6 +45,9 @@ HAA4_LEVERAGED_DATA_ASSETS = tuple(dict.fromkeys((*HAA4_DATA_ASSETS, *HAA4_LEVER
 FRED_ASSETS = ("T5YIE",)
 INFLATION_COMPASS_MARKET_ASSETS = ("SPY", "XLE", "XLK", "XLU", "XLP", "IEF", "XLI", "XLF", "XLB", "XLV")
 INFLATION_COMPASS_DATA_ASSETS = (*INFLATION_COMPASS_MARKET_ASSETS, *FRED_ASSETS)
+# Growth-Inflation Sector Timing uses only liquid ETF prices. Its sector ratio
+# deliberately includes XLY, unlike Inflation Compass's confirmation basket.
+GROWTH_INFLATION_ASSETS = ("SPY", "XLE", "XLB", "XLI", "XLF", "XLU", "XLV", "XLP", "XLY", "XLK")
 STRATEGY_NAME = "HAA-Simple"
 MOMENTUM_LOOKBACKS = (1, 3, 6, 12)
 DEFAULT_TAX_RATE = 0.25

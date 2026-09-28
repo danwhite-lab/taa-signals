@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, TA125SmartMomentum
+from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, TA125SmartMomentum
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -21,7 +21,7 @@ def test_israel_implementations_are_available_for_simple_haa_and_inflation_compa
 
 
 def test_catalog_selection_resolves_existing_stable_model_class():
-    assert strategies() == ("HAA", "Inflation Compass", "Momentum")
+    assert strategies() == ("HAA", "Inflation Compass", "Momentum", "Growth-Inflation Sector Timing")
     assert "HAA 4" in variants("HAA")
     assert resolve("Inflation Compass", "Standard", "Original").model_class is InflationCompassStandard
     assert resolve("Inflation Compass", "Fast (40-day)", "Original").model_class is InflationCompassFast
@@ -37,5 +37,7 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert momentum.strategy_mode == "buy_and_hold"
     assert momentum.signal_mode == "internal"
     assert momentum.suggested_max_weight == 0.20
+    assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Original").model_class is GrowthInflationConcentrated
+    assert resolve("Growth-Inflation Sector Timing", "Diversified", "Original").model_class is GrowthInflationDiversified
     with pytest.raises(ValueError, match="Unknown model selection"):
         resolve("HAA", "HAA 4", "Israel")

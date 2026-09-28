@@ -18,12 +18,14 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum
+from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
+    "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
@@ -1017,6 +1019,8 @@ if page == "Signals":
                 st.write(f"TIP 13612U momentum is positive and both selected offensive assets are positive, so the model holds {holdings} at 50% each.")
         elif isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)):
             st.write(f"Growth is {'up' if signal['growth_up'] else 'down'} and inflation is {'on' if signal['inflation_on'] else 'off'}, producing the {signal['regime'].replace('-', ' ')} allocation.")
+        elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+            st.write(f"Growth is {'high' if signal['growth_up'] else 'low'} because SPY is {'above' if signal['growth_up'] else 'at or below'} its 200-day SMA. Inflation is {'high' if signal['inflation_on'] else 'low'} because the sector ratio is {'above' if signal['inflation_on'] else 'at or below'} its 200-day SMA, producing the {signal['regime']} allocation.")
         elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
             if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
                 st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
@@ -1055,6 +1059,19 @@ if page == "Signals":
             }])
             st.dataframe(compass_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "T5YIE (lagged)": "{:.4f}", f"T5YIE {window}-day value": "{:.4f}", "Inflation indicator": "{:.6f}", f"{window}-day indicator slope": "{:.8f}"}), use_container_width=True, hide_index=True)
             st.caption(f"T5YIE is read from the prior available trading-day observation. Both confirmation windows use {window} valid trading observations.")
+        elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+            timing_inputs = pd.DataFrame([{
+                "SPY close": signal["SPY_price"],
+                "SPY 200-day SMA": signal["SPY_200d_sma"],
+                "Growth state": "High" if signal["growth_up"] else "Low",
+                "Inflation-positive basket": signal["positive_sector_basket"],
+                "Inflation-negative basket": signal["negative_sector_basket"],
+                "Inflation ratio": signal["inflation_ratio"],
+                "Inflation ratio 200-day SMA": signal["inflation_ratio_200d_sma"],
+                "Inflation state": "High" if signal["inflation_on"] else "Low",
+            }])
+            st.dataframe(timing_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "Inflation-positive basket": "{:.4f}", "Inflation-negative basket": "{:.4f}", "Inflation ratio": "{:.6f}", "Inflation ratio 200-day SMA": "{:.6f}"}), use_container_width=True, hide_index=True)
+            st.caption("The inflation ratio is the equal-weighted inflation-positive sector basket divided by the equal-weighted inflation-negative sector basket. Both states use completed daily data at month-end.")
         else:
             price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
             momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
@@ -1115,7 +1132,9 @@ if page == "Rules":
     missing = monthly[monthly.isna().any(axis=1)]
     st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
-    audit_columns = [f"{asset}_price" for asset in data_assets] + [f"{asset}_13612u" for asset in audit_momentum_assets]
+    audit_columns = [f"{asset}_price" for asset in data_assets]
+    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+        audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):
         audit_columns += [f"{asset}_rank" for asset in strategy.offensive_assets] + ["selected_assets", "target_weights", "previous_weights"]
         if isinstance(strategy, (HAA4, HAA4Leveraged2x)):
@@ -1126,6 +1145,8 @@ if page == "Rules":
         audit_columns += ["SPY_200d_sma", "t5yie_lag_date", "t5yie_lagged", "t5yie_momentum_date", "t5yie_momentum_value", "positive_basket_growth", "negative_basket_growth", "inflation_indicator", "indicator_momentum_slope", "growth_up", "inflation_level", "breakeven_momentum", "asset_momentum", "inflation_on", "target_weights", "previous_weights"]
         if isinstance(strategy, HAAClassicLeveragedNoQQQ):
             audit_columns += ["selected_underlying_assets", "mapped_holding_assets"]
+    if isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+        audit_columns += ["SPY_200d_sma", "positive_sector_basket", "negative_sector_basket", "inflation_ratio", "inflation_ratio_200d_sma", "growth_up", "inflation_on", "target_weights", "previous_weights"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
     audit = result.audit[audit_columns]
     with st.expander("Monthly audit table"):
