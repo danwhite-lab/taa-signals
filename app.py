@@ -18,12 +18,13 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
-from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, TA125SmartMomentum, VAAG4
+from haa.strategies import GrowthInflationConcentrated, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Orthogonal Alpha (BTAL/QLD)": """**Orthogonal Alpha (BTAL/QLD):** Thomas Carlson's monthly core-satellite allocation holds a permanent 25% QLD and 25% BTAL core. The remaining 50% satellite compares BTAL and BIL using equal-weighted 1-, 3-, 6-, and 12-month returns. If BTAL's blended momentum is strictly greater than BIL's, the satellite holds BTAL (25% QLD / 75% BTAL); otherwise, including a tie, it holds QLD (75% QLD / 25% BTAL). The month-end decision takes effect from the next trading day.""",
     "VAA-G4 (T1/B1)": """**VAA-G4 (T1/B1):** At each completed month-end, calculate 13612W for SPY, EFA, EEM, AGG, LQD, IEF, and SHY: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If any offensive asset (SPY, EFA, EEM, AGG) has non-positive momentum, VAA holds 100% of the best defensive asset (LQD, IEF, SHY). Otherwise it holds 100% of the highest-momentum offensive asset. It is deliberately aggressive: `B=1` means one weak offensive asset activates full defense.""",
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
@@ -1027,6 +1028,11 @@ if page == "Signals":
                 st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
             else:
                 st.write(f"{signal['breadth_bad_count']} offensive asset(s) have non-positive 13612W momentum. With B=1, breadth protection is active and VAA holds the best defensive asset: {signal['defensive_winner']}.")
+        elif isinstance(signal_strategy, OrthogonalAlpha):
+            if signal["satellite_asset"] == "BTAL":
+                st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
+            else:
+                st.write("BTAL's blended 1/3/6/12-month momentum is at or below BIL's, so the 50% satellite holds QLD alongside the permanent 25% QLD / 25% BTAL core.")
         elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
             if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
                 st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
@@ -1088,6 +1094,16 @@ if page == "Signals":
             }])
             st.dataframe(vaa_inputs.style.format({column: "{:.6f}" for column in vaa_inputs.columns if column.endswith("13612W")}), use_container_width=True, hide_index=True)
             st.caption("13612W = (12×1-month return + 4×3-month return + 2×6-month return + 12-month return) / 4. Momentum equal to zero is non-positive.")
+        elif isinstance(signal_strategy, OrthogonalAlpha):
+            alpha_inputs = pd.DataFrame([{
+                "BTAL blended momentum": signal["BTAL_13612u"],
+                "BIL blended momentum": signal["BIL_13612u"],
+                "Satellite": signal["satellite_asset"],
+                "Core": "QLD 25% / BTAL 25%",
+                "Target allocation": display_allocation(signal["target_weights"], signal_execution_currency),
+            }])
+            st.dataframe(alpha_inputs.style.format({"BTAL blended momentum": "{:.6f}", "BIL blended momentum": "{:.6f}"}), use_container_width=True, hide_index=True)
+            st.caption("Blended momentum = (1-month return + 3-month return + 6-month return + 12-month return) / 4. A tie allocates the satellite to QLD.")
         else:
             price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
             momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
@@ -1149,7 +1165,7 @@ if page == "Rules":
     st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
-    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4)):
+    if not isinstance(strategy, (GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
         audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):
         audit_columns += [f"{asset}_rank" for asset in strategy.offensive_assets] + ["selected_assets", "target_weights", "previous_weights"]
@@ -1165,6 +1181,8 @@ if page == "Rules":
         audit_columns += ["SPY_200d_sma", "positive_sector_basket", "negative_sector_basket", "inflation_ratio", "inflation_ratio_200d_sma", "growth_up", "inflation_on", "target_weights", "previous_weights"]
     if isinstance(strategy, VAAG4):
         audit_columns += [f"{asset}_13612w" for asset in data_assets] + ["breadth_bad_count", "breadth_threshold", "offensive_winner", "defensive_winner", "target_weights", "previous_weights"]
+    if isinstance(strategy, OrthogonalAlpha):
+        audit_columns += ["BTAL_13612u", "BIL_13612u", "satellite_asset", "target_weights", "previous_weights"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
     audit = result.audit[audit_columns]
     with st.expander("Monthly audit table"):

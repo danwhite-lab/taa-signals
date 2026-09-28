@@ -21,6 +21,7 @@ from .strategies import (
     TA125SmartMomentum,
     GrowthInflationConcentrated,
     GrowthInflationDiversified,
+    OrthogonalAlpha,
     VAAG4,
 )
 
@@ -57,6 +58,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Growth-Inflation Sector Timing", "Concentrated", "Original", "Growth-Inflation Concentrated", GrowthInflationConcentrated),
     ModelDefinition("Growth-Inflation Sector Timing", "Diversified", "Original", "Growth-Inflation Diversified", GrowthInflationDiversified),
     ModelDefinition("VAA", "G4 (T1/B1)", "Original", "VAA-G4 (T1/B1)", VAAG4),
+    ModelDefinition("Tactical Allocation", "Orthogonal Alpha", "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
 )
 
 
