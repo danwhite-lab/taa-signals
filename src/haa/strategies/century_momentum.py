@@ -24,7 +24,7 @@ class CenturyMomentum:
             ParameterSpec("sma_months", 10, (8, 9, 10, 11, 12), "Absolute trend moving-average window for SPMO.", "months"),
         ),
         execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
-        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "data_quality"}),
+        applicable_tests=frozenset({"parameter_sweep", "execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "data_quality"}),
         data_confidence="moderate",
         notes="The live implementation uses SPMO's actual history only. The academic Fama-French extension is not spliced into investable ETF results.",
     )

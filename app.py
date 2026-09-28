@@ -677,7 +677,7 @@ if page == "Research":
     if report is None:
         st.caption("Run the validation to generate standardized execution, cost, tax, period, proxy, and data-quality results.")
     else:
-        summary_tab, execution_tab, periods_tab, proxy_data_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data"])
+        summary_tab, execution_tab, periods_tab, proxy_data_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Robustness Scorecard"])
         with summary_tab:
             complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
             baseline_row = complete.loc[complete["test"] == "baseline"]
@@ -693,7 +693,7 @@ if page == "Research":
                 st.plotly_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
             st.download_button("Download validation scenarios CSV", report.scenarios.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_validation_scenarios.csv", "text/csv")
         with execution_tab:
-            execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["parameter_sweep", "execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift"])]
+            execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["parameter_sweep", "execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift", "signal_perturbation"])]
             st.dataframe(execution_tests, use_container_width=True, hide_index=True)
             st.caption("Parameter and shifted-date scenarios recompute a copied research instance only. Daily-signal strategies remain explicitly unavailable for generic rebalance shifts, rather than treating a later trade as a shifted signal.")
         with periods_tab:
@@ -713,6 +713,13 @@ if page == "Research":
             st.subheader("Data quality and timing")
             st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
             st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
+        with scorecard_tab:
+            overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
+            if not overall.empty:
+                st.metric("Overall robustness", str(overall.iloc[0]["Grade"]))
+            st.caption("This is an evidence summary, not an investment rating. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
+            st.dataframe(report.scorecard, use_container_width=True, hide_index=True)
+            st.download_button("Download robustness scorecard CSV", report.scorecard.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_robustness_scorecard.csv", "text/csv")
     st.stop()
 
 if page == "Backtest":

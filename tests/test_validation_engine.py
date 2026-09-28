@@ -65,6 +65,14 @@ def test_declared_parameter_and_monthly_rebalance_variants_recompute_a_research_
     assert set(parameters["status"]) == {"complete"}
     assert set(shifts["scenario"]) == {"-2 business day(s)", "-1 business day(s)", "+0 business day(s)", "+1 business day(s)", "+2 business day(s)"}
     assert set(shifts["status"]) == {"complete"}
+    perturbation = report.scenarios.loc[report.scenarios["test"] == "signal_perturbation"].iloc[0]
+    assert perturbation["status"] == "complete"
+    assert perturbation["scenario"] == "±10 bps deterministic input noise"
+    assert set(report.scorecard["Category"]) == {
+        "Parameter stability", "Execution robustness", "Costs and tax resilience",
+        "Proxy robustness", "Rolling-period resilience", "Data confidence", "Overall robustness",
+    }
+    assert report.scorecard.loc[report.scorecard["Category"] == "Overall robustness", "Grade"].item() != "Not assessed"
     assert strategy.sma_months == 10
 
 

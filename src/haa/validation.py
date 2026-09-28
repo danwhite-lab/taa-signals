@@ -61,6 +61,7 @@ class ValidationProfile:
     applicable_tests: frozenset[str]
     proxy_substitutions: tuple[ProxySpec, ...] = ()
     rolling_windows_years: tuple[int, ...] = (5, 10, 20)
+    signal_perturbation_bps: tuple[float, ...] = (10.0,)
     data_confidence: str = "moderate"
     notes: str = ""
 
@@ -103,6 +104,7 @@ class ValidationReport:
     rolling_periods: pd.DataFrame
     subperiods: pd.DataFrame
     data_quality: pd.DataFrame
+    scorecard: pd.DataFrame
 
 
 DEFAULT_SUBPERIODS: tuple[tuple[str, str, str], ...] = (
@@ -191,6 +193,83 @@ def _recompute_decisions(input_data: ValidationInput, parameters: Mapping[str, A
             raise ValueError("Daily prices are required to recompute shifted month-end signals.")
         signal_prices = _shifted_monthly_signal_prices(input_data.daily_prices, rebalance_shift_business_days)
     return strategy.decisions(signal_prices)
+
+
+def _perturb_signal_prices(prices: pd.DataFrame, basis_points: float) -> pd.DataFrame:
+    """Apply deterministic, bounded input noise for signal-fragility research.
+
+    Alternating signs by date and asset avoid a uniform rescaling that would
+    leave relative and moving-average signals unchanged.  Execution prices are
+    deliberately untouched: this tests decision sensitivity, not an invented
+    market return path.
+    """
+    multiplier = float(basis_points) / 10_000
+    signs = pd.DataFrame(
+        [[1 if (row + column) % 2 == 0 else -1 for column in range(len(prices.columns))] for row in range(len(prices))],
+        index=prices.index,
+        columns=prices.columns,
+    )
+    return prices * (1 + multiplier * signs)
+
+
+def _grade_delta(delta: float) -> tuple[str, int]:
+    """Grade CAGR loss in percentage points using published, fixed bands."""
+    if delta >= -0.02:
+        return "Good", 3
+    if delta >= -0.05:
+        return "Moderate", 2
+    return "Weak", 1
+
+
+def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame, data_quality: pd.DataFrame, profile: ValidationProfile) -> pd.DataFrame:
+    """Summarise evidence without selecting an optimised strategy setting."""
+    baseline_rows = scenarios.loc[(scenarios.get("test") == "baseline") & (scenarios.get("status") == "complete")] if not scenarios.empty else pd.DataFrame()
+    if baseline_rows.empty:
+        return pd.DataFrame([{"Category": "Overall robustness", "Grade": "Not assessed", "Evidence": "No executable published baseline.", "Score": 0}])
+    baseline_cagr = float(baseline_rows.iloc[0]["CAGR"])
+    rows: list[dict[str, object]] = []
+
+    def scenario_category(label: str, tests: tuple[str, ...]) -> None:
+        relevant = scenarios.loc[scenarios["test"].isin(tests)]
+        complete = relevant.loc[relevant["status"] == "complete"]
+        if complete.empty:
+            rows.append({"Category": label, "Grade": "Not assessed", "Evidence": "No executable declared scenario.", "Score": 0})
+            return
+        worst = float(complete["CAGR"].min())
+        grade, score = _grade_delta(worst - baseline_cagr)
+        rows.append({"Category": label, "Grade": grade, "Evidence": f"Worst completed CAGR {worst:.2%} versus published {baseline_cagr:.2%}.", "Score": score})
+
+    scenario_category("Parameter stability", ("parameter_sweep",))
+    scenario_category("Execution robustness", ("execution_delay", "rebalance_shift", "signal_perturbation"))
+    scenario_category("Costs and tax resilience", ("transaction_cost", "israeli_tax"))
+    scenario_category("Proxy robustness", ("proxy_substitution",))
+
+    complete_rolling = rolling_periods.loc[rolling_periods.get("status") == "complete"] if not rolling_periods.empty else pd.DataFrame()
+    if complete_rolling.empty:
+        rows.append({"Category": "Rolling-period resilience", "Grade": "Not assessed", "Evidence": "No completed rolling windows.", "Score": 0})
+    else:
+        worst = float(complete_rolling["CAGR"].min())
+        grade, score = _grade_delta(worst - baseline_cagr)
+        rows.append({"Category": "Rolling-period resilience", "Grade": grade, "Evidence": f"Worst rolling CAGR {worst:.2%} versus published {baseline_cagr:.2%}.", "Score": score})
+
+    assets = data_quality.loc[data_quality.get("kind") == "asset"] if not data_quality.empty else pd.DataFrame()
+    checks = data_quality.loc[data_quality.get("kind") == "check"] if not data_quality.empty else pd.DataFrame()
+    missing = int(assets["missing_observations"].sum()) if not assets.empty else 0
+    non_positive = int(assets["non_positive_observations"].sum()) if not assets.empty else 0
+    look_ahead_pass = not checks.empty and "pass" in set(checks.get("status", []))
+    if missing == 0 and non_positive == 0 and look_ahead_pass:
+        data_grade, data_score = ("Good", 3)
+    elif non_positive == 0:
+        data_grade, data_score = ("Moderate", 2)
+    else:
+        data_grade, data_score = ("Weak", 1)
+    rows.append({"Category": "Data confidence", "Grade": data_grade, "Evidence": f"Profile confidence: {profile.data_confidence}; missing observations: {missing}; non-positive observations: {non_positive}; look-ahead check: {'pass' if look_ahead_pass else 'not verified'}.", "Score": data_score})
+
+    assessed = [int(row["Score"]) for row in rows if int(row["Score"]) > 0]
+    average = sum(assessed) / len(assessed) if assessed else 0.0
+    overall = "Not assessed" if len(assessed) < 4 else ("A" if average >= 2.75 else "B+" if average >= 2.4 else "B" if average >= 2 else "C" if average >= 1.5 else "D")
+    rows.append({"Category": "Overall robustness", "Grade": overall, "Evidence": f"{len(assessed)} of 6 evidence categories assessed; fixed evidence bands use worst completed CAGR relative to published CAGR.", "Score": round(average, 2)})
+    return pd.DataFrame(rows)
 
 
 def _replace_execution_asset(decisions: pd.DataFrame, source_asset: str, proxy_asset: str) -> pd.DataFrame:
@@ -320,7 +399,9 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
         baseline = _run(input_data, initial_investment)
     except ValueError as exc:
         unavailable = _scenario_row("baseline", "published", None, initial_investment, detail=str(exc))
-        return ValidationReport(pd.DataFrame([unavailable]), pd.DataFrame(), pd.DataFrame(), data_quality_report(input_data))
+        quality = data_quality_report(input_data)
+        scenarios = pd.DataFrame([unavailable])
+        return ValidationReport(scenarios, pd.DataFrame(), pd.DataFrame(), quality, robustness_scorecard(scenarios, pd.DataFrame(), quality, input_data.profile))
     rows.append(_scenario_row("baseline", "published", baseline, initial_investment))
 
     if "execution_delay" in profile.applicable_tests:
@@ -382,6 +463,19 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
             except ValueError as exc:
                 rows.append(_scenario_row("rebalance_shift", f"{shift:+d} business day(s)", None, initial_investment, detail=str(exc)))
 
+    if "signal_perturbation" in profile.applicable_tests:
+        for basis_points in profile.signal_perturbation_bps:
+            try:
+                if input_data.strategy is None or input_data.signal_prices is None:
+                    raise ValueError("This validation input has no strategy recomputation adapter.")
+                perturbed = _perturb_signal_prices(input_data.signal_prices, basis_points)
+                strategy = copy.copy(input_data.strategy)
+                decisions = strategy.decisions(perturbed)
+                result = _run(_with_decisions(input_data, decisions), initial_investment)
+                rows.append(_scenario_row("signal_perturbation", f"±{basis_points:g} bps deterministic input noise", result, initial_investment, detail="Research-only alternating price perturbation; execution prices remain unmodified."))
+            except ValueError as exc:
+                rows.append(_scenario_row("signal_perturbation", f"±{basis_points:g} bps deterministic input noise", None, initial_investment, detail=str(exc)))
+
     if "proxy_substitution" in profile.applicable_tests:
         for proxy in profile.proxy_substitutions:
             scenario = f"{proxy.source_asset} → {proxy.proxy_asset}"
@@ -401,4 +495,8 @@ def run_deterministic_validation(input_data: ValidationInput, initial_investment
                 continue
             values = initial_investment * (1 + returns).cumprod()
             subperiod_rows.append({"test": "subperiod", "scenario": name, "status": "complete", "holding_periods": len(returns), "start": returns.index.min(), "end": returns.index.max(), **performance_metrics(values, initial_investment)})
-    return ValidationReport(pd.DataFrame(rows), pd.DataFrame(rolling), pd.DataFrame(subperiod_rows), data_quality_report(input_data, baseline))
+    scenarios = pd.DataFrame(rows)
+    rolling_frame = pd.DataFrame(rolling)
+    subperiod_frame = pd.DataFrame(subperiod_rows)
+    quality = data_quality_report(input_data, baseline)
+    return ValidationReport(scenarios, rolling_frame, subperiod_frame, quality, robustness_scorecard(scenarios, rolling_frame, quality, profile))

@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..constants import ORTHOGONAL_ALPHA_DATA_ASSETS
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class OrthogonalAlpha:
@@ -18,6 +19,17 @@ class OrthogonalAlpha:
     backtest_available = True
     core_weights = {"QLD": 0.25, "BTAL": 0.25}
     satellite_weight = 0.50
+    validation_profile = ValidationProfile(
+        profile_id="orthogonal-alpha",
+        published_parameters=(
+            ParameterSpec("momentum_formula", "equal-weighted 1/3/6/12-month", (), "BTAL and BIL relative-momentum formula."),
+            ParameterSpec("core_satellite_weights", "25/25/50", (), "Fixed QLD/BTAL core and conditional satellite weights."),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "data_quality"}),
+        data_confidence="moderate",
+        notes="The published core-satellite weights and relative-momentum formula are immutable; this profile declares no parameter sweep.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         missing = set(self.data_assets) - set(monthly_prices.columns)

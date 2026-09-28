@@ -1,12 +1,13 @@
 import pytest
 
-from haa.strategies import HAASimple, InflationCompassStandard, VAAG4
+from haa.strategies import HAASimple, InflationCompassStandard, OrthogonalAlpha, VAAG4
 from haa.validation import ValidationProfile, profile_for
 
 
 @pytest.mark.parametrize("strategy_class, profile_id", [
     (HAASimple, "haa-simple"),
     (InflationCompassStandard, "inflation-compass-standard"),
+    (OrthogonalAlpha, "orthogonal-alpha"),
     (VAAG4, "vaa-g4-t1-b1"),
 ])
 def test_research_profiles_are_discoverable_from_strategy_classes_and_instances(strategy_class, profile_id):
@@ -20,6 +21,7 @@ def test_profile_keeps_published_baseline_and_research_candidates_separate():
     assert window.published_value == 60
     assert window.candidate_values == (40, 50, 60, 70, 80)
     assert "parameter_sweep" in profile.applicable_tests
+    assert "signal_perturbation" in profile.applicable_tests
 
 
 def test_historical_formula_without_declared_variants_cannot_be_swept():
