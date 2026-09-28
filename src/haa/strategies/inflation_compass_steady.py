@@ -26,7 +26,13 @@ class InflationCompassBase:
     positive_weights = {"XLE": 0.5, "XLI": 1 / 6, "XLF": 1 / 6, "XLB": 1 / 6}
     negative_weights = {"XLU": 1 / 3, "XLV": 1 / 3, "XLP": 1 / 3}
 
-    def decisions(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
+    def decisions(self, daily_prices: pd.DataFrame, decision_dates: pd.DatetimeIndex | None = None) -> pd.DataFrame:
+        """Calculate decisions on production month-ends or supplied research dates.
+
+        ``decision_dates`` is intentionally available for validation only: all
+        indicators continue to use the complete daily history, while the final
+        regime is evaluated on real shifted NYSE trading dates.
+        """
         missing = set(self.data_assets) - set(daily_prices.columns)
         if missing:
             raise ValueError(f"{self.name} is missing assets: {sorted(missing)}")
@@ -49,12 +55,16 @@ class InflationCompassBase:
 
         as_of = pd.Timestamp.now(tz="UTC").tz_localize(None)
         completed_period = as_of.to_period("M") - 1
-        market_dates = market.index[market.index.to_period("M") <= completed_period]
-        decision_dates = market_dates.to_series().groupby(market_dates.to_period("M")).tail(1)
+        if decision_dates is None:
+            market_dates = market.index[market.index.to_period("M") <= completed_period]
+            selected_dates = market_dates.to_series().groupby(market_dates.to_period("M")).tail(1)
+        else:
+            requested = pd.DatetimeIndex(decision_dates)
+            selected_dates = requested[(requested.isin(market.index)) & (requested.to_period("M") <= completed_period)]
         rows: list[dict] = []
         previous_weights: dict[str, float] = {}
 
-        for date in pd.DatetimeIndex(decision_dates):
+        for date in pd.DatetimeIndex(selected_dates):
             # Strictly earlier means a live month-end decision never relies on
             # that day's potentially unpublished FRED observation.
             available_fred = fred.loc[fred.index < date]
@@ -111,6 +121,10 @@ class InflationCompassBase:
             })
             previous_weights = weights
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+    def decisions_at_dates(self, daily_prices: pd.DataFrame, decision_dates: pd.DatetimeIndex) -> pd.DataFrame:
+        """Explicit research adapter for shifted monthly decision dates."""
+        return self.decisions(daily_prices, decision_dates=decision_dates)
 
 
 class InflationCompassSteady(InflationCompassBase):

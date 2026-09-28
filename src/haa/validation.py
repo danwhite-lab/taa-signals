@@ -189,6 +189,18 @@ def _shifted_monthly_signal_prices(daily_prices: pd.DataFrame, shift_business_da
     return prices.loc[pd.DatetimeIndex(sampled_dates)].loc[lambda frame: ~frame.index.duplicated(keep="last")]
 
 
+def _shifted_month_end_dates(daily_prices: pd.DataFrame, shift_business_days: int) -> pd.DatetimeIndex:
+    """Return actual shifted trading dates, one per completed calendar month."""
+    prices = daily_prices.sort_index()
+    sampled_dates: list[pd.Timestamp] = []
+    for _, dates in prices.index.to_series().groupby(prices.index.to_period("M")):
+        month_end = dates.iloc[-1]
+        position = prices.index.get_indexer([month_end])[0] + shift_business_days
+        if 0 <= position < len(prices.index):
+            sampled_dates.append(prices.index[position])
+    return pd.DatetimeIndex(sampled_dates).drop_duplicates()
+
+
 def _recompute_decisions(input_data: ValidationInput, parameters: Mapping[str, Any] | None = None, rebalance_shift_business_days: int | None = None) -> pd.DataFrame:
     """Recompute a declared research variant from copied strategy state."""
     if input_data.strategy is None or input_data.signal_prices is None:
@@ -201,7 +213,10 @@ def _recompute_decisions(input_data: ValidationInput, parameters: Mapping[str, A
     signal_prices = input_data.signal_prices
     if rebalance_shift_business_days is not None:
         if getattr(strategy, "uses_daily_signals", False):
-            raise ValueError("Daily-signal strategies require a strategy-specific rebalance-date adapter.")
+            if input_data.daily_prices is None or not hasattr(strategy, "decisions_at_dates"):
+                raise ValueError("Daily-signal strategies require a strategy-specific rebalance-date adapter.")
+            dates = _shifted_month_end_dates(input_data.daily_prices, rebalance_shift_business_days)
+            return strategy.decisions_at_dates(signal_prices, dates)
         if input_data.daily_prices is None:
             raise ValueError("Daily prices are required to recompute shifted month-end signals.")
         signal_prices = _shifted_monthly_signal_prices(input_data.daily_prices, rebalance_shift_business_days)
