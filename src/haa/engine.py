@@ -26,6 +26,7 @@ def run_backtest(
     end: pd.Timestamp | None = None,
     daily_prices: pd.DataFrame | None = None,
     benchmark_asset: str = "SPY",
+    execution_delay_business_days: int = 0,
 ) -> BacktestResult:
     """Execute one allocation for the month following each signal.
 
@@ -34,8 +35,10 @@ def run_backtest(
     exits at the next month's corresponding execution close. The last decision
     has no future holding period and is excluded.
     """
+    if execution_delay_business_days < 0:
+        raise ValueError("Execution delay must be zero or a positive number of business days.")
     if "target_weights" in decisions.columns:
-        return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset)
+        return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset, execution_delay_business_days)
     if decisions.empty:
         raise ValueError("No valid signals: at least 13 complete month-end observations are required.")
     prices = monthly_prices.sort_index()
@@ -59,7 +62,10 @@ def run_backtest(
             exit_candidates = execution_prices.index[(execution_prices.index > next_signal_date) & complete_days]
             if not len(execution_candidates) or not len(exit_candidates):
                 continue
-            execution_date, holding_end = execution_candidates.min(), exit_candidates.min()
+            if len(execution_candidates) <= execution_delay_business_days or len(exit_candidates) <= execution_delay_business_days:
+                continue
+            execution_date = execution_candidates[execution_delay_business_days]
+            holding_end = exit_candidates[execution_delay_business_days]
         if start is not None and holding_end < pd.Timestamp(start):
             continue
         if end is not None and holding_end > pd.Timestamp(end):
@@ -127,6 +133,7 @@ def _run_weighted_backtest(
     end: pd.Timestamp | None,
     daily_prices: pd.DataFrame | None,
     benchmark_asset: str,
+    execution_delay_business_days: int,
 ) -> BacktestResult:
     """Execute target-weight portfolios while preserving single-asset engine behavior.
 
@@ -157,7 +164,10 @@ def _run_weighted_backtest(
             exit_candidates = execution_prices.index[(execution_prices.index > next_signal_date) & complete_days]
             if not len(execution_candidates) or not len(exit_candidates):
                 continue
-            execution_date, holding_end = execution_candidates.min(), exit_candidates.min()
+            if len(execution_candidates) <= execution_delay_business_days or len(exit_candidates) <= execution_delay_business_days:
+                continue
+            execution_date = execution_candidates[execution_delay_business_days]
+            holding_end = exit_candidates[execution_delay_business_days]
         if start is not None and holding_end < pd.Timestamp(start):
             continue
         if end is not None and holding_end > pd.Timestamp(end):
