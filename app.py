@@ -670,13 +670,17 @@ if page == "Research":
         decision_prices,
     )
     if st.button("Run Full Validation", type="primary", key="run_full_validation"):
-        st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
+        with st.spinner("Running deterministic validation and block-bootstrap scenarios…"):
+            st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
         st.session_state["research_report_model"] = model_name
+        st.session_state["research_report_completed"] = model_name
 
     report = st.session_state.get("research_report") if st.session_state.get("research_report_model") == model_name else None
     if report is None:
         st.caption("Run the validation to generate standardized execution, cost, tax, period, proxy, and data-quality results.")
     else:
+        if st.session_state.get("research_report_completed") == model_name:
+            st.success("Validation completed. The results below are based on the currently selected model and data.")
         summary_tab, execution_tab, periods_tab, proxy_data_tab, monte_carlo_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Monte Carlo", "Robustness Scorecard"])
         with summary_tab:
             complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
