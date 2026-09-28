@@ -47,3 +47,7 @@ def test_requires_twelve_completed_month_ends_and_executes_after_signal_month():
     assert first["signal_date"] < first["execution_date"]
     assert first["execution_date"] == pd.Timestamp("2024-02-01")
     assert all(sum(weights.values()) == pytest.approx(1.0) for weights in decisions["target_weights"])
+
+
+def test_data_contract_includes_spy_for_the_signals_page_benchmark_and_execution_dates():
+    assert OrthogonalAlpha.benchmark_asset in OrthogonalAlpha.data_assets
