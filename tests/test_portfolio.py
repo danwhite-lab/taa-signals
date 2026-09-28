@@ -63,6 +63,7 @@ def test_holdings_are_grouped_by_execution_currency():
 def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_logic():
     assert execution_security_label("CSPX_IL", "ILS") == "CSPX — 1159250"
     assert execution_security_label("IEF_IL", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
+    assert execution_security_label("SPMO_IL", "ILS") == "MTF Tracking S&P 500 Momentum (4D) — 5140850"
     assert execution_security_label("AYALON_KASPIT", "ILS") == "Keren Kaspit — 5136866"
     assert execution_security_label("XLE", "ILS") == "XLE — KSM ETF S&P Energy — 1145903"
     assert execution_security_label("XLK", "ILS") == "XLK — iShares S&P 500 IT UCITS — 1159193"

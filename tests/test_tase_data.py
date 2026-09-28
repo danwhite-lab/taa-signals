@@ -23,6 +23,7 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
     assert TASE_ISRAEL_ASSET_IDS == {
         "CSPX_IL": "1159250",
         "IEF_IL": "1159268",
+        "SPMO_IL": "5140850",
         "AYALON_KASPIT": "5136866",
         "TA125_SMART_MOMENTUM": "5134713",
         "XLE_IL": "1145903",

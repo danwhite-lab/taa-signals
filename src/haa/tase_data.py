@@ -15,6 +15,7 @@ import pandas as pd
 TASE_ISRAEL_ASSET_IDS = {
     "CSPX_IL": "1159250",
     "IEF_IL": "1159268",
+    "SPMO_IL": "5140850",
     "AYALON_KASPIT": "5136866",
     "TA125_SMART_MOMENTUM": "5134713",
     "XLE_IL": "1145903",
@@ -22,7 +23,7 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLV_IL": "1150390",
     "XLP_IL": "1150366",
 }
-TASE_ETF_ASSETS = frozenset({"CSPX_IL", "IEF_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
+TASE_ETF_ASSETS = frozenset({"CSPX_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
 PUBLIC_HISTORY_YEARS = 5
 
 

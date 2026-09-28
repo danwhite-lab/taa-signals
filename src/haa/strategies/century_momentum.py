@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..constants import CENTURY_MOMENTUM_DATA_ASSETS
+from ..constants import CENTURY_MOMENTUM_DATA_ASSETS, CENTURY_MOMENTUM_ISRAEL_DATA_ASSETS
 from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
@@ -14,6 +14,8 @@ class CenturyMomentum:
     data_assets = CENTURY_MOMENTUM_DATA_ASSETS
     signal_assets = ("SPMO",)
     benchmark_asset = "SPY"
+    equity_asset = "SPMO"
+    defensive_asset = "IEF"
     sma_months = 10
     backtest_available = True
     validation_profile = ValidationProfile(
@@ -32,20 +34,20 @@ class CenturyMomentum:
         if missing:
             raise ValueError(f"{self.name} is missing assets: {sorted(missing)}")
         prices = monthly_prices.loc[:, self.data_assets]
-        spmo_sma = prices["SPMO"].rolling(self.sma_months, min_periods=self.sma_months).mean()
+        equity_sma = prices[self.equity_asset].rolling(self.sma_months, min_periods=self.sma_months).mean()
         rows: list[dict[str, object]] = []
         previous: str | None = None
         for date, values in prices.iterrows():
-            sma = spmo_sma.loc[date]
+            sma = equity_sma.loc[date]
             if values.isna().any() or pd.isna(sma):
                 continue
             # Equal means the trend filter is not satisfied and selects IEF.
-            selected = "SPMO" if values["SPMO"] > sma else "IEF"
+            selected = self.equity_asset if values[self.equity_asset] > sma else self.defensive_asset
             rows.append({
                 "signal_date": date,
                 **{f"{asset}_price": values[asset] for asset in self.data_assets},
-                "SPMO_10m_sma": float(sma),
-                "trend_up": selected == "SPMO",
+                f"{self.equity_asset}_10m_sma": float(sma),
+                "trend_up": selected == self.equity_asset,
                 "regime": "risk-on" if selected == "SPMO" else "risk-off",
                 "selected_asset": selected,
                 "previous_asset": previous,
@@ -53,3 +55,14 @@ class CenturyMomentum:
             })
             previous = selected
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+
+class CenturyMomentumIsrael(CenturyMomentum):
+    """Century Momentum executed through its TASE-listed ILS funds."""
+
+    name = "Century Momentum Israel"
+    data_assets = CENTURY_MOMENTUM_ISRAEL_DATA_ASSETS
+    signal_assets = ("SPMO_IL",)
+    benchmark_asset = "SPMO_IL"
+    equity_asset = "SPMO_IL"
+    defensive_asset = "IEF_IL"

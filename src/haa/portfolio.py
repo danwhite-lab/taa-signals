@@ -12,6 +12,7 @@ SUPPORTED_CURRENCIES = ("USD", "ILS")
 EXECUTION_SECURITY_LABELS = {
     ("ILS", "CSPX_IL"): "CSPX — 1159250",
     ("ILS", "IEF_IL"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
+    ("ILS", "SPMO_IL"): "MTF Tracking S&P 500 Momentum (4D) — 5140850",
     ("ILS", "AYALON_KASPIT"): "Keren Kaspit — 5136866",
     ("ILS", "IEF"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
     ("ILS", "XLK"): "XLK — iShares S&P 500 IT UCITS — 1159193",
