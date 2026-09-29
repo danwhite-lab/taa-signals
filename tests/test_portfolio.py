@@ -1,6 +1,6 @@
 import pytest
 
-from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
+from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, execution_security_label, export_portfolio_config, funding_plan, import_portfolio_config, total_weight
 
 
 def test_aggregate_holdings_combines_duplicate_and_multi_asset_sleeves():
@@ -73,3 +73,15 @@ def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_log
     assert execution_security_label("IEF", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
     assert execution_security_label("BIL", "USD") == "BIL USD - 5139076"
     assert execution_security_label("SPY", "USD") == "SPY"
+
+
+def test_portfolio_config_round_trips_the_user_inputs():
+    content = export_portfolio_config("Income mix", [{"model": "HAA-Simple", "weight": 60}, {"model": "VAA-G4 (T1/B1)", "weight": 40}], 250_000, 3.7)
+    restored = import_portfolio_config(content, {"HAA-Simple", "VAA-G4 (T1/B1)"})
+    assert restored == {"name": "Income mix", "sleeves": [{"model": "HAA-Simple", "weight": 60.0}, {"model": "VAA-G4 (T1/B1)", "weight": 40.0}], "total_ils": 250_000.0, "ils_per_usd": 3.7}
+
+
+def test_portfolio_config_rejects_unknown_models():
+    content = export_portfolio_config("Test", [{"model": "Removed model", "weight": 100}], 1, 3.7)
+    with pytest.raises(ValueError, match="unknown model"):
+        import_portfolio_config(content, {"HAA-Simple"})

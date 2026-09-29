@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import json
 from typing import Iterable, Mapping
 
 
 SUPPORTED_CURRENCIES = ("USD", "ILS")
+PORTFOLIO_CONFIG_VERSION = 1
 
 # Execution labels are deliberately separate from canonical strategy asset
 # codes.  The latter remain stable for data retrieval and signal calculation.
@@ -96,3 +98,48 @@ def funding_plan(
         "required": required,
         "sleeves": sleeve_allocations,
     }
+
+
+def export_portfolio_config(name: str, sleeves: Iterable[Mapping[str, object]], total_ils: float, ils_per_usd: float) -> bytes:
+    """Create a portable, user-owned portfolio configuration file."""
+    payload = {
+        "version": PORTFOLIO_CONFIG_VERSION,
+        "name": str(name).strip() or "Portfolio",
+        "total_ils": float(total_ils),
+        "ils_per_usd": float(ils_per_usd),
+        "sleeves": [{"model": str(sleeve["model"]), "weight": float(sleeve["weight"])} for sleeve in sleeves],
+    }
+    return json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+
+
+def import_portfolio_config(content: bytes, valid_models: Iterable[str]) -> dict[str, object]:
+    """Validate a saved configuration before it can replace an active portfolio."""
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Saved portfolio must be a valid UTF-8 JSON file.") from exc
+    if not isinstance(payload, dict) or payload.get("version") != PORTFOLIO_CONFIG_VERSION:
+        raise ValueError("This is not a supported portfolio configuration file.")
+    valid = set(valid_models)
+    sleeves = payload.get("sleeves")
+    if not isinstance(sleeves, list) or not sleeves:
+        raise ValueError("Saved portfolio must contain at least one sleeve.")
+    restored = []
+    for sleeve in sleeves:
+        if not isinstance(sleeve, dict) or sleeve.get("model") not in valid:
+            raise ValueError("Saved portfolio contains an unknown model.")
+        try:
+            weight = float(sleeve["weight"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Each saved sleeve needs a numeric weight.") from exc
+        if not 0 <= weight <= 100:
+            raise ValueError("Each saved sleeve weight must be between 0% and 100%.")
+        restored.append({"model": sleeve["model"], "weight": weight})
+    try:
+        total_ils = float(payload["total_ils"])
+        ils_per_usd = float(payload["ils_per_usd"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Saved portfolio is missing a valid capital or FX value.") from exc
+    if total_ils < 0 or ils_per_usd <= 0:
+        raise ValueError("Saved portfolio contains invalid capital or FX values.")
+    return {"name": str(payload.get("name") or "Portfolio"), "sleeves": restored, "total_ils": total_ils, "ils_per_usd": ils_per_usd}
