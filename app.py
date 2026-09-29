@@ -853,6 +853,27 @@ def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
         return None, error
 
 
+def restore_portfolio_configuration(restored: dict) -> None:
+    """Replace the active Portfolio controls with a validated saved configuration."""
+    restored_sleeves = []
+    for sleeve_id, sleeve in enumerate(restored["sleeves"], start=1):
+        definition = definition_for_label(sleeve["model"])
+        prefix = f"portfolio_{sleeve_id}"
+        st.session_state[f"{prefix}_strategy"] = definition.strategy
+        st.session_state[f"{prefix}_variant"] = definition.variant
+        st.session_state[f"{prefix}_implementation"] = definition.implementation
+        restored_sleeves.append({"id": sleeve_id, "weight": sleeve["weight"], "model": sleeve["model"], "currency": definition.execution_currency})
+    st.session_state["portfolio_sleeves"] = restored_sleeves
+    st.session_state["portfolio_next_id"] = len(restored_sleeves) + 1
+    st.session_state["portfolio_total_ils"] = restored["total_ils"]
+    st.session_state["portfolio_fx_rate"] = restored["ils_per_usd"]
+
+
+def portfolio_gist_credentials() -> tuple[str | None, str | None, str]:
+    settings = st.secrets.get("portfolio_gist", {})
+    return settings.get("token"), settings.get("id"), settings.get("filename", "portfolio.json")
+
+
 if page == "Portfolio":
     gist_token, gist_id, gist_filename = portfolio_gist_credentials()
     if gist_token and gist_id and not st.session_state.get("portfolio_gist_loaded"):
