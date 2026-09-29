@@ -60,7 +60,21 @@ ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.va
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS))
 
-st.set_page_config(page_title="TAA Signals", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="TAA Signals",
+    page_icon="static/taa-signals-icon-512.png",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+st.markdown(
+    """
+    <link rel="apple-touch-icon" sizes="180x180" href="/app/static/apple-touch-icon.png">
+    <link rel="manifest" href="/app/static/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    """,
+    unsafe_allow_html=True,
+)
 st.markdown("""
 <style>
 .block-container { padding-top: 0.8rem !important; }
