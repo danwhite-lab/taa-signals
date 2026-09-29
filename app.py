@@ -16,7 +16,7 @@ from haa.data import combine_replacements, common_monthly_period, date_ranges, d
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
-from haa.portfolio import PortfolioGistError, aggregate_holdings_by_currency, convert_currency, execution_security_label, export_portfolio_config, funding_plan, import_portfolio_config, load_portfolio_from_gist, save_portfolio_to_gist, total_weight
+from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
 from haa.strategies import CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
@@ -892,58 +892,10 @@ def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
         return None, error
 
 
-def restore_portfolio_configuration(restored: dict) -> None:
-    """Replace the active Portfolio controls with a validated saved configuration."""
-    restored_sleeves = []
-    for sleeve_id, sleeve in enumerate(restored["sleeves"], start=1):
-        definition = definition_for_label(sleeve["model"])
-        prefix = f"portfolio_{sleeve_id}"
-        st.session_state[f"{prefix}_strategy"] = definition.strategy
-        st.session_state[f"{prefix}_variant"] = definition.variant
-        st.session_state[f"{prefix}_implementation"] = definition.implementation
-        restored_sleeves.append({"id": sleeve_id, "weight": sleeve["weight"], "model": sleeve["model"], "currency": definition.execution_currency})
-    st.session_state["portfolio_sleeves"] = restored_sleeves
-    st.session_state["portfolio_next_id"] = len(restored_sleeves) + 1
-    st.session_state["portfolio_total_ils"] = restored["total_ils"]
-    st.session_state["portfolio_fx_rate"] = restored["ils_per_usd"]
-
-
-def portfolio_gist_credentials() -> tuple[str | None, str | None, str]:
-    settings = st.secrets.get("portfolio_gist", {})
-    return settings.get("token"), settings.get("id"), settings.get("filename", "portfolio.json")
-
 
 if page == "Portfolio":
-    gist_token, gist_id, gist_filename = portfolio_gist_credentials()
-    if gist_token and gist_id and not st.session_state.get("portfolio_gist_loaded"):
-        st.session_state["portfolio_gist_loaded"] = True
-        try:
-            restore_portfolio_configuration(import_portfolio_config(load_portfolio_from_gist(gist_token, gist_id, gist_filename), MODEL_OPTIONS))
-            st.rerun()
-        except (ValueError, PortfolioGistError) as exc:
-            st.session_state["portfolio_gist_status"] = str(exc)
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
-    with st.expander("Save or load portfolio"):
-        saved_portfolio = st.file_uploader("Load portfolio JSON", type="json", key="portfolio_saved_file")
-        if saved_portfolio is not None and st.button("Load portfolio", key="portfolio_load_saved"):
-            try:
-                restored = import_portfolio_config(saved_portfolio.getvalue(), MODEL_OPTIONS)
-                restored_sleeves = []
-                for sleeve_id, sleeve in enumerate(restored["sleeves"], start=1):
-                    definition = definition_for_label(sleeve["model"])
-                    prefix = f"portfolio_{sleeve_id}"
-                    st.session_state[f"{prefix}_strategy"] = definition.strategy
-                    st.session_state[f"{prefix}_variant"] = definition.variant
-                    st.session_state[f"{prefix}_implementation"] = definition.implementation
-                    restored_sleeves.append({"id": sleeve_id, "weight": sleeve["weight"], "model": sleeve["model"], "currency": definition.execution_currency})
-                st.session_state["portfolio_sleeves"] = restored_sleeves
-                st.session_state["portfolio_next_id"] = len(restored_sleeves) + 1
-                st.session_state["portfolio_total_ils"] = restored["total_ils"]
-                st.session_state["portfolio_fx_rate"] = restored["ils_per_usd"]
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
     with st.container(key="portfolio-investment-settings"):
         # Keep a third, deliberately empty column so this row replaces all
@@ -999,29 +951,6 @@ if page == "Portfolio":
         st.session_state["portfolio_sleeves"] = updated_sleeves[:-1]
         st.rerun()
 
-    with st.expander("Cloud portfolio", expanded=True):
-        if not gist_token or not gist_id:
-            st.info("Cloud saving is not configured yet. Add a private GitHub Gist token and Gist ID to Streamlit Secrets.")
-        else:
-            if st.session_state.get("portfolio_gist_status"):
-                st.caption(st.session_state["portfolio_gist_status"])
-            save_column, reload_column = st.columns(2)
-            with save_column:
-                if st.button("Save portfolio online", key="portfolio_save_gist"):
-                    try:
-                        save_portfolio_to_gist(gist_token, gist_id, export_portfolio_config("My portfolio", updated_sleeves, total_ils, ils_per_usd), gist_filename)
-                        st.session_state["portfolio_gist_status"] = "Portfolio saved online."
-                        st.rerun()
-                    except PortfolioGistError as exc:
-                        st.error(str(exc))
-            with reload_column:
-                if st.button("Reload saved portfolio", key="portfolio_reload_gist"):
-                    try:
-                        restore_portfolio_configuration(import_portfolio_config(load_portfolio_from_gist(gist_token, gist_id, gist_filename), MODEL_OPTIONS))
-                        st.session_state["portfolio_gist_status"] = "Portfolio reloaded from cloud storage."
-                        st.rerun()
-                    except (ValueError, PortfolioGistError) as exc:
-                        st.error(str(exc))
     sleeve_total = total_weight(updated_sleeves)
     plan = funding_plan(updated_sleeves, total_ils, ils_per_usd)
     for sleeve in updated_sleeves:
