@@ -4,6 +4,23 @@ from __future__ import annotations
 import pandas as pd
 
 from ..constants import GROWTH_INFLATION_ASSETS, GROWTH_INFLATION_ISRAEL_DATA_ASSETS
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
+
+
+def _validation_profile(profile_id: str, notes: str, data_confidence: str = "moderate") -> ValidationProfile:
+    return ValidationProfile(
+        profile_id=profile_id,
+        published_parameters=(
+            ParameterSpec("growth_sma_window", 200, (), "SPY absolute-trend moving-average window."),
+            ParameterSpec("inflation_ratio_sma_window", 200, (), "Inflation-positive/negative sector-ratio moving-average window."),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the final NYSE signal date", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        # Daily-signal rebalance shifts require an explicit strategy adapter;
+        # no approximate monthly substitute is declared here.
+        applicable_tests=frozenset({"execution_delay", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        data_confidence=data_confidence,
+        notes=notes,
+    )
 
 
 class GrowthInflationBase:
@@ -77,6 +94,7 @@ class GrowthInflationConcentrated(GrowthInflationBase):
         (False, True): ("stagflation", {"XLV": 1.0}),
         (False, False): ("deflation", {"XLP": 1.0}),
     }
+    validation_profile = _validation_profile("growth-inflation-concentrated", "The published 200-day signals and fixed quadrant allocations are immutable; this profile declares no parameter sweep.")
 
 
 class GrowthInflationDiversified(GrowthInflationBase):
@@ -89,6 +107,7 @@ class GrowthInflationDiversified(GrowthInflationBase):
         (False, True): ("stagflation", {"XLE": 0.5, "XLB": 0.5}),
         (False, False): ("deflation", {"XLV": 0.5, "XLP": 0.5}),
     }
+    validation_profile = _validation_profile("growth-inflation-diversified", "The published 200-day signals and fixed 50/50 quadrant pairs are immutable; this profile declares no parameter sweep.")
 
 
 class GrowthInflationConcentratedIsrael(GrowthInflationConcentrated):
@@ -105,3 +124,4 @@ class GrowthInflationConcentratedIsrael(GrowthInflationConcentrated):
         (False, True): ("stagflation", {"XLV_IL": 1.0}),
         (False, False): ("deflation", {"XLP_IL": 1.0}),
     }
+    validation_profile = _validation_profile("growth-inflation-concentrated-israel", "The original U.S. 200-day signals are immutable; research tests the real TASE execution holdings without synthetic history.", "moderate")

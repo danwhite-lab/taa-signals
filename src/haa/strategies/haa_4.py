@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..constants import HAA4_DATA_ASSETS, HAA4_DEFENSIVE_ASSETS, HAA4_OFFENSIVE_ASSETS
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class HAA4:
@@ -20,6 +21,13 @@ class HAA4:
     offensive_assets = HAA4_OFFENSIVE_ASSETS
     defensive_assets = HAA4_DEFENSIVE_ASSETS
     is_multi_asset = True
+    validation_profile = ValidationProfile(
+        profile_id="haa-4",
+        published_parameters=(ParameterSpec("momentum_formula", "13612U / Top-2", (), "Published TIP gate, Top-2 ranking, and sleeve-level absolute-momentum replacement."),),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        notes="The published TIP gate, Top-2 count, and 13612U formula are immutable; this profile declares no parameter sweep.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         missing = set(self.data_assets) - set(monthly_prices.columns)

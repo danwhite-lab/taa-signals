@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..constants import CLASSIC_DATA_ASSETS, CLASSIC_DEFENSIVE_ASSETS, CLASSIC_OFFENSIVE_ASSETS
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class HAAClassicNoQQQ:
@@ -15,6 +16,13 @@ class HAAClassicNoQQQ:
     offensive_assets = CLASSIC_OFFENSIVE_ASSETS
     defensive_assets = CLASSIC_DEFENSIVE_ASSETS
     is_multi_asset = True
+    validation_profile = ValidationProfile(
+        profile_id="haa-classic-no-qqq",
+        published_parameters=(ParameterSpec("momentum_formula", "13612U / Top-4", (), "Published TIP gate and equal-weighted Top-4 offensive allocation without QQQ."),),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        notes="The published universe, Top-4 selection, and 13612U formula are immutable; this profile declares no parameter sweep.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         missing = set(self.data_assets) - set(monthly_prices.columns)

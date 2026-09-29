@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ..constants import TA125_SMART_MOMENTUM_ASSET
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class TA125SmartMomentum:
@@ -17,6 +18,14 @@ class TA125SmartMomentum:
     strategy_mode = "buy_and_hold"
     signal_mode = "internal"
     backtest_available = True
+    validation_profile = ValidationProfile(
+        profile_id="ta125-smart-momentum-buy-and-hold",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "The fund's underlying index manages momentum internally; the investor does not run a timing rule."),),
+        execution=ExecutionSpec("continuous", "Fund remains continuously invested", (0,), (0,)),
+        applicable_tests=frozenset({"alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "block_bootstrap", "data_quality"}),
+        data_confidence="limited",
+        notes="There is no investor-level signal, parameter, or rebalance-date test. Research evaluates the real fund history and continuous-holding implementation only.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         """Remain fully invested whenever fund and benchmark prices are available."""

@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..constants import ISRAEL_SIMPLE_ASSETS
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class HAASimpleIsrael:
@@ -17,6 +18,14 @@ class HAASimpleIsrael:
     equity_asset = "CSPX_IL"
     defensive_bond_asset = "IEF_IL"
     defensive_cash_asset = "AYALON_KASPIT"
+    validation_profile = ValidationProfile(
+        profile_id="haa-simple-israel",
+        published_parameters=(ParameterSpec("momentum_formula", "13612U", (), "Published TIP canary with CSPX, IEF, and Ayalon Kaspit local execution sleeves."),),
+        execution=ExecutionSpec("monthly", "Next available TASE trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        data_confidence="moderate",
+        notes="The published 13612U formula and the real TASE/Maya sleeves are immutable; this profile declares no parameter sweep or synthetic cash proxy.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         missing = set(self.data_assets) - set(monthly_prices.columns)

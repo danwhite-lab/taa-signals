@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from ..constants import LEVERAGED_ASSETS
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 from .haa_simple import HAASimple
 
 
@@ -14,6 +15,13 @@ class HAASimpleLeveraged2x(HAASimple):
     risk_on_asset = "SSO"
     data_assets = ("SPY", "TIP", "IEF", "BIL", *LEVERAGED_ASSETS)
     risk_warning = "High-drawdown satellite, not a core holding."
+    validation_profile = ValidationProfile(
+        profile_id="haa-simple-leveraged-2x",
+        published_parameters=(ParameterSpec("momentum_formula", "13612U", (), "Published SPY/TIP gate and IEF/BIL defense; SSO is a fixed risk-on execution holding."),),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        notes="The published HAA-Simple rule and fixed SSO execution mapping are immutable; this profile declares no parameter sweep.",
+    )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
         if "SSO" not in monthly_prices.columns:

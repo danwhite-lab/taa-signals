@@ -11,6 +11,7 @@ from ..constants import (
     HAA4_OFFENSIVE_ASSETS,
 )
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class HAA4Leveraged2x:
@@ -31,6 +32,13 @@ class HAA4Leveraged2x:
     risk_warning = (
         "High-drawdown leveraged satellite, not a core holding. Signals use "
         "unleveraged HAA-4 assets; 2x ETFs target daily, not monthly, returns."
+    )
+    validation_profile = ValidationProfile(
+        profile_id="haa-4-leveraged-2x",
+        published_parameters=(ParameterSpec("momentum_formula", "13612U / Top-2", (), "Published unleveraged signal logic; only execution holdings are mapped to 2x ETFs."),),
+        execution=ExecutionSpec("monthly", "Next available trading-day close after the month-end signal", (0, 1, 2), (-2, -1, 0, 1, 2)),
+        applicable_tests=frozenset({"execution_delay", "rebalance_shift", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "signal_perturbation", "block_bootstrap", "data_quality"}),
+        notes="Leverage mapping and the published HAA-4 decision rule are immutable; this profile declares no parameter sweep.",
     )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:

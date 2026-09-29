@@ -1,5 +1,6 @@
 import pytest
 
+from haa.model_catalog import MODEL_CATALOG
 from haa.strategies import HAASimple, InflationCompassStandard, OrthogonalAlpha, VAAG4
 from haa.validation import ValidationProfile, profile_for
 
@@ -42,3 +43,8 @@ def test_profile_is_immutable_and_unprofiled_strategies_are_explicit():
         pass
 
     assert profile_for(Unprofiled) is None
+
+
+def test_every_catalogued_strategy_declares_a_validation_profile():
+    missing = [definition.label for definition in MODEL_CATALOG if profile_for(definition.model_class) is None]
+    assert missing == []
