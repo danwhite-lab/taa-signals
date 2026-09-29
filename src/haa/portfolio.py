@@ -143,3 +143,35 @@ def import_portfolio_config(content: bytes, valid_models: Iterable[str]) -> dict
     if total_ils < 0 or ils_per_usd <= 0:
         raise ValueError("Saved portfolio contains invalid capital or FX values.")
     return {"name": str(payload.get("name") or "Portfolio"), "sleeves": restored, "total_ils": total_ils, "ils_per_usd": ils_per_usd}
+
+
+class PortfolioGistError(RuntimeError):
+    """Raised when the private Gist portfolio store cannot be used."""
+
+
+def _gist_request(token: str, gist_id: str, method: str = "GET", payload: dict | None = None) -> dict:
+    from urllib.error import HTTPError, URLError
+    from urllib.request import Request, urlopen
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(f"https://api.github.com/gists/{gist_id}", data=body, method=method, headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}", "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise PortfolioGistError("Could not reach the private portfolio store. Check the GitHub Gist settings and try again.") from exc
+
+
+def load_portfolio_from_gist(token: str, gist_id: str, filename: str = "portfolio.json") -> bytes:
+    response = _gist_request(token, gist_id)
+    file = response.get("files", {}).get(filename)
+    if not isinstance(file, dict) or not isinstance(file.get("content"), str):
+        raise PortfolioGistError("No saved portfolio exists in the configured private Gist yet.")
+    return file["content"].encode("utf-8")
+
+
+def save_portfolio_to_gist(token: str, gist_id: str, content: bytes, filename: str = "portfolio.json") -> None:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PortfolioGistError("Portfolio content must be UTF-8 text.") from exc
+    _gist_request(token, gist_id, "PATCH", {"files": {filename: {"content": text}}})
