@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, TA125_SMART_MOMENTUM_ASSET
@@ -66,14 +67,38 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-st.markdown(
+components.html(
     """
-    <link rel="apple-touch-icon" sizes="180x180" href="/app/static/apple-touch-icon.png">
-    <link rel="manifest" href="/app/static/manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <script>
+    const head = window.parent.document.head;
+    const add = (selector, tag, attributes) => {
+      let element = head.querySelector(selector);
+      if (!element) {
+        element = window.parent.document.createElement(tag);
+        head.appendChild(element);
+      }
+      Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
+    };
+    add('link[rel="apple-touch-icon"]', 'link', {
+      rel: 'apple-touch-icon', sizes: '180x180',
+      href: '/app/static/apple-touch-icon.png?v=1'
+    });
+    add('link[rel="manifest"]', 'link', {
+      rel: 'manifest', href: '/app/static/manifest.json?v=1'
+    });
+    add('meta[name="apple-mobile-web-app-capable"]', 'meta', {
+      name: 'apple-mobile-web-app-capable', content: 'yes'
+    });
+    add('meta[name="apple-mobile-web-app-status-bar-style"]', 'meta', {
+      name: 'apple-mobile-web-app-status-bar-style', content: 'default'
+    });
+    add('meta[name="apple-mobile-web-app-title"]', 'meta', {
+      name: 'apple-mobile-web-app-title', content: 'TAA Signals'
+    });
+    </script>
     """,
-    unsafe_allow_html=True,
+    height=0,
+    width=0,
 )
 st.markdown("""
 <style>
