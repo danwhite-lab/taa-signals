@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from typing import Iterable, Mapping
 
 
@@ -150,8 +152,6 @@ class PortfolioGistError(RuntimeError):
 
 
 def _gist_request(token: str, gist_id: str, method: str = "GET", payload: dict | None = None) -> dict:
-    from urllib.error import HTTPError, URLError
-    from urllib.request import Request, urlopen
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = Request(f"https://api.github.com/gists/{gist_id}", data=body, method=method, headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}", "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28"})
     try:
