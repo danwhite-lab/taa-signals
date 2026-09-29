@@ -1,6 +1,6 @@
 import pytest
 
-from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, execution_security_label, export_portfolio_config, funding_plan, import_portfolio_config, total_weight
+from haa.portfolio import aggregate_holdings, aggregate_holdings_by_currency, convert_currency, execution_security_label, export_portfolio_config, funding_plan, import_portfolio_config, load_portfolio_from_gist, save_portfolio_to_gist, total_weight
 
 
 def test_aggregate_holdings_combines_duplicate_and_multi_asset_sleeves():
@@ -85,3 +85,18 @@ def test_portfolio_config_rejects_unknown_models():
     content = export_portfolio_config("Test", [{"model": "Removed model", "weight": 100}], 1, 3.7)
     with pytest.raises(ValueError, match="unknown model"):
         import_portfolio_config(content, {"HAA-Simple"})
+
+
+
+def test_gist_store_reads_and_writes_the_named_configuration(monkeypatch):
+    import json
+    requests = []
+    class Response:
+        def read(self): return json.dumps({"files": {"portfolio.json": {"content": "saved"}}}).encode()
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    def fake(request, timeout): requests.append(request); return Response()
+    monkeypatch.setattr("haa.portfolio.urlopen", fake)
+    assert load_portfolio_from_gist("token", "gist") == b"saved"
+    save_portfolio_to_gist("token", "gist", b"updated")
+    assert requests[0].method == "GET" and requests[1].method == "PATCH"
