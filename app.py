@@ -15,7 +15,7 @@ from haa.data import combine_replacements, common_monthly_period, date_ranges, d
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
-from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
+from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, export_portfolio_config, funding_plan, import_portfolio_config, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal
 from haa.strategies import CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
@@ -856,6 +856,26 @@ def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
 if page == "Portfolio":
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
+    with st.expander("Save or load portfolio"):
+        saved_portfolio = st.file_uploader("Load portfolio JSON", type="json", key="portfolio_saved_file")
+        if saved_portfolio is not None and st.button("Load portfolio", key="portfolio_load_saved"):
+            try:
+                restored = import_portfolio_config(saved_portfolio.getvalue(), MODEL_OPTIONS)
+                restored_sleeves = []
+                for sleeve_id, sleeve in enumerate(restored["sleeves"], start=1):
+                    definition = definition_for_label(sleeve["model"])
+                    prefix = f"portfolio_{sleeve_id}"
+                    st.session_state[f"{prefix}_strategy"] = definition.strategy
+                    st.session_state[f"{prefix}_variant"] = definition.variant
+                    st.session_state[f"{prefix}_implementation"] = definition.implementation
+                    restored_sleeves.append({"id": sleeve_id, "weight": sleeve["weight"], "model": sleeve["model"], "currency": definition.execution_currency})
+                st.session_state["portfolio_sleeves"] = restored_sleeves
+                st.session_state["portfolio_next_id"] = len(restored_sleeves) + 1
+                st.session_state["portfolio_total_ils"] = restored["total_ils"]
+                st.session_state["portfolio_fx_rate"] = restored["ils_per_usd"]
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
     with st.container(key="portfolio-investment-settings"):
         # Keep a third, deliberately empty column so this row replaces all
@@ -910,6 +930,16 @@ if page == "Portfolio":
     if remove_sleeve:
         st.session_state["portfolio_sleeves"] = updated_sleeves[:-1]
         st.rerun()
+
+    save_name = st.text_input("Portfolio name", value="My portfolio", key="portfolio_save_name")
+    safe_filename = "_".join(part for part in save_name.lower().split() if part) or "portfolio"
+    st.download_button(
+        "Save portfolio",
+        export_portfolio_config(save_name, updated_sleeves, total_ils, ils_per_usd),
+        f"{safe_filename}.json",
+        "application/json",
+        help="Downloads a portable portfolio configuration containing your sleeves, weights, capital, and FX setting.",
+    )
 
     sleeve_total = total_weight(updated_sleeves)
     plan = funding_plan(updated_sleeves, total_ils, ils_per_usd)
