@@ -86,7 +86,14 @@ def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None) -> pd.Dat
     if raw.empty:
         raise RuntimeError("Yahoo Finance returned no data. Try again or upload CSV files.")
     result = pd.DataFrame({asset: _normalise_frame(raw, ticker) for asset, ticker in sources.items()})
-    return _clean_prices(result)
+    result = _clean_prices(result)
+    unavailable = [asset for asset in sources if result[asset].dropna().empty]
+    if unavailable:
+        raise RuntimeError(
+            "Yahoo Finance returned no usable price history for: "
+            f"{', '.join(unavailable)}. Try again later or verify the ticker mapping."
+        )
+    return result
 
 
 def download_latest_yahoo_close(ticker: str) -> tuple[float, pd.Timestamp]:

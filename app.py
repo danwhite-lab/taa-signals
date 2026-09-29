@@ -338,7 +338,10 @@ with st.container(key="user-settings"):
 st.session_state["cost_pct"] = st.session_state["settings_cost_pct"] / 100
 st.session_state["tax_rate"] = st.session_state["settings_tax_rate"] / 100
 
-model_name = st.session_state["model_name"]
+# Signals has its own selector.  Use its saved selection for the early data
+# validation below; otherwise an unavailable *Backtest* selection can prevent
+# the Signals selector from ever being rendered.
+model_name = st.session_state["signals_model_name"] if page == "Signals" else st.session_state["model_name"]
 ticker_text = st.session_state["ticker_text"]
 initial = st.session_state["initial"]
 cost_pct = st.session_state["cost_pct"]
@@ -969,6 +972,8 @@ if page == "Portfolio":
     st.subheader("Combined actionable holdings")
     if len(valid_sleeves) != len(updated_sleeves):
         st.info("Combined holdings are unavailable until every sleeve has a valid current signal.")
+        unavailable = [f"{row['Sleeve']}: {row['Status']}" for row in sleeve_rows if row["Current signal"] == "Unavailable"]
+        st.caption(" · ".join(unavailable))
     elif abs(sleeve_total - 100.0) > 1e-9:
         st.info("Combined holdings are unavailable until sleeve weights total exactly 100%.")
     else:

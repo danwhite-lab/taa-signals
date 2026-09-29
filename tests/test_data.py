@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from haa.data import download_latest_yahoo_close
+from haa.data import download_latest_yahoo_close, download_yahoo_prices
 
 
 def test_download_latest_yahoo_close_uses_most_recent_valid_close(monkeypatch):
@@ -27,3 +27,18 @@ def test_download_latest_yahoo_close_rejects_empty_history(monkeypatch):
 
     with pytest.raises(RuntimeError, match="no recent close"):
         download_latest_yahoo_close("USDILS=X")
+
+
+
+def test_download_yahoo_prices_names_an_unavailable_ticker(monkeypatch):
+    columns = pd.MultiIndex.from_product([["Adj Close"], ["SPY", "TIP", "IEF", "BIL"]])
+    raw = pd.DataFrame(
+        [[100.0, 90.0, 80.0, float("nan")]],
+        columns=columns,
+        index=pd.to_datetime(["2026-08-31"]),
+    )
+    fake_yfinance = SimpleNamespace(download=lambda *args, **kwargs: raw)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    with pytest.raises(RuntimeError, match="BIL"):
+        download_yahoo_prices({"SPY": "SPY", "TIP": "TIP", "IEF": "IEF", "BIL": "BIL"})

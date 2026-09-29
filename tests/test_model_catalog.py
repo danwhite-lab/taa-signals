@@ -50,3 +50,8 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("Orthogonal Alpha", None, "Standard").model_class is OrthogonalAlpha
     with pytest.raises(ValueError, match="Unknown model selection"):
         resolve("HAA", "HAA 4", "Israel")
+
+
+
+def test_inflation_compass_variants_use_standard_fast_steady_order():
+    assert variants("Inflation Compass") == ("Standard", "Fast (40-day)", "Steady (80-day)")
