@@ -157,8 +157,10 @@ def _gist_request(token: str, gist_id: str, method: str = "GET", payload: dict |
     try:
         with urlopen(request, timeout=15) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise PortfolioGistError("Could not reach the private portfolio store. Check the GitHub Gist settings and try again.") from exc
+    except HTTPError as exc:
+        raise PortfolioGistError(f"Private portfolio store returned GitHub error {exc.code}. Check the Gist ID and token's Gist permission.") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise PortfolioGistError("Could not reach the private portfolio store. Check your connection and try again.") from exc
 
 
 def load_portfolio_from_gist(token: str, gist_id: str, filename: str = "portfolio.json") -> bytes:
