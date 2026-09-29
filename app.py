@@ -972,6 +972,8 @@ if page == "Portfolio":
     st.subheader("Combined actionable holdings")
     if len(valid_sleeves) != len(updated_sleeves):
         st.info("Combined holdings are unavailable until every sleeve has a valid current signal.")
+        unavailable = [f"{row['Sleeve']}: {row['Status']}" for row in sleeve_rows if row["Current signal"] == "Unavailable"]
+        st.caption(" · ".join(unavailable))
     elif abs(sleeve_total - 100.0) > 1e-9:
         st.info("Combined holdings are unavailable until sleeve weights total exactly 100%.")
     else:
