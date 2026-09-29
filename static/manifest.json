@@ -1,0 +1,16 @@
+{
+  "name": "TAA Signals",
+  "short_name": "TAA Signals",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f2747",
+  "icons": [
+    {
+      "src": "/app/static/taa-signals-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
