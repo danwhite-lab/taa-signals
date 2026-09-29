@@ -724,6 +724,7 @@ The useful question is not which strategy has the highest historical CAGR. It is
             st.dataframe(proxy_rows, use_container_width=True, hide_index=True)
             st.caption("A proxy result is available only when the proxy's actual monthly and daily history is available. It replaces the executed holding, not the strategy's published signal input.")
             st.subheader("Data quality and timing")
+            st.caption("Raw gaps can reflect ordinary exchange holidays, different publication schedules, or pre-inception history. They are shown for transparency, but do not lower the robustness score unless a price required for an actual execution path is missing.")
             st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
             st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
         with monte_carlo_tab:
@@ -742,6 +743,19 @@ The useful question is not which strategy has the highest historical CAGR. It is
             if not overall.empty:
                 st.metric("Overall robustness", str(overall.iloc[0]["Grade"]))
             st.caption("This is an evidence summary, not an investment rating or forecast. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
+            with st.expander("How the final robustness score is calculated", expanded=False):
+                st.markdown("""
+                Each completed evidence category is graded from its weakest completed result relative to the published baseline CAGR:
+
+                - **Good (3 points):** no more than 2 percentage points below the baseline.
+                - **Moderate (2 points):** more than 2, but no more than 5 percentage points below.
+                - **Weak (1 point):** more than 5 percentage points below, or a failed data-integrity check.
+                - **Not assessed:** the test was not declared, could not run, or lacked enough history. It does not count for or against the result.
+
+                The overall grade is the average of the assessed categories, and needs at least four assessed categories. A is 2.75–3.00 points, B+ is 2.40–2.74, B is 2.00–2.39, C is 1.50–1.99, and D is below 1.50.
+
+                **Data confidence is different:** ordinary calendar, holiday, and pre-inception gaps are reported but are not penalised. It is marked down only when a price needed at an actual entry, exit, or benchmark comparison is missing or invalid, or when the timing check cannot rule out look-ahead.
+                """)
             st.dataframe(report.scorecard, use_container_width=True, hide_index=True)
             st.download_button("Download robustness scorecard CSV", report.scorecard.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_robustness_scorecard.csv", "text/csv")
     st.stop()

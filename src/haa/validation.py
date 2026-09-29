@@ -290,16 +290,19 @@ def robustness_scorecard(scenarios: pd.DataFrame, rolling_periods: pd.DataFrame,
 
     assets = data_quality.loc[data_quality.get("kind") == "asset"] if not data_quality.empty else pd.DataFrame()
     checks = data_quality.loc[data_quality.get("kind") == "check"] if not data_quality.empty else pd.DataFrame()
-    missing = int(assets["missing_observations"].sum()) if not assets.empty else 0
+    raw_missing = int(assets["missing_observations"].sum()) if not assets.empty else 0
     non_positive = int(assets["non_positive_observations"].sum()) if not assets.empty else 0
-    look_ahead_pass = not checks.empty and "pass" in set(checks.get("status", []))
-    if missing == 0 and non_positive == 0 and look_ahead_pass:
+    look_ahead = checks.loc[checks["check"] == "look_ahead", "status"] if not checks.empty else pd.Series(dtype="object")
+    required_execution_data = checks.loc[checks["check"] == "required_execution_data", "status"] if not checks.empty else pd.Series(dtype="object")
+    look_ahead_pass = "pass" in set(look_ahead)
+    required_data_pass = "pass" in set(required_execution_data)
+    if required_data_pass and look_ahead_pass and non_positive == 0:
         data_grade, data_score = ("Good", 3)
-    elif non_positive == 0:
+    elif required_data_pass and look_ahead_pass:
         data_grade, data_score = ("Moderate", 2)
     else:
         data_grade, data_score = ("Weak", 1)
-    rows.append({"Category": "Data confidence", "Grade": data_grade, "Evidence": f"Profile confidence: {profile.data_confidence}; missing observations: {missing}; non-positive observations: {non_positive}; look-ahead check: {'pass' if look_ahead_pass else 'not verified'}.", "Score": data_score})
+    rows.append({"Category": "Data confidence", "Grade": data_grade, "Evidence": f"Profile confidence: {profile.data_confidence}; raw calendar/inception gaps: {raw_missing} (reported, not scored); non-positive observations: {non_positive}; execution-path data: {'pass' if required_data_pass else 'fail/not verified'}; look-ahead check: {'pass' if look_ahead_pass else 'not verified'}.", "Score": data_score})
 
     assessed = [int(row["Score"]) for row in rows if int(row["Score"]) > 0]
     average = sum(assessed) / len(assessed) if assessed else 0.0
@@ -361,7 +364,13 @@ def _proxy_input(input_data: ValidationInput, proxy: ProxySpec) -> ValidationInp
 
 
 def data_quality_report(input_data: ValidationInput, baseline: BacktestResult | None = None) -> pd.DataFrame:
-    """Summarise source coverage and execution-timing checks without repairs."""
+    """Summarise raw coverage separately from executable-data integrity.
+
+    Raw daily series legitimately differ by exchange holiday, publication
+    schedule, and inception date.  Those gaps remain visible, but only data
+    needed on an actual execution path can fail the integrity check used by
+    the scorecard.
+    """
     prices = input_data.daily_prices if input_data.daily_prices is not None else input_data.monthly_prices
     frequency = "daily" if input_data.daily_prices is not None else "monthly"
     rows: list[dict[str, object]] = []
@@ -384,8 +393,10 @@ def data_quality_report(input_data: ValidationInput, baseline: BacktestResult | 
         })
     if baseline is None:
         rows.append({"kind": "check", "check": "look_ahead", "status": "unavailable", "detail": "No executable baseline result was available."})
+        rows.append({"kind": "check", "check": "required_execution_data", "status": "unavailable", "detail": "No executable baseline result was available."})
     elif input_data.daily_prices is None:
         rows.append({"kind": "check", "check": "look_ahead", "status": "not_verifiable", "detail": "Daily execution prices were not supplied."})
+        rows.append({"kind": "check", "check": "required_execution_data", "status": "not_verifiable", "detail": "Daily execution prices were not supplied."})
     else:
         audit = baseline.audit
         passed = bool((pd.to_datetime(audit["execution_date"]) > pd.to_datetime(audit.index)).all())
@@ -394,6 +405,21 @@ def data_quality_report(input_data: ValidationInput, baseline: BacktestResult | 
             "check": "look_ahead",
             "status": "pass" if passed else "fail",
             "detail": "Every execution date is strictly after its signal date." if passed else "At least one execution date is not after its signal date.",
+        })
+        missing_required: list[str] = []
+        for signal_date, decision in audit.iterrows():
+            weights = decision.get("target_weights")
+            holdings = tuple(weights) if isinstance(weights, dict) else (str(decision["selected_asset"]),)
+            required_assets = tuple(dict.fromkeys((*holdings, input_data.benchmark_asset)))
+            for label, date in (("execution", pd.Timestamp(decision["execution_date"])), ("holding end", pd.Timestamp(decision["holding_end"]))):
+                unavailable = [asset for asset in required_assets if asset not in prices.columns or date not in prices.index or pd.isna(prices.loc[date, asset])]
+                if unavailable:
+                    missing_required.append(f"{signal_date.date()} {label}: {', '.join(unavailable)}")
+        rows.append({
+            "kind": "check",
+            "check": "required_execution_data",
+            "status": "pass" if not missing_required else "fail",
+            "detail": "Every held asset and benchmark has a price on its actual execution and holding-end dates." if not missing_required else f"Missing required prices on {len(missing_required)} execution-path date(s): {'; '.join(missing_required[:3])}",
         })
     return pd.DataFrame(rows)
 

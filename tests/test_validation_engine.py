@@ -15,7 +15,7 @@ def validation_input():
         "BIL": 100 * 1.001 ** np.arange(len(monthly_index)),
     }, index=monthly_index)
     daily_index = pd.bdate_range(monthly_index.min(), monthly_index.max() + pd.Timedelta(days=5))
-    daily = monthly.reindex(daily_index).ffill()
+    daily = monthly.reindex(monthly.index.union(daily_index)).sort_index().ffill().reindex(daily_index)
     decisions = HAASimple().decisions(monthly)
     return ValidationInput("HAA-Simple", decisions, monthly, daily, "SPY", profile_for(HAASimple))
 
@@ -120,7 +120,26 @@ def test_data_quality_reports_source_issues_and_no_look_ahead_check():
     tip = report.loc[(report["kind"] == "asset") & (report["asset"] == "TIP")].iloc[0]
     bil = report.loc[(report["kind"] == "asset") & (report["asset"] == "BIL")].iloc[0]
     look_ahead = report.loc[(report["kind"] == "check") & (report["check"] == "look_ahead")].iloc[0]
+    required_data = report.loc[(report["kind"] == "check") & (report["check"] == "required_execution_data")].iloc[0]
     original_tip = baseline_quality.loc[(baseline_quality["kind"] == "asset") & (baseline_quality["asset"] == "TIP")].iloc[0]
     assert tip["missing_observations"] == original_tip["missing_observations"] + 1
     assert bil["non_positive_observations"] == 1
     assert look_ahead["status"] == "pass"
+    assert required_data["status"] == "pass"
+
+
+def test_raw_gap_outside_an_execution_path_does_not_lower_data_confidence():
+    input_data = validation_input()
+    baseline = run_backtest(input_data.decisions, input_data.monthly_prices, 10_000, daily_prices=input_data.daily_prices)
+    execution_dates = set(pd.to_datetime(baseline.audit["execution_date"])) | set(pd.to_datetime(baseline.audit["holding_end"]))
+    non_execution_date = next(date for date in input_data.daily_prices.index if date not in execution_dates)
+    daily = input_data.daily_prices.copy()
+    daily.loc[non_execution_date, "TIP"] = np.nan
+    changed = ValidationInput(input_data.name, input_data.decisions, input_data.monthly_prices, daily, input_data.benchmark_asset, input_data.profile)
+
+    report = run_deterministic_validation(changed, 10_000)
+    quality = report.data_quality.loc[(report.data_quality["kind"] == "check") & (report.data_quality["check"] == "required_execution_data")].iloc[0]
+    data_score = report.scorecard.loc[report.scorecard["Category"] == "Data confidence"].iloc[0]
+
+    assert quality["status"] == "pass"
+    assert data_score["Grade"] == "Good"
