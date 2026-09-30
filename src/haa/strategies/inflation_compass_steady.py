@@ -26,7 +26,12 @@ class InflationCompassBase:
     positive_weights = {"XLE": 0.5, "XLI": 1 / 6, "XLF": 1 / 6, "XLB": 1 / 6}
     negative_weights = {"XLU": 1 / 3, "XLV": 1 / 3, "XLP": 1 / 3}
 
-    def decisions(self, daily_prices: pd.DataFrame, decision_dates: pd.DatetimeIndex | None = None) -> pd.DataFrame:
+    def decisions(
+        self,
+        daily_prices: pd.DataFrame,
+        decision_dates: pd.DatetimeIndex | None = None,
+        include_current_month: bool = False,
+    ) -> pd.DataFrame:
         """Calculate decisions on production month-ends or supplied research dates.
 
         ``decision_dates`` is intentionally available for validation only: all
@@ -54,7 +59,7 @@ class InflationCompassBase:
         fred = prices["T5YIE"].dropna()
 
         as_of = pd.Timestamp.now(tz="UTC").tz_localize(None)
-        completed_period = as_of.to_period("M") - 1
+        completed_period = as_of.to_period("M") if include_current_month else as_of.to_period("M") - 1
         if decision_dates is None:
             market_dates = market.index[market.index.to_period("M") <= completed_period]
             selected_dates = market_dates.to_series().groupby(market_dates.to_period("M")).tail(1)

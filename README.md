@@ -24,6 +24,8 @@ At each completed month it uses Yahoo Finance adjusted close data for TIP and th
 
 Each return is `price at the signal date / price at the corresponding earlier month-end - 1`. This needs 12 prior observations for every asset involved in the decision; no pre-inception cash proxy is created. The signal is calculated after the final complete trading-day close, entered on the next valid execution date, and exited on the next monthly execution date. The current incomplete month is excluded.
 
+The **Signals** page also shows a separate **Next Month Preview** when a common current-month price row is available. It reruns the same rules with the latest available common trading-day close, retaining that real date rather than inventing a month-end price. The preview is explicitly provisional, is not a trading instruction, and can change before the month closes; the completed month-end signal remains the only official app signal.
+
 ## Install and run
 
 ```bash

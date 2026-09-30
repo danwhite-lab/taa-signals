@@ -18,7 +18,7 @@ from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
-from haa.signals import first_trading_day_after, latest_actionable_signal
+from haa.signals import first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
 from haa.strategies import CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
@@ -1163,6 +1163,21 @@ if page == "Signals":
     signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly
     signal_decisions = signal_strategy.decisions(signal_decision_prices)
     signal_status = latest_actionable_signal(signal_decisions, signal_monthly, signal_market_assets)
+    preview_status = None
+    if signal_definition.strategy_mode != "buy_and_hold":
+        preview_monthly, preview_price_as_of, preview_reason = month_to_date_snapshot(
+            signal_monthly, signal_prices, signal_market_assets
+        )
+        if preview_reason is not None:
+            preview_status = latest_preview_signal(pd.DataFrame(), preview_price_as_of)
+        elif getattr(signal_strategy, "uses_daily_signals", False):
+            preview_decisions = signal_strategy.decisions(
+                signal_prices.loc[:preview_price_as_of], include_current_month=True
+            )
+            preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
+        else:
+            preview_decisions = signal_strategy.decisions(preview_monthly)
+            preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if signal_definition.strategy_mode == "buy_and_hold":
         title_column.title("TA-125 Smart Momentum")
         title_column.caption("Internally managed momentum strategy · Israeli equity / momentum growth sleeve")
@@ -1207,6 +1222,29 @@ if page == "Signals":
             st.info(f"Effective holding period: **{effective_start.date()}** until the next month-end decision.")
         else:
             st.warning("No later trading observation is available yet, so an effective start date cannot be shown.")
+        st.subheader("Next Month Preview")
+        if preview_status is None or preview_status.decision is None:
+            st.info("No preview is available yet because a common current-month price row is not available.")
+        else:
+            preview = preview_status.decision
+            preview_weights = preview.get("target_weights", {preview["selected_asset"]: 1.0})
+            if getattr(signal_strategy, "is_multi_asset", False):
+                preview_allocation = display_allocation(preview_weights, signal_execution_currency)
+            else:
+                preview_allocation = f"100% {execution_security_label(preview['selected_asset'], signal_execution_currency)}"
+            current_weights = weights if isinstance(weights, dict) else {signal["selected_asset"]: 1.0}
+            changed = preview_weights != current_weights
+            st.warning(
+                "**Provisional only — not a trading instruction.** This estimates the next month-end decision "
+                f"from prices available through **{preview_status.price_as_of.date()}**. It can change before month-end."
+            )
+            st.dataframe(pd.DataFrame([{
+                "price data through": preview_status.price_as_of.date().isoformat(),
+                "projected regime": str(preview["regime"]).replace("-", " ").title(),
+                "projected allocation": preview_allocation,
+                "change vs current signal": "Yes" if changed else "No",
+            }]), use_container_width=True, hide_index=True)
+            st.caption("The official signal remains the completed month-end decision above. This preview uses the latest common trading-day close in the current month and does not assume a future close.")
         st.subheader("Why this allocation")
         if isinstance(signal_strategy, (HAA4, HAA4Leveraged2x)):
             if signal["regime"] == "risk-off":

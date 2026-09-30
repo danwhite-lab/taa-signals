@@ -16,6 +16,15 @@ class SignalStatus:
     completed_through: pd.Timestamp
 
 
+@dataclass(frozen=True)
+class PreviewStatus:
+    """A non-actionable estimate of the next month-end decision."""
+
+    decision: pd.Series | None
+    reason: str | None
+    price_as_of: pd.Timestamp | None
+
+
 def last_completed_month_end(as_of: pd.Timestamp | None = None) -> pd.Timestamp:
     """Return the calendar month-end before ``as_of``'s current month."""
     timestamp = pd.Timestamp.now(tz="UTC").tz_localize(None) if as_of is None else pd.Timestamp(as_of).tz_localize(None)
@@ -52,6 +61,48 @@ def latest_actionable_signal(
     if completed_through not in decisions.index:
         return SignalStatus(None, f"No actionable signal: insufficient valid history to calculate {completed_through.date()}'s decision.", completed_through)
     return SignalStatus(decisions.loc[completed_through].copy(), None, completed_through)
+
+
+def month_to_date_snapshot(
+    completed_monthly_prices: pd.DataFrame,
+    daily_prices: pd.DataFrame,
+    required_assets: Iterable[str],
+    as_of: pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame | None, pd.Timestamp | None, str | None]:
+    """Append the latest common in-progress-month close to monthly prices.
+
+    The returned row retains its real trading date.  It is deliberately not
+    assigned a synthetic calendar month-end, and callers must present any
+    resulting decision as a preview rather than an executable signal.
+    """
+    timestamp = pd.Timestamp.now(tz="UTC").tz_localize(None) if as_of is None else pd.Timestamp(as_of).tz_localize(None)
+    assets = tuple(required_assets)
+    if any(asset not in daily_prices.columns for asset in assets):
+        return None, None, "Required asset data is unavailable for the preview."
+    prices = daily_prices.sort_index()
+    eligible = prices.index[(prices.index <= timestamp) & (prices.index.to_period("M") == timestamp.to_period("M"))]
+    eligible = eligible[prices.loc[eligible, list(assets)].notna().all(axis=1)]
+    if len(eligible) == 0:
+        return None, None, "No common current-month price row is available for the preview."
+    price_as_of = eligible.max()
+    snapshot = prices.loc[[price_as_of], completed_monthly_prices.columns]
+    return pd.concat([completed_monthly_prices, snapshot]), price_as_of, None
+
+
+def latest_preview_signal(
+    decisions: pd.DataFrame,
+    price_as_of: pd.Timestamp | None,
+) -> PreviewStatus:
+    """Return the latest provisional decision calculated from current prices."""
+    if price_as_of is None:
+        return PreviewStatus(None, "No current-month price is available for the preview.", None)
+    if decisions.empty:
+        return PreviewStatus(None, "No preview is available: insufficient valid history.", price_as_of)
+    candidate_dates = decisions.index[(decisions.index <= price_as_of) & (decisions.index.to_period("M") == price_as_of.to_period("M"))]
+    if len(candidate_dates) == 0:
+        return PreviewStatus(None, "No preview is available from the current-month prices.", price_as_of)
+    decision_date = candidate_dates.max()
+    return PreviewStatus(decisions.loc[decision_date].copy(), None, decision_date)
 
 
 def first_trading_day_after(daily_prices: pd.DataFrame, signal_date: pd.Timestamp, required_assets: Iterable[str] | None = None) -> pd.Timestamp | None:

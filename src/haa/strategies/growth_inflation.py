@@ -39,7 +39,7 @@ class GrowthInflationBase:
     negative_sectors = ("XLU", "XLV", "XLP", "XLY")
     allocations: dict[tuple[bool, bool], tuple[str, dict[str, float]]] = {}
 
-    def decisions(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
+    def decisions(self, daily_prices: pd.DataFrame, include_current_month: bool = False) -> pd.DataFrame:
         missing = set(self.signal_assets) - set(daily_prices.columns)
         if missing:
             raise ValueError(f"{self.name} is missing assets: {sorted(missing)}")
@@ -51,7 +51,8 @@ class GrowthInflationBase:
         inflation_ratio = positive_basket / negative_basket
         spy_sma = prices["SPY"].rolling(self.sma_window, min_periods=self.sma_window).mean()
         ratio_sma = inflation_ratio.rolling(self.sma_window, min_periods=self.sma_window).mean()
-        completed_period = pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M") - 1
+        current_period = pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M")
+        completed_period = current_period if include_current_month else current_period - 1
         eligible = prices.index[prices.index.to_period("M") <= completed_period]
         month_ends = eligible.to_series().groupby(eligible.to_period("M")).tail(1)
         rows: list[dict] = []
