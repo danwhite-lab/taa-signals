@@ -67,6 +67,11 @@ BAA_G4_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_CANARY_ASSETS, *BAA_G4_OFFENSI
 # funds when their own compatible TASE histories are unavailable.
 BAA_G4_ISRAEL_PROXY_ASSETS = ("VXUS", "BNDW", "GLDM")
 BAA_G4_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_DATA_ASSETS, *BAA_G4_ISRAEL_PROXY_ASSETS)))
+# Gary Antonacci's Global Equities Momentum (GEM) signal universe and the
+# U.S. return series used for its Israeli execution-proxy backtest.
+GEM_DATA_ASSETS = ("SPY", "VEU", "AGG", "BIL")
+GEM_ISRAEL_PROXY_ASSETS = ("ACWX", "BNDW")
+GEM_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*GEM_DATA_ASSETS, *GEM_ISRAEL_PROXY_ASSETS)))
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")
