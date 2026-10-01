@@ -26,6 +26,7 @@ from .strategies import (
     GrowthInflationDiversified,
     OrthogonalAlpha,
     BAAG4Aggressive,
+    BAAG4AggressiveIsrael,
     VAAG4,
 )
 
@@ -66,6 +67,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Growth-Inflation Sector Timing", "Diversified", "Original", "Growth-Inflation Diversified", GrowthInflationDiversified),
     ModelDefinition("VAA", "G4 (T1/B1)", "Original", "VAA-G4 (T1/B1)", VAAG4),
     ModelDefinition("BAA", "G4 (Aggressive)", "Original", "BAA-G4 (Aggressive)", BAAG4Aggressive),
+    ModelDefinition("BAA", "G4 (Aggressive)", "Israel", "BAA-G4 (Aggressive) Israel", BAAG4AggressiveIsrael, "ILS", "externally_timed", "external", None, "Uses the published USD BAA-G4 canaries and rankings, then maps each selected holding to the specified TASE-listed ILS execution security. DBC is represented by GLDM; IEF and TLT both map to IEF 1159268. Historical backtesting is unavailable until compatible TASE proxy histories are configured."),
     ModelDefinition("Orthogonal Alpha", None, "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
 )
 
