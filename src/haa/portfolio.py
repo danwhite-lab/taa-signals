@@ -17,6 +17,7 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "VWO"): "VWO proxy — 1159169",
     ("ILS", "VEA"): "VXUS proxy — 5142476",
     ("ILS", "VXUS"): "VXUS proxy — 5142476",
+    ("ILS", "ACWX"): "ACWX proxy — 5142476",
     ("ILS", "BND"): "BNDW proxy — 1159102",
     ("ILS", "BNDW"): "BNDW proxy — 1159102",
     ("ILS", "TIP"): "TIP — 1159060",

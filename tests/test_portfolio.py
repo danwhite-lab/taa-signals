@@ -76,5 +76,6 @@ def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_log
     assert execution_security_label("DBC", "ILS") == "GLDM proxy — 1147875"
     assert execution_security_label("GLDM", "ILS") == "GLDM proxy — 1147875"
     assert execution_security_label("VXUS", "ILS") == "VXUS proxy — 5142476"
+    assert execution_security_label("ACWX", "ILS") == "ACWX proxy — 5142476"
     assert execution_security_label("TLT", "ILS") == "IEF proxy — 1159268"
     assert execution_security_label("SPY", "USD") == "SPY"
