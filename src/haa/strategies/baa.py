@@ -81,3 +81,13 @@ class BAAG4Aggressive:
             })
             previous_weights = weights
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+
+class BAAG4AggressiveIsrael(BAAG4Aggressive):
+    """Published USD BAA signals, executed through the specified TASE proxies."""
+
+    name = "BAA-G4 (Aggressive) Israel"
+    # The paper's signal universe remains intact, including SPY as the
+    # canary-only input. The Portfolio layer maps each resulting holding to
+    # its supplied TASE execution security in ILS.
+    backtest_available = False
