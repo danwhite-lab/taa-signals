@@ -11,17 +11,17 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
-from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, TA125_SMART_MOMENTUM_ASSET
+from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, OECD_CLI_DIFFUSION_ASSET, TA125_SMART_MOMENTUM_ASSET
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
-from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
+from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
 
@@ -37,6 +37,8 @@ MODEL_RULES = {
     "BAA-G4 (Aggressive) Israel": """**BAA-G4 (Aggressive) Israel:** Uses the unchanged published BAA-G4 USD signals and displays the selected holdings through TASE-listed ILS proxies: QQQ→1186063, VWO→1159169, VEA→VXUS proxy 5142476, BND→BNDW proxy 1159102, TIP→1159060, DBC→GLDM 1147875, BIL→Keren Kaspit 5136866, IEF/TLT→IEF 1159268, and LQD→1159185. SPY remains the published signal-only canary. Its backtest uses U.S. proxy returns—VXUS, BNDW, and GLDM—rather than TASE fund returns, ILS currency performance, or Israeli-fund costs.""",
     "GEM": """**GEM (Global Equities Momentum):** At each completed month-end, calculate 12-month returns for SPY, VEU, AGG, and BIL. If SPY's return is strictly greater than BIL's, hold 100% SPY when SPY's return is at least VEU's; otherwise hold 100% VEU. If SPY is at or below BIL, hold 100% AGG. The decision takes effect on the following available trading day.""",
     "GEM Israel": """**GEM Israel:** Uses the unchanged published GEM USD signals and displays holdings through CSPX (1159250), the ACWX proxy (5142476), and the BNDW proxy (1159102). BIL remains a signal-only asset. Its backtest uses U.S. ACWX and BNDW returns, not TASE fund, ILS-currency, or Israeli-fund-cost performance.""",
+    "GGCEM Link Original": """**GGCEM Link Original:** At each completed month-end, use the prior month's OECD Composite Leading Indicator diffusion: strictly more than half of available individual-country CLIs rising is risk-on; 50% or below is risk-off. In risk-on, hold the higher 12-month-return asset of SPY and VEU. In risk-off, hold the higher 12-month-return asset of IEF and BIL. If OECD data is unavailable, the disclosed failsafe uses SPY's 12-month return versus BIL to set the regime. The decision takes effect on the next available trading day.""",
+    "GGCEM Link Original Israel": """**GGCEM Link Original Israel:** Uses the unchanged GGCEM USD regime and momentum signals while displaying SPY through CSPX (1159250), VEU through ACWX (5142476), IEF through 1159268, and BIL through Keren Kaspit (5136866). Its backtest uses U.S. return proxies, not TASE fund, ILS-currency, or Israeli-fund-cost performance.""",
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
@@ -66,7 +68,7 @@ MODEL_RULES = {
 }
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
-YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS))
+YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
 
 st.set_page_config(
     page_title="TAA Signals",
@@ -572,6 +574,21 @@ def load_fred_data():
     return download_fred_series(FRED_ASSETS)
 
 
+@st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading OECD CLI macro data...")
+def load_oecd_cli_data():
+    return download_oecd_cli_diffusion()
+
+
+def monthly_strategy_input(daily_prices: pd.DataFrame, market_assets: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build tradable month-ends plus forward-filled signal-only macro inputs."""
+    monthly_market = to_month_end(daily_prices.loc[:, list(market_assets)])
+    auxiliary = daily_prices.drop(columns=list(market_assets), errors="ignore")
+    if auxiliary.empty:
+        return monthly_market, monthly_market
+    values = auxiliary.reindex(monthly_market.index, method="ffill")
+    return monthly_market, monthly_market.join(values)
+
+
 @st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading public TASE/Maya price history...")
 def load_tase_data():
     """Cache successful public-source requests and avoid repeated TASE traffic."""
@@ -590,6 +607,13 @@ except Exception as exc:
     # FRED is required only by Inflation Compass; keep existing models usable.
     fred_warning = str(exc)
     fred_prices = pd.DataFrame(columns=FRED_ASSETS, dtype=float)
+
+try:
+    oecd_prices = load_oecd_cli_data()
+    oecd_warning: str | None = None
+except Exception as exc:
+    oecd_warning = str(exc)
+    oecd_prices = pd.DataFrame(columns=[OECD_CLI_DIFFUSION_ASSET], dtype=float)
 
 tase_warning: str | None = None
 try:
@@ -616,7 +640,7 @@ if page == "Backtest":
         except ValueError as exc:
             st.error(str(exc))
     st.session_state["uploaded_replacements"] = replacements
-downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer")
+downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
 all_prices = combine_replacements(downloaded_all, replacements, ALL_MODEL_ASSETS)
 source_metadata = pd.DataFrame(
     {
@@ -629,6 +653,7 @@ source_metadata = pd.DataFrame(
 source_metadata = pd.concat([source_metadata, tase_metadata]).reindex(ALL_MODEL_ASSETS)
 for asset in FRED_ASSETS:
     source_metadata.loc[asset] = {"source": "FRED", "identifier": asset, "price_field": "Daily observation"}
+source_metadata.loc[OECD_CLI_DIFFUSION_ASSET] = {"source": "OECD SDMX", "identifier": "CLI diffusion (dynamic country panel)", "price_field": "Monthly observation; one-month lag"}
 for asset in replacements:
     source_metadata.loc[asset] = {"source": "User CSV replacement", "identifier": asset, "price_field": "Adj Close or Close"}
 
@@ -653,8 +678,8 @@ if page == "Backtest" and backtest_mode == "Portfolio":
             sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), "SPY")))
             sleeve_daily = all_prices.loc[:, sleeve_assets]
             sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
-            sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else to_month_end(sleeve_daily.loc[:, list(sleeve_market_assets)])
-            sleeve_monthly = to_month_end(sleeve_daily)
+            sleeve_monthly, sleeve_decision_monthly = monthly_strategy_input(sleeve_daily, sleeve_market_assets)
+            sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_decision_monthly
             portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
                 sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, "SPY"
             ))
@@ -727,7 +752,7 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.stop()
 prices = all_prices.loc[:, data_assets]
 market_data_assets = getattr(strategy, "market_data_assets", data_assets)
-monthly = to_month_end(prices.loc[:, list(market_data_assets)])
+monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
 all_monthly = to_month_end(all_prices)
 ranges = date_ranges(prices)
 common_start, common_end = common_monthly_period(monthly)
@@ -758,7 +783,7 @@ if page == "Backtest":
         end = st.date_input("Backtest end (holding-period execution date)", value=end, min_value=common_start.date(), max_value=execution_end_limit)
     st.session_state.update({"start": start, "end": end})
 
-decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly
+decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_decision_input
 decisions = strategy.decisions(decision_prices)
 if decisions.empty:
     st.error(f"Insufficient history for {strategy.name}.")
@@ -1349,8 +1374,8 @@ if page == "Signals":
     signal_momentum_assets = getattr(signal_strategy, "signal_assets", signal_data_assets)
     signal_prices = all_prices.loc[:, signal_data_assets]
     signal_market_assets = getattr(signal_strategy, "market_data_assets", signal_data_assets)
-    signal_monthly = to_month_end(signal_prices.loc[:, list(signal_market_assets)])
-    signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly
+    signal_monthly, signal_monthly_input = monthly_strategy_input(signal_prices, signal_market_assets)
+    signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly_input
     signal_decisions = signal_strategy.decisions(signal_decision_prices)
     signal_status = latest_actionable_signal(signal_decisions, signal_monthly, signal_market_assets)
     preview_status = None
@@ -1366,7 +1391,10 @@ if page == "Signals":
             )
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
         else:
-            preview_decisions = signal_strategy.decisions(preview_monthly)
+            preview_input = preview_monthly.join(
+                signal_prices.drop(columns=list(signal_market_assets), errors="ignore").reindex(preview_monthly.index, method="ffill")
+            )
+            preview_decisions = signal_strategy.decisions(preview_input)
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if signal_definition.strategy_mode == "buy_and_hold":
         title_column.title("TA-125 Smart Momentum")
@@ -1472,6 +1500,12 @@ if page == "Signals":
                 st.write("SPY's completed 12-month return is above BIL's and at least VEU's, so GEM holds U.S. equities.")
             else:
                 st.write("SPY's completed 12-month return is above BIL's, but VEU has the higher relative return, so GEM holds international equities.")
+        elif isinstance(signal_strategy, GGCEMLinkOriginal):
+            source = signal.get("macro_source")
+            if signal["risk_on"]:
+                st.write(f"{source} set a risk-on regime. The model then selected the stronger 12-month equity leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
+            else:
+                st.write(f"{source} set a risk-off regime. The model then selected the stronger 12-month defensive leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
         elif isinstance(signal_strategy, OrthogonalAlpha):
             if signal["satellite_asset"] == "BTAL":
                 st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
@@ -1561,6 +1595,18 @@ if page == "Signals":
             }])
             st.dataframe(gem_inputs.style.format({column: "{:.2%}" for column in gem_inputs.columns if column.endswith("return")}), use_container_width=True, hide_index=True)
             st.caption("GEM compares completed 12-month returns. SPY must strictly exceed BIL; an exact SPY/VEU tie selects SPY.")
+        elif isinstance(signal_strategy, GGCEMLinkOriginal):
+            ggcem_inputs = pd.DataFrame([{
+                "CLI diffusion (prior month)": signal["oecd_cli_diffusion"],
+                "Regime source": signal["macro_source"],
+                "Risk-on": signal["risk_on"],
+                "SPY 12-month return": signal["SPY_12m_return"],
+                "VEU 12-month return": signal["VEU_12m_return"],
+                "IEF 12-month return": signal["IEF_12m_return"],
+                "BIL 12-month return": signal["BIL_12m_return"],
+            }])
+            st.dataframe(ggcem_inputs.style.format({column: "{:.2%}" for column in ggcem_inputs.columns if "return" in column or "diffusion" in column}), use_container_width=True, hide_index=True)
+            st.caption("Risk-on requires OECD diffusion strictly above 50%. The prior-month reading applies the publication lag; if unavailable, SPY-versus-BIL is the visible failsafe.")
         elif isinstance(signal_strategy, OrthogonalAlpha):
             alpha_inputs = pd.DataFrame([{
                 "BTAL blended momentum": signal["BTAL_13612u"],
@@ -1611,6 +1657,8 @@ if page == "Signals":
             st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
         if isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
             st.warning(f"FRED retrieval issue: {fred_warning}")
+        if isinstance(signal_strategy, GGCEMLinkOriginal) and oecd_warning:
+            st.warning(f"OECD CLI retrieval issue: {oecd_warning}. This signal is using the disclosed SPY/BIL failsafe.")
         st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
         raw_ranges = date_ranges(signal_prices)
         st.dataframe(raw_ranges, use_container_width=True)
@@ -1637,6 +1685,8 @@ if page == "Rules":
             st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
         if isinstance(strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
             st.warning(f"FRED retrieval issue: {fred_warning}")
+        if isinstance(strategy, GGCEMLinkOriginal) and oecd_warning:
+            st.warning(f"OECD CLI retrieval issue: {oecd_warning}. The strategy falls back to the disclosed SPY/BIL regime gate.")
         st.dataframe(source_metadata.loc[list(data_assets)].join(date_ranges(prices)), use_container_width=True)
         missing = monthly[monthly.isna().any(axis=1)]
         st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
@@ -1662,6 +1712,8 @@ if page == "Rules":
         audit_columns += [f"{asset}_13612w" for asset in strategy.canary_assets] + [f"{asset}_sma12" for asset in data_assets] + ["breadth_bad_count", "selected_defensive_assets", "bil_replacements", "target_weights", "previous_weights"]
     if isinstance(strategy, GEM):
         audit_columns += [f"{asset}_12m_return" for asset in strategy.signal_assets] + ["signal_selected_asset"]
+    if isinstance(strategy, GGCEMLinkOriginal):
+        audit_columns += [f"{asset}_12m_return" for asset in strategy.signal_assets] + ["oecd_cli_diffusion", "macro_source", "risk_on", "signal_selected_asset"]
     if isinstance(strategy, OrthogonalAlpha):
         audit_columns += ["BTAL_13612u", "BIL_13612u", "satellite_asset", "target_weights", "previous_weights"]
     if isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael)):

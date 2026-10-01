@@ -72,6 +72,13 @@ BAA_G4_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_DATA_ASSETS, *BAA_G4_IS
 GEM_DATA_ASSETS = ("SPY", "VEU", "AGG", "BIL")
 GEM_ISRAEL_PROXY_ASSETS = ("ACWX", "BNDW")
 GEM_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*GEM_DATA_ASSETS, *GEM_ISRAEL_PROXY_ASSETS)))
+# Grzegorz Link's Global Growth Cycle Enhanced Momentum.  The OECD diffusion
+# series is a signal-only macro input, never an investable holding.
+GGCEM_MARKET_ASSETS = ("SPY", "VEU", "IEF", "BIL")
+OECD_CLI_DIFFUSION_ASSET = "OECD_CLI_DIFFUSION"
+GGCEM_DATA_ASSETS = (*GGCEM_MARKET_ASSETS, OECD_CLI_DIFFUSION_ASSET)
+GGCEM_ISRAEL_PROXY_ASSETS = ("ACWX",)
+GGCEM_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*GGCEM_DATA_ASSETS, *GGCEM_ISRAEL_PROXY_ASSETS)))
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")
