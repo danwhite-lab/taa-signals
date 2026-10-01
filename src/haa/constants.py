@@ -28,6 +28,10 @@ CLASSIC_LEVERAGED_DATA_ASSETS = tuple(dict.fromkeys((*CLASSIC_DATA_ASSETS, *CLAS
 HAA4_OFFENSIVE_ASSETS = ("SPY", "VEA", "VNQ", "IEF")
 HAA4_DEFENSIVE_ASSETS = ("IEF", "BIL")
 HAA4_DATA_ASSETS = ("TIP", "BIL", "SPY", "VEA", "VNQ", "IEF")
+# HAA-4 Israel uses the original signal assets, while VXUS supplies the U.S.
+# execution-proxy return for the specified IBI AC World ex-USA TASE fund.
+HAA4_ISRAEL_PROXY_ASSETS = ("VXUS",)
+HAA4_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*HAA4_DATA_ASSETS, *HAA4_ISRAEL_PROXY_ASSETS)))
 # HAA-4 Leveraged 2x makes every decision using the published, unleveraged
 # HAA-4 universe. These ETFs are execution vehicles only; BIL deliberately
 # remains unleveraged.
