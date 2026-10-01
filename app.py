@@ -102,7 +102,7 @@ components.html(
 )
 st.markdown("""
 <style>
-.block-container { padding-top: 0.8rem !important; }
+.block-container { max-width: 1440px; padding-top: 0.8rem !important; }
 .st-key-primary-navigation {
   margin: 2.65rem 0 1.2rem;
   padding: 0.35rem 0.45rem;
@@ -123,7 +123,7 @@ st.markdown("""
   background: rgba(250, 250, 252, 0.58);
 }
 .st-key-portfolio-investment-settings {
-  max-width: 38rem;
+  max-width: 46rem;
   margin: 0.25rem 0 1rem;
 }
 .st-key-portfolio-sleeve-heading [data-testid="stHorizontalBlock"] {
@@ -141,30 +141,6 @@ st.markdown("""
   font-weight: 650;
   line-height: 1;
 }
-/* Keep the app's preferences control visually aligned with Streamlit's
-   fixed toolbar rather than treating it as page content. */
-.st-key-user-settings {
-  position: fixed;
-  top: 0.35rem;
-  right: 10.8rem;
-  z-index: 1000000;
-}
-.st-key-user-settings [data-testid="stPopover"] > button {
-  width: 2rem;
-  min-width: 2rem;
-  height: 2rem;
-  min-height: 2rem;
-  padding: 0;
-  border: 0;
-  border-radius: 0.25rem;
-  background: transparent;
-  color: inherit;
-  font-size: 1.1rem;
-  line-height: 1;
-}
-.st-key-user-settings [data-testid="stPopover"] > button:hover {
-  background: rgba(49, 51, 63, 0.12);
-}
 @media (max-width: 640px) {
   .block-container { padding: 0.6rem 0.75rem 1.5rem !important; }
   .st-key-primary-navigation {
@@ -174,16 +150,16 @@ st.markdown("""
   }
   .st-key-primary-navigation [data-testid="stRadio"] > div {
     display: flex;
-    flex-flow: row nowrap;
+    flex-flow: row wrap;
     width: 100%;
-    gap: 0.1rem;
+    gap: 0.2rem;
   }
   .st-key-primary-navigation label {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 1 calc(33.33% - 0.2rem);
+    min-width: calc(33.33% - 0.2rem);
     justify-content: center;
-    padding: 0.3rem 0.08rem;
-    font-size: clamp(0.62rem, 2.8vw, 0.8rem);
+    padding: 0.38rem 0.2rem;
+    font-size: 0.78rem;
     line-height: 1.1;
     white-space: nowrap;
   }
@@ -363,20 +339,6 @@ with st.container(key="primary-navigation"):
     page = st.radio("Primary navigation", ("Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
 title_column = st.container()
 
-# This fixed popover extends Streamlit's toolbar with the settings that belong
-# to an individual user's backtest.  Comparison controls intentionally remain
-# on Compare Models, where they apply only to that comparison.
-with st.container(key="user-settings"):
-    with st.popover("⚙", help="User settings"):
-        st.subheader("User settings")
-        st.caption("These defaults apply to the Backtest page. Compare has its own configuration.")
-        st.number_input("Initial investment", min_value=1.0, key="initial", step=1_000.0)
-        st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, step=0.01, key="settings_cost_pct")
-        st.caption("Data sources and replacement CSV files are managed in Backtest configuration.")
-
-st.session_state["cost_pct"] = st.session_state["settings_cost_pct"] / 100
-st.session_state["tax_rate"] = st.session_state["settings_tax_rate"] / 100
-
 # Signals has its own selector.  Use its saved selection for the early data
 # validation below; otherwise an unavailable *Backtest* selection can prevent
 # the Signals selector from ever being rendered.
@@ -393,6 +355,12 @@ if page == "Backtest":
     backtest_configuration = st.container(key="backtest-configuration")
     with backtest_configuration:
         st.header("Backtest configuration")
+        st.caption("Choose a model and assumptions, then review the summary below. Advanced data controls are optional.")
+        investment_column, cost_column = st.columns(2)
+        with investment_column:
+            st.number_input("Initial investment", min_value=1.0, key="initial", step=1_000.0)
+        with cost_column:
+            st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, step=0.01, key="settings_cost_pct")
         backtest_mode = st.radio("Backtest mode", ("Single strategy", "Portfolio"), horizontal=True, key="backtest_mode")
         if backtest_mode == "Single strategy":
             model_name = model_selector("backtest", "Model")
@@ -434,9 +402,13 @@ if page == "Backtest":
             else:
                 st.success("Sleeve weights total 100%.")
             st.info("Portfolio backtests show pre-tax results. Transaction costs within each tactical sleeve are included; portfolio-level capital-gains tax accounting will be added separately.")
-        ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
-        uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
+        with st.expander("Advanced data controls", expanded=False):
+            ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
+            uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
     st.session_state["ticker_text"] = ticker_text
+
+st.session_state["cost_pct"] = st.session_state["settings_cost_pct"] / 100
+st.session_state["tax_rate"] = st.session_state["settings_tax_rate"] / 100
 
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
@@ -607,10 +579,15 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     portfolio_numeric_rows = [row for row in ratio_rows + numeric_rows if row in summary.index]
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[portfolio_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[portfolio_numeric_rows, :])
     st.subheader("Results")
-    st.dataframe(styled_summary, use_container_width=True)
+    result_columns = st.columns(3)
+    result_columns[0].metric("Portfolio CAGR", f"{summary.loc['CAGR', portfolio_label]:.2%}")
+    result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', portfolio_label]:.2%}")
+    result_columns[2].metric("Final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
     curves = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_value"], benchmark_label: portfolio_result.monthly["benchmark_value"]})
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     st.plotly_chart(px.line(curves.div(curves.cummax()).sub(1), title="Drawdown"), use_container_width=True)
+    with st.expander("Full performance table", expanded=False):
+        st.dataframe(styled_summary, use_container_width=True)
     st.subheader("Selected sleeves")
     sleeve_summary = pd.DataFrame([
         {"Sleeve": sleeve["model"], "Target weight": sleeve["weight"] / 100,
@@ -619,12 +596,14 @@ if page == "Backtest" and backtest_mode == "Portfolio":
         for sleeve in portfolio_sleeves
     ])
     st.dataframe(sleeve_summary.style.format({"Target weight": "{:.2%}", "CAGR": "{:.2%}", "Total return": "{:.2%}"}), use_container_width=True, hide_index=True)
-    st.subheader("Annual returns")
     annual = pd.DataFrame({portfolio_label: annual_returns(portfolio_result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(portfolio_result.monthly["benchmark_monthly_return"])})
-    st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-    st.subheader("Monthly returns")
     monthly_returns = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_monthly_return"], benchmark_label: portfolio_result.monthly["benchmark_monthly_return"]})
-    st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+    with st.expander("Return history", expanded=False):
+        history_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+        with history_tab:
+            st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+        with monthly_tab:
+            st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
     st.stop()
 prices = all_prices.loc[:, data_assets]
 market_data_assets = getattr(strategy, "market_data_assets", data_assets)
@@ -826,7 +805,11 @@ if page == "Backtest":
     summary.loc["Annual turnover", pre_tax_label] = annual_turnover
     st.subheader("Results")
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
-    st.dataframe(styled_summary, use_container_width=True)
+    result_columns = st.columns(4)
+    result_columns[0].metric("CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
+    result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
+    result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
+    result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
     curves = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_value"]})
     if tax_enabled:
         curves[after_tax_label] = result.monthly["after_tax_value"]
@@ -834,18 +817,22 @@ if page == "Backtest":
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     drawdowns = curves.div(curves.cummax()).sub(1)
     st.plotly_chart(px.line(drawdowns, title="Drawdown"), use_container_width=True)
-    st.subheader("Annual returns")
+    with st.expander("Full performance table", expanded=False):
+        st.dataframe(styled_summary, use_container_width=True)
     annual = pd.DataFrame({pre_tax_label: annual_returns(result.monthly["pre_tax_monthly_return"])})
     if tax_enabled:
         annual[after_tax_label] = annual_returns(result.monthly["after_tax_monthly_return"])
     annual[benchmark_label] = annual_returns(result.monthly["benchmark_monthly_return"])
-    st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-    st.subheader("Monthly returns")
     monthly_returns = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_monthly_return"]})
     if tax_enabled:
         monthly_returns[after_tax_label] = result.monthly["after_tax_monthly_return"]
     monthly_returns[benchmark_label] = result.monthly["benchmark_monthly_return"]
-    st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+    with st.expander("Return history", expanded=False):
+        annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+        with annual_tab:
+            st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+        with monthly_tab:
+            st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
 
 
 def current_portfolio_signal(model_label: str):
@@ -986,33 +973,46 @@ if page == "Portfolio":
     else:
         st.caption("Required native-currency amounts show what the selected sleeves need. Your broker determines whether any conversion is needed to fund those purchases.")
 
-    sleeve_rows, valid_sleeves = [], []
+    sleeve_rows, sleeve_detail_rows, valid_sleeves = [], [], []
     allocations_by_id = {int(item["id"]): item for item in plan["sleeves"]}
     for sleeve in updated_sleeves:
         definition = definition_for_label(sleeve["model"])
         signal, error = current_portfolio_signal(sleeve["model"])
         allocation = allocations_by_id[sleeve["id"]]
         base_row = {
-            "Sleeve": sleeve["model"], "Strategy": definition.strategy, "Variant": definition.variant or "—",
-            "Implementation": definition.implementation, "Currency": sleeve["currency"], "Weight": sleeve["weight"] / 100,
+            "Model": sleeve["model"],
+            "Weight": sleeve["weight"] / 100,
+            "Allocation": allocation["allocation_native"],
+            "Current holding": None,
+            "Status": None,
+        }
+        detail_row = {
+            "Model": sleeve["model"], "Strategy": definition.strategy,
+            "Variant": definition.variant or "—", "Implementation": definition.implementation,
+            "Currency": sleeve["currency"], "Weight": sleeve["weight"] / 100,
             "Target allocation (ILS)": allocation["allocation_ils"],
             "Native allocation": allocation["allocation_native"],
         }
         if error:
-            base_row.update({"Current signal": "Unavailable", "Status": error})
+            base_row.update({"Current holding": "Unavailable", "Status": error})
+            detail_row.update({"Current holding": "Unavailable", "Status": error})
         else:
             target = display_allocation(signal["weights"], sleeve["currency"])
-            base_row.update({"Current signal": target, "Status": f"Ready · {signal['decision']['regime']}"})
+            base_row.update({"Current holding": target, "Status": f"Ready · {signal['decision']['regime']}"})
+            detail_row.update({"Current holding": target, "Status": f"Ready · {signal['decision']['regime']}"})
             valid_sleeves.append({"name": sleeve["model"], "weight": sleeve["weight"], "currency": sleeve["currency"], "target_weights": signal["weights"]})
         sleeve_rows.append(base_row)
+        sleeve_detail_rows.append(detail_row)
     st.subheader("Current sleeve signals")
     sleeve_table = pd.DataFrame(sleeve_rows)
-    st.dataframe(sleeve_table.style.format({"Weight": "{:.2%}", "Target allocation (ILS)": "{:,.2f}", "Native allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
+    st.dataframe(sleeve_table.style.format({"Weight": "{:.2%}", "Allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
+    with st.expander("Sleeve configuration details", expanded=False):
+        st.dataframe(pd.DataFrame(sleeve_detail_rows).style.format({"Weight": "{:.2%}", "Target allocation (ILS)": "{:,.2f}", "Native allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
 
     st.subheader("Combined actionable holdings")
     if len(valid_sleeves) != len(updated_sleeves):
         st.info("Combined holdings are unavailable until every sleeve has a valid current signal.")
-        unavailable = [f"{row['Sleeve']}: {row['Status']}" for row in sleeve_rows if row["Current signal"] == "Unavailable"]
+        unavailable = [f"{row['Model']}: {row['Status']}" for row in sleeve_rows if row["Current holding"] == "Unavailable"]
         st.caption(" · ".join(unavailable))
     elif abs(sleeve_total - 100.0) > 1e-9:
         st.info("Combined holdings are unavailable until sleeve weights total exactly 100%.")
@@ -1020,17 +1020,20 @@ if page == "Portfolio":
         grouped_holdings = aggregate_holdings_by_currency(valid_sleeves)
         for currency, holdings in grouped_holdings.items():
             st.markdown(f"**{currency} holdings**")
-            holding_rows = []
+            holding_rows, holding_detail_rows = [], []
             for asset, values in sorted(holdings.items()):
                 ils_allocation = plan["total_ils"] * values["weight"]
-                holding_rows.append({
+                holding_row = {
                     "Holding": execution_security_label(asset, currency),
                     "Combined weight": values["weight"],
                     f"Allocation ({currency})": convert_currency(ils_allocation, "ILS", currency, ils_per_usd),
                     "ILS equivalent": ils_allocation,
-                    "Contributing sleeves": ", ".join(values["sleeves"]),
-                })
+                }
+                holding_rows.append(holding_row)
+                holding_detail_rows.append({**holding_row, "Contributing sleeves": ", ".join(values["sleeves"])})
             st.dataframe(pd.DataFrame(holding_rows).style.format({"Combined weight": "{:.2%}", f"Allocation ({currency})": "{:,.2f}", "ILS equivalent": "{:,.2f}"}), use_container_width=True, hide_index=True)
+            with st.expander(f"{currency} holding sources", expanded=False):
+                st.dataframe(pd.DataFrame(holding_detail_rows), use_container_width=True, hide_index=True)
 
 if page == "Compare":
     title_column.title("Compare")
@@ -1222,29 +1225,29 @@ if page == "Signals":
             st.info(f"Effective holding period: **{effective_start.date()}** until the next month-end decision.")
         else:
             st.warning("No later trading observation is available yet, so an effective start date cannot be shown.")
-        st.subheader("Next Month Preview")
-        if preview_status is None or preview_status.decision is None:
-            st.info("No preview is available yet because a common current-month price row is not available.")
-        else:
-            preview = preview_status.decision
-            preview_weights = preview.get("target_weights", {preview["selected_asset"]: 1.0})
-            if getattr(signal_strategy, "is_multi_asset", False):
-                preview_allocation = display_allocation(preview_weights, signal_execution_currency)
+        with st.expander("Next month preview (provisional)", expanded=False):
+            if preview_status is None or preview_status.decision is None:
+                st.info("No preview is available yet because a common current-month price row is not available.")
             else:
-                preview_allocation = f"100% {execution_security_label(preview['selected_asset'], signal_execution_currency)}"
-            current_weights = weights if isinstance(weights, dict) else {signal["selected_asset"]: 1.0}
-            changed = preview_weights != current_weights
-            st.warning(
-                "**Provisional only — not a trading instruction.** This estimates the next month-end decision "
-                f"from prices available through **{preview_status.price_as_of.date()}**. It can change before month-end."
-            )
-            st.dataframe(pd.DataFrame([{
-                "price data through": preview_status.price_as_of.date().isoformat(),
-                "projected regime": str(preview["regime"]).replace("-", " ").title(),
-                "projected allocation": preview_allocation,
-                "change vs current signal": "Yes" if changed else "No",
-            }]), use_container_width=True, hide_index=True)
-            st.caption("The official signal remains the completed month-end decision above. This preview uses the latest common trading-day close in the current month and does not assume a future close.")
+                preview = preview_status.decision
+                preview_weights = preview.get("target_weights", {preview["selected_asset"]: 1.0})
+                if getattr(signal_strategy, "is_multi_asset", False):
+                    preview_allocation = display_allocation(preview_weights, signal_execution_currency)
+                else:
+                    preview_allocation = f"100% {execution_security_label(preview['selected_asset'], signal_execution_currency)}"
+                current_weights = weights if isinstance(weights, dict) else {signal["selected_asset"]: 1.0}
+                changed = preview_weights != current_weights
+                st.warning(
+                    "**Provisional only — not a trading instruction.** This estimates the next month-end decision "
+                    f"from prices available through **{preview_status.price_as_of.date()}**. It can change before month-end."
+                )
+                st.dataframe(pd.DataFrame([{
+                    "price data through": preview_status.price_as_of.date().isoformat(),
+                    "projected regime": str(preview["regime"]).replace("-", " ").title(),
+                    "projected allocation": preview_allocation,
+                    "change vs current signal": "Yes" if changed else "No",
+                }]), use_container_width=True, hide_index=True)
+                st.caption("The official signal remains the completed month-end decision above. This preview uses the latest common trading-day close in the current month and does not assume a future close.")
         st.subheader("Why this allocation")
         if isinstance(signal_strategy, (HAA4, HAA4Leveraged2x)):
             if signal["regime"] == "risk-off":
@@ -1400,20 +1403,21 @@ if page == "Rules":
         st.info("Internally managed momentum strategy: the fund is held continuously and the underlying index manages momentum weighting. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.write("**Market:** Israel  \\n+**Fund:** Migdal MTF TA-125 Smart Momentum (5134713)  \\n+**Underlying index:** TA-125 Smart Momentum  \\n+**Implementation:** Buy & Hold  \\n+**Signal frequency:** None  \\n+**Review frequency:** Annual  \\n+**Evidence status:** Limited / developing  \\n+**Suggested portfolio maximum:** 20% (guidance only)")
 
-    st.markdown("""**13612U:** `(1-month return + 3-month return + 6-month return + 12-month return) / 4`. Each return is `price at signal date / price at its historical month-end - 1`. This implementation therefore requires 12 earlier observations of each asset it actually needs and uses no later prices.
+    with st.expander("Implementation and data notes", expanded=False):
+        st.markdown("""**13612U:** `(1-month return + 3-month return + 6-month return + 12-month return) / 4`. Each return is `price at signal date / price at its historical month-end - 1`. This implementation therefore requires 12 earlier observations of each asset it actually needs and uses no later prices.
 
 **Data:** TIP and all non-Israel assets use Yahoo Finance. HAA-Simple Israel retrieves CSPX_IL (1159250), IEF_IL (1159268), and AYALON_KASPIT (5136866) from public TASE/Maya endpoints through tasekit; the ETF adapter uses adjusted close when available, then published NAV, then end-of-day close, while the mutual fund uses its published Maya redemption price. Public endpoints may change or be blocked, so this source is for personal research and CSV replacement remains available. Enter `ASSET=YAHOO_TICKER` mappings only for Yahoo-sourced roles in the sidebar. Uploaded CSV data replaces an asset’s entire history; use one uploader and name files with their target role, e.g. `SSO.csv`. No missing ETF or fund history is fabricated.
 
 **Tax:** applies only when an existing position is sold due to an allocation change. It tracks cost basis and loss carryforward, never taxes the final unrealized position, and is independent of the strategy module.""")
     st.write(f"First valid signal date: **{first_signal.date()}**")
-    st.subheader("Data sources and coverage")
-    if isinstance(strategy, HAASimpleIsrael) and tase_warning:
-        st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
-    if isinstance(strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
-        st.warning(f"FRED retrieval issue: {fred_warning}")
-    st.dataframe(source_metadata.loc[list(data_assets)].join(date_ranges(prices)), use_container_width=True)
-    missing = monthly[monthly.isna().any(axis=1)]
-    st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
+    with st.expander("Data coverage", expanded=False):
+        if isinstance(strategy, HAASimpleIsrael) and tase_warning:
+            st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
+        if isinstance(strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
+            st.warning(f"FRED retrieval issue: {fred_warning}")
+        st.dataframe(source_metadata.loc[list(data_assets)].join(date_ranges(prices)), use_container_width=True)
+        missing = monthly[monthly.isna().any(axis=1)]
+        st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
     if not isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
@@ -1441,7 +1445,10 @@ if page == "Rules":
     with st.expander("Monthly audit table"):
         st.dataframe(audit.style.format("{:.6f}", subset=[c for c in audit.columns if c.endswith("13612u") or c.endswith("return")]), use_container_width=True)
         st.download_button("Download audit CSV", audit.to_csv().encode("utf-8"), f"{strategy.name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_monthly_audit.csv", "text/csv")
-    st.subheader("Raw and monthly data used")
-    st.dataframe(prices, use_container_width=True)
-    st.dataframe(monthly, use_container_width=True)
+    with st.expander("Raw and monthly data used", expanded=False):
+        raw_tab, monthly_tab = st.tabs(["Daily", "Month-end"])
+        with raw_tab:
+            st.dataframe(prices, use_container_width=True)
+        with monthly_tab:
+            st.dataframe(monthly, use_container_width=True)
     st.caption("Automated validation: run `pytest` locally; tests cover strategy selection, timing, benchmark dates, tax realization, conditional early risk-on execution, and a hand-calculated 13612U example.")
