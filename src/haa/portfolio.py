@@ -26,6 +26,8 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "TLT"): "IEF proxy — 1159268",
     ("ILS", "LQD"): "LQD — 1159185",
     ("ILS", "IEF"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
+    ("ILS", "SPY"): "CSPX — 1159250",
+    ("ILS", "VNQ"): "IBI DJ US Real Estate — 5131834",
     ("ILS", "XLK"): "XLK — iShares S&P 500 IT UCITS — 1159193",
     ("ILS", "XLU"): "XLU — MTF S&P Utilities — 1150507",
     ("ILS", "XLE"): "XLE — KSM ETF S&P Energy — 1145903",
