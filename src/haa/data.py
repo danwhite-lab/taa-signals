@@ -10,6 +10,9 @@ import pandas as pd
 
 from .constants import ASSETS
 
+OECD_CLI_COUNTRIES = ("AUS", "CAN", "FRA", "DEU", "ITA", "JPN", "KOR", "MEX", "ESP", "TUR", "GBR", "USA", "BRA", "CHN", "IND", "IDN", "ZAF")
+OECD_CLI_URL = "https://sdmx.oecd.org/public/rest/data/OECD.SDD.STES,DSD_STES@DF_CLI,4.1/.M.LI...AA...H?dimensionAtObservation=AllDimensions&format=csvfile"
+
 DEFAULT_TICKER_MAP = {
     **{asset: asset for asset in ASSETS},
     "CSPX_IL": "1159250.TA",
@@ -134,6 +137,35 @@ def download_fred_series(series_ids: Iterable[str]) -> pd.DataFrame:
         frame[date_column] = pd.to_datetime(frame[date_column], errors="coerce")
         result[series_id] = pd.to_numeric(frame.dropna(subset=[date_column]).set_index(date_column)[series_id], errors="coerce")
     return _clean_prices(pd.DataFrame(result))
+
+
+def download_oecd_cli_diffusion() -> pd.DataFrame:
+    """Return the dynamic-country OECD CLI diffusion index as a daily series.
+
+    The source is monthly.  Expanding each released value across calendar days
+    lets the strategy align it with market month-ends; the strategy itself
+    applies the mandatory one-month publication lag.
+    """
+    try:
+        frame = pd.read_csv(OECD_CLI_URL)
+    except Exception as exc:
+        raise RuntimeError(f"OECD CLI download failed: {exc}") from exc
+    columns = {str(column).strip().upper().replace(" ", "_"): column for column in frame.columns}
+    try:
+        area, period, value = (columns["REF_AREA"], columns["TIME_PERIOD"], columns["OBS_VALUE"])
+    except KeyError as exc:
+        raise RuntimeError("OECD CLI response did not contain REF_AREA, TIME_PERIOD, and OBS_VALUE.") from exc
+    panel = frame.loc[frame[area].isin(OECD_CLI_COUNTRIES), [area, period, value]].copy()
+    panel[period] = pd.to_datetime(panel[period], errors="coerce")
+    panel[value] = pd.to_numeric(panel[value], errors="coerce")
+    panel = panel.dropna(subset=[period]).pivot_table(index=period, columns=area, values=value, aggfunc="last").sort_index()
+    if panel.empty:
+        raise RuntimeError("OECD CLI response contained no usable individual-country observations.")
+    changes = panel.diff()
+    diffusion = changes.gt(0).where(changes.notna()).mean(axis=1).rename("OECD_CLI_DIFFUSION")
+    # OECD periods arrive as month labels.  Daily forward fill only carries the
+    # published monthly reading; the decision rule delays it by one month.
+    return diffusion.resample("D").ffill().to_frame()
 
 
 def read_uploaded_csv(content: bytes, asset: str) -> pd.Series:
