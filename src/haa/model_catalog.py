@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .strategies import (
     HAA4,
+    HAA4Israel,
     HAA4Leveraged2x,
     HAAClassicLeveragedNoQQQ,
     HAAClassicNoQQQ,
@@ -50,6 +51,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("HAA", "Simple", "Israel", "HAA-Simple Israel", HAASimpleIsrael, "ILS"),
     ModelDefinition("HAA", "Simple Leveraged 2x", "Original", "HAA-Simple Leveraged 2x (SSO)", HAASimpleLeveraged2x),
     ModelDefinition("HAA", "HAA 4", "Original", "HAA 4", HAA4),
+    ModelDefinition("HAA", "HAA 4", "Israel", "HAA 4 Israel", HAA4Israel, "ILS", "externally_timed", "external", None, "Uses published HAA-4 USD signals and maps SPY to CSPX, VEA to IBI MSCI AC World ex USA, VNQ to IBI DJ US Real Estate, IEF to 1159268, and BIL to Keren Kaspit. Its backtest uses VXUS as the U.S. return proxy for the ex-US TASE fund, not TASE or ILS performance."),
     ModelDefinition("HAA", "HAA 4 Leveraged 2x", "Original", "HAA 4 Leveraged 2x", HAA4Leveraged2x),
     ModelDefinition("HAA", "Classic (No QQQ)", "Original", "HAA Classic (No QQQ)", HAAClassicNoQQQ),
     ModelDefinition("HAA", "Classic Leveraged 2x (No QQQ)", "Original", "HAA Classic Leveraged 2x (No QQQ)", HAAClassicLeveragedNoQQQ),
