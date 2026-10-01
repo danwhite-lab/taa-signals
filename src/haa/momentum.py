@@ -35,3 +35,13 @@ def momentum_13612w(monthly_prices: pd.Series) -> pd.Series:
     r6 = prices.div(prices.shift(6)).sub(1)
     r12 = prices.div(prices.shift(12)).sub(1)
     return (12 * r1 + 4 * r3 + 2 * r6 + r12) / 4
+
+
+def momentum_sma12(monthly_prices: pd.Series) -> pd.Series:
+    """Return BAA's published month-end relative-momentum score.
+
+    Keller calls this SMA(12), but defines it as the current price divided by
+    the mean of the current and prior twelve month-ends (thirteen prices).
+    """
+    prices = pd.to_numeric(monthly_prices, errors="coerce")
+    return prices.div(prices.rolling(13, min_periods=13).mean()).sub(1)
