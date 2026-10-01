@@ -48,7 +48,7 @@ class CenturyMomentum:
                 **{f"{asset}_price": values[asset] for asset in self.data_assets},
                 f"{self.equity_asset}_10m_sma": float(sma),
                 "trend_up": selected == self.equity_asset,
-                "regime": "risk-on" if selected == "SPMO" else "risk-off",
+                "regime": "risk-on" if selected == self.equity_asset else "risk-off",
                 "selected_asset": selected,
                 "previous_asset": previous,
                 "trade": previous is None or selected != previous,
