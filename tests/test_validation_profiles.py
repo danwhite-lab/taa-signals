@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG
-from haa.strategies import HAASimple, InflationCompassStandard, OrthogonalAlpha, VAAG4
+from haa.strategies import BAAG4Aggressive, HAASimple, InflationCompassStandard, OrthogonalAlpha, VAAG4
 from haa.validation import ValidationProfile, profile_for
 
 
@@ -10,6 +10,7 @@ from haa.validation import ValidationProfile, profile_for
     (InflationCompassStandard, "inflation-compass-standard"),
     (OrthogonalAlpha, "orthogonal-alpha"),
     (VAAG4, "vaa-g4-t1-b1"),
+    (BAAG4Aggressive, "baa-g4-aggressive"),
 ])
 def test_research_profiles_are_discoverable_from_strategy_classes_and_instances(strategy_class, profile_id):
     assert profile_for(strategy_class).profile_id == profile_id
