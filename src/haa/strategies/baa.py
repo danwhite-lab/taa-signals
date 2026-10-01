@@ -108,6 +108,9 @@ class BAAG4AggressiveIsrael(BAAG4Aggressive):
     )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
+        missing = set(self.data_assets) - set(monthly_prices.columns)
+        if missing:
+            raise ValueError(f"{self.name} is missing execution-proxy assets: {sorted(missing)}")
         decisions = super().decisions(monthly_prices)
         if decisions.empty:
             return decisions
