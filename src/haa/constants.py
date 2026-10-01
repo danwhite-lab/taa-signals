@@ -53,6 +53,12 @@ GROWTH_INFLATION_ISRAEL_DATA_ASSETS = (*GROWTH_INFLATION_ASSETS, *GROWTH_INFLATI
 VAA_OFFENSIVE_ASSETS = ("SPY", "EFA", "EEM", "AGG")
 VAA_DEFENSIVE_ASSETS = ("LQD", "IEF", "SHY")
 VAA_G4_DATA_ASSETS = (*VAA_OFFENSIVE_ASSETS, *VAA_DEFENSIVE_ASSETS)
+# Keller's published Bold Asset Allocation, G4 aggressive variant. SPY is a
+# canary only; it is deliberately absent from the investable universe.
+BAA_G4_CANARY_ASSETS = ("SPY", "VEA", "VWO", "BND")
+BAA_G4_OFFENSIVE_ASSETS = ("QQQ", "VWO", "VEA", "BND")
+BAA_DEFENSIVE_ASSETS = ("TIP", "DBC", "BIL", "IEF", "TLT", "LQD", "BND")
+BAA_G4_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_CANARY_ASSETS, *BAA_G4_OFFENSIVE_ASSETS, *BAA_DEFENSIVE_ASSETS)))
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")

@@ -21,7 +21,7 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
-from haa.strategies import CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
 
@@ -33,6 +33,7 @@ MODEL_RULES = {
     "Growth-Inflation Concentrated Israel": """**Growth-Inflation Concentrated Israel:** Uses the original strategy's completed U.S. daily signals—SPY versus its 200-day SMA for growth and the inflation-positive/negative sector ratio versus its 200-day SMA for inflation—but executes each selected regime through TASE-listed instruments in ILS: reflation → KSM ETF S&P Energy (1145903); goldilocks → iShares S&P 500 IT UCITS (1159193); stagflation → MTF סל S&P Health Care (4D) (1150390); deflation → MTF S&P Consumer Staples (1150366). Decisions are made at month-end and take effect on the following available TASE trading day.""",
     "Orthogonal Alpha (BTAL/QLD)": """**Orthogonal Alpha (BTAL/QLD):** Thomas Carlson's monthly core-satellite allocation holds a permanent 25% QLD and 25% BTAL core. The remaining 50% satellite compares BTAL and BIL using equal-weighted 1-, 3-, 6-, and 12-month returns. If BTAL's blended momentum is strictly greater than BIL's, the satellite holds BTAL (25% QLD / 75% BTAL); otherwise, including a tie, it holds QLD (75% QLD / 25% BTAL). The month-end decision takes effect from the next trading day.""",
     "VAA-G4 (T1/B1)": """**VAA-G4 (T1/B1):** At each completed month-end, calculate 13612W for SPY, EFA, EEM, AGG, LQD, IEF, and SHY: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If any offensive asset (SPY, EFA, EEM, AGG) has non-positive momentum, VAA holds 100% of the best defensive asset (LQD, IEF, SHY). Otherwise it holds 100% of the highest-momentum offensive asset. It is deliberately aggressive: `B=1` means one weak offensive asset activates full defense.""",
+    "BAA-G4 (Aggressive)": """**BAA-G4 (Aggressive):** At each completed month-end, calculate 13612W canary momentum for SPY, VEA, VWO, and BND: `(12×R1 + 4×R3 + 2×R6 + R12) / 4`. If every canary is strictly positive, hold 100% of the highest-ranked asset from QQQ, VWO, VEA, and BND. If any canary is zero or negative, rank TIP, DBC, BIL, IEF, TLT, LQD, and BND; select the top three equally, then replace each selected asset whose 13-month SMA relative momentum is below BIL's with BIL. Relative momentum is current price divided by the average of the current and prior twelve completed month-ends, minus one. The decision takes effect on the following available trading day. DBC is the published commodity ETF; PDBC is not substituted.""",
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
@@ -1452,6 +1453,13 @@ if page == "Signals":
                 st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
             else:
                 st.write(f"{signal['breadth_bad_count']} offensive asset(s) have non-positive 13612W momentum. With B=1, breadth protection is active and VAA holds the best defensive asset: {signal['defensive_winner']}.")
+        elif isinstance(signal_strategy, BAAG4Aggressive):
+            if signal["regime"] == "risk-on":
+                st.write(f"All four canaries have positive 13612W momentum, so BAA holds the highest-ranked offensive asset: {signal['selected_asset']}.")
+            elif signal["bil_replacements"]:
+                st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA selected the top three defensive assets. {signal['bil_replacements']} ranked below BIL and were replaced with BIL.")
+            else:
+                st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA holds the top three defensive assets: {signal['selected_asset']}.")
         elif isinstance(signal_strategy, OrthogonalAlpha):
             if signal["satellite_asset"] == "BTAL":
                 st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
@@ -1521,6 +1529,16 @@ if page == "Signals":
             }])
             st.dataframe(vaa_inputs.style.format({column: "{:.6f}" for column in vaa_inputs.columns if column.endswith("13612W")}), use_container_width=True, hide_index=True)
             st.caption("13612W = (12×1-month return + 4×3-month return + 2×6-month return + 12-month return) / 4. Momentum equal to zero is non-positive.")
+        elif isinstance(signal_strategy, BAAG4Aggressive):
+            baa_inputs = pd.DataFrame([{
+                "Non-positive canaries": signal["breadth_bad_count"],
+                "Selected defensive assets": signal["selected_defensive_assets"] or "—",
+                "BIL replacements": signal["bil_replacements"] or "—",
+                **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.canary_assets},
+                **{f"{asset} SMA(12)": signal[f"{asset}_sma12"] for asset in signal_strategy.data_assets},
+            }])
+            st.dataframe(baa_inputs.style.format({column: "{:.6f}" for column in baa_inputs.columns if column.endswith("13612W") or column.endswith("SMA(12)")}), use_container_width=True, hide_index=True)
+            st.caption("BAA ranks by current month-end price ÷ the average of the current and prior twelve month-ends − 1. Its canaries use 13612W; any value at or below zero activates defense.")
         elif isinstance(signal_strategy, OrthogonalAlpha):
             alpha_inputs = pd.DataFrame([{
                 "BTAL blended momentum": signal["BTAL_13612u"],
@@ -1602,7 +1620,7 @@ if page == "Rules":
         st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
-    if not isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
+    if not isinstance(strategy, (BAAG4Aggressive, CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
         audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):
         audit_columns += [f"{asset}_rank" for asset in strategy.offensive_assets] + ["selected_assets", "target_weights", "previous_weights"]
@@ -1618,6 +1636,8 @@ if page == "Rules":
         audit_columns += ["SPY_200d_sma", "positive_sector_basket", "negative_sector_basket", "inflation_ratio", "inflation_ratio_200d_sma", "growth_up", "inflation_on", "target_weights", "previous_weights"]
     if isinstance(strategy, VAAG4):
         audit_columns += [f"{asset}_13612w" for asset in data_assets] + ["breadth_bad_count", "breadth_threshold", "offensive_winner", "defensive_winner", "target_weights", "previous_weights"]
+    if isinstance(strategy, BAAG4Aggressive):
+        audit_columns += [f"{asset}_13612w" for asset in strategy.canary_assets] + [f"{asset}_sma12" for asset in data_assets] + ["breadth_bad_count", "selected_defensive_assets", "bil_replacements", "target_weights", "previous_weights"]
     if isinstance(strategy, OrthogonalAlpha):
         audit_columns += ["BTAL_13612u", "BIL_13612u", "satellite_asset", "target_weights", "previous_weights"]
     if isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael)):
