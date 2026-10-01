@@ -1,6 +1,6 @@
 import pandas as pd
 
-from haa.strategies import HAA4
+from haa.strategies import HAA4, HAA4Israel
 
 
 HAA4_ASSETS = ("TIP", "BIL", "SPY", "VEA", "VNQ", "IEF")
@@ -78,3 +78,11 @@ def test_future_prices_do_not_change_an_earlier_decision():
     earlier = HAA4().decisions(base).loc[decision_date]
     with_future = HAA4().decisions(extended).loc[decision_date]
     assert earlier["target_weights"] == with_future["target_weights"]
+
+
+def test_israel_variant_keeps_published_signal_logic_and_uses_vxus_execution_proxy():
+    prices = prices_with_terminal_scores({"TIP": .1, "SPY": .2, "VEA": .4, "VNQ": .1, "IEF": .05})
+    prices["VXUS"] = 100.0
+    decision = HAA4Israel().decisions(prices).iloc[-1]
+    assert decision["signal_target_weights"] == {"VEA": .5, "SPY": .5}
+    assert decision["target_weights"] == {"VXUS": .5, "SPY": .5}
