@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import sys
 from pathlib import Path
 
@@ -217,6 +219,7 @@ st.markdown("""
 
 DEFAULT_TICKERS = "\n".join(f"{role}={ticker}" for role, ticker in default_ticker_map(YAHOO_ASSETS).items())
 DEFAULT_MODEL = "HAA-Simple"
+PORTFOLIO_STORAGE_KEY = "taa-signals.default-portfolio.v1"
 
 
 def seed_model_selection(prefix: str, label: str) -> None:
@@ -300,10 +303,102 @@ def append_missing_default_tickers(text: str) -> str:
     return "\n".join(lines)
 
 
+def portfolio_payload(sleeves: list[dict], total_ils: float, ils_per_usd: float, name: str) -> dict:
+    """Return the small, browser-only configuration used by Today."""
+    return {
+        "version": 1,
+        "name": name.strip() or "My portfolio",
+        "sleeves": [
+            {"id": int(sleeve["id"]), "weight": float(sleeve["weight"]), "model": sleeve["model"]}
+            for sleeve in sleeves
+        ],
+        "total_ils": float(total_ils),
+        "ils_per_usd": float(ils_per_usd),
+    }
+
+
+def apply_browser_portfolio(payload: object) -> bool:
+    """Validate an untrusted browser payload before placing it in session state."""
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return False
+    sleeves = payload.get("sleeves")
+    if not isinstance(sleeves, list) or not sleeves:
+        return False
+    cleaned_sleeves = []
+    for position, sleeve in enumerate(sleeves, start=1):
+        if not isinstance(sleeve, dict) or sleeve.get("model") not in MODEL_OPTIONS:
+            return False
+        try:
+            weight = float(sleeve["weight"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if not 0 <= weight <= 100:
+            return False
+        cleaned_sleeves.append({"id": position, "weight": weight, "model": sleeve["model"]})
+    try:
+        total_ils = max(0.0, float(payload.get("total_ils", 0.0)))
+        ils_per_usd = float(payload.get("ils_per_usd", 3.7))
+    except (TypeError, ValueError):
+        return False
+    if ils_per_usd <= 0:
+        return False
+    st.session_state["portfolio_sleeves"] = cleaned_sleeves
+    st.session_state["portfolio_next_id"] = len(cleaned_sleeves) + 1
+    st.session_state["portfolio_total_ils"] = total_ils
+    st.session_state["portfolio_fx_rate"] = ils_per_usd
+    st.session_state["portfolio_name"] = str(payload.get("name", "My portfolio"))[:80] or "My portfolio"
+    st.session_state["browser_default_portfolio"] = portfolio_payload(cleaned_sleeves, total_ils, ils_per_usd, st.session_state["portfolio_name"])
+    return True
+
+
+def store_portfolio_in_browser(payload: dict | None) -> None:
+    """Write or remove the default portfolio in this browser only."""
+    payload_json = json.dumps(payload, separators=(",", ":")) if payload is not None else ""
+    components.html(
+        f"""
+        <script>
+        try {{
+          const storage = window.parent.localStorage;
+          const key = {json.dumps(PORTFOLIO_STORAGE_KEY)};
+          const value = {json.dumps(payload_json)};
+          if (value) storage.setItem(key, value); else storage.removeItem(key);
+        }} catch (error) {{ console.warn("Portfolio storage is unavailable", error); }}
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def request_browser_portfolio() -> None:
+    """Ask the browser for its saved portfolio through a one-time URL handoff."""
+    if st.session_state.get("browser_portfolio_checked"):
+        return
+    components.html(
+        f"""
+        <script>
+        try {{
+          const parentWindow = window.parent;
+          const url = new URL(parentWindow.location.href);
+          const saved = parentWindow.localStorage.getItem({json.dumps(PORTFOLIO_STORAGE_KEY)});
+          if (saved && !url.searchParams.has("portfolio_state")) {{
+            const encoded = btoa(unescape(encodeURIComponent(saved)))
+              .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+            url.searchParams.set("portfolio_state", encoded);
+            parentWindow.location.replace(url.toString());
+          }}
+        }} catch (error) {{ console.warn("Portfolio storage is unavailable", error); }}
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
 for key, value in {
     "model_name": DEFAULT_MODEL,
     "signals_model_name": DEFAULT_MODEL,
-    "page": "Signals",
+    "page": "Today",
     "ticker_text": DEFAULT_TICKERS,
     "initial": 100_000.0,
     "cost_pct": 0.0,
@@ -317,12 +412,32 @@ for key, value in {
     "portfolio_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "portfolio_next_id": 2,
     "portfolio_base_currency": "USD",
+    "portfolio_name": "My portfolio",
+    "browser_default_portfolio": None,
+    "browser_portfolio_checked": False,
     "backtest_mode": "Single strategy",
     "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "backtest_next_id": 2,
     "research_model_name": DEFAULT_MODEL,
 }.items():
     st.session_state.setdefault(key, value)
+
+# Browser storage is deliberately used only for the user's saved default
+# portfolio. It never leaves the browser other than a short-lived handoff used
+# to restore the Streamlit session after a reload.
+encoded_browser_portfolio = st.query_params.get("portfolio_state")
+if encoded_browser_portfolio and not st.session_state["browser_portfolio_checked"]:
+    try:
+        padded = str(encoded_browser_portfolio) + "=" * (-len(str(encoded_browser_portfolio)) % 4)
+        decoded_browser_portfolio = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+        apply_browser_portfolio(decoded_browser_portfolio)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    st.session_state["browser_portfolio_checked"] = True
+    del st.query_params["portfolio_state"]
+elif not encoded_browser_portfolio:
+    request_browser_portfolio()
+
 seed_model_selection("signals", st.session_state["signals_model_name"])
 seed_model_selection("backtest", st.session_state["model_name"])
 seed_model_selection("rules", st.session_state["model_name"])
@@ -336,7 +451,7 @@ if st.session_state["page"] == "Compare Models":
 st.session_state["ticker_text"] = append_missing_default_tickers(st.session_state["ticker_text"])
 
 with st.container(key="primary-navigation"):
-    page = st.radio("Primary navigation", ("Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
+    page = st.radio("Primary navigation", ("Today", "Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
 title_column = st.container()
 
 # Signals has its own selector.  Use its saved selection for the early data
@@ -880,21 +995,69 @@ def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
 
 
 
+if page == "Today":
+    title_column.title("Today")
+    saved_portfolio = st.session_state.get("browser_default_portfolio")
+    if not saved_portfolio:
+        st.info("Set up a portfolio, then choose **Use as my default portfolio** on the Portfolio page. It will be saved only in this browser.")
+    else:
+        saved_sleeves = st.session_state["portfolio_sleeves"]
+        saved_total_weight = total_weight(saved_sleeves)
+        title_column.caption(f"{saved_portfolio['name']} · saved in this browser")
+        signal_rows, valid_sleeves, signal_dates, changed_models = [], [], [], []
+        for sleeve in saved_sleeves:
+            currency = definition_for_label(sleeve["model"]).execution_currency
+            signal, error = current_portfolio_signal(sleeve["model"])
+            row = {"Sleeve": sleeve["model"], "Weight": sleeve["weight"] / 100, "Current holding": "Unavailable", "Status": error or ""}
+            if signal is not None:
+                decision = signal["decision"]
+                row["Current holding"] = display_allocation(signal["weights"], currency)
+                row["Status"] = f"Ready · {decision['regime']}"
+                signal_dates.append(pd.Timestamp(decision.name))
+                if bool(decision.get("trade", False)):
+                    changed_models.append(sleeve["model"])
+                valid_sleeves.append({"name": sleeve["model"], "weight": sleeve["weight"], "currency": currency, "target_weights": signal["weights"]})
+            signal_rows.append(row)
+        if len(valid_sleeves) == len(saved_sleeves) and abs(saved_total_weight - 100.0) < 1e-9:
+            st.subheader("What to hold now")
+            grouped_holdings = aggregate_holdings_by_currency(valid_sleeves)
+            for currency, holdings in grouped_holdings.items():
+                holding_rows = []
+                for asset, values in sorted(holdings.items()):
+                    ils_allocation = saved_portfolio["total_ils"] * values["weight"]
+                    holding_rows.append({"Holding": execution_security_label(asset, currency), "Portfolio weight": values["weight"], f"Allocation ({currency})": convert_currency(ils_allocation, "ILS", currency, saved_portfolio["ils_per_usd"])})
+                st.dataframe(pd.DataFrame(holding_rows).style.format({"Portfolio weight": "{:.2%}", f"Allocation ({currency})": "{:,.2f}"}), use_container_width=True, hide_index=True)
+        else:
+            st.warning("Combined holdings are unavailable until every saved sleeve has a valid signal and the sleeve weights total 100%.")
+        st.subheader("Monthly action")
+        if changed_models:
+            st.warning("Action required: review the changed sleeve signals below before your next trade.")
+        elif len(valid_sleeves) == len(saved_sleeves) and abs(saved_total_weight - 100.0) < 1e-9:
+            st.success("No changes required at the most recent completed signal.")
+        else:
+            st.info("No action can be determined until every sleeve has a valid signal.")
+        if signal_dates:
+            newest_signal_date = max(signal_dates)
+            st.caption(f"Latest completed signal: {newest_signal_date:%Y-%m-%d}")
+            if (pd.Timestamp.now().normalize() - newest_signal_date.normalize()).days > 45:
+                st.warning("This signal may be stale. Check that the data sources are up to date before acting.")
+        st.subheader("Sleeve signals")
+        st.dataframe(pd.DataFrame(signal_rows).style.format({"Weight": "{:.2%}"}), use_container_width=True, hide_index=True)
+        st.caption("Edit this portfolio or choose a different default on the Portfolio page.")
+
+
 if page == "Portfolio":
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
     with st.container(key="portfolio-investment-settings"):
-        # Keep a third, deliberately empty column so this row replaces all
-        # three Signal-selector columns after navigation rather than leaving a
-        # stale Implementation widget in Streamlit's delta tree.
-        base_column, rate_column, spacer_column = st.columns([1, 1, 0.001])
+        name_column, base_column, rate_column = st.columns([1.15, 1, 1])
+        with name_column:
+            portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
         with base_column:
             total_ils = st.number_input("Total available capital (ILS)", min_value=0.0, value=100_000.0, step=1_000.0, key="portfolio_total_ils")
         with rate_column:
             ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.4f", key="portfolio_fx_rate")
-        with spacer_column:
-            st.empty()
     if fx_error:
         st.info(fx_error)
     elif fx_quote_timestamp is not None:
@@ -948,6 +1111,25 @@ if page == "Portfolio":
         st.warning(f"Sleeve weights total {sleeve_total:.2f}%. Set them to exactly 100% before using the combined allocation.")
     else:
         st.success("Sleeve weights total 100%.")
+
+    save_column, clear_column, save_spacer = st.columns([1.8, 1.5, 6.7])
+    with save_column:
+        save_as_default = st.button("Use as my default portfolio", type="primary")
+    with clear_column:
+        clear_default = st.button("Clear saved default", disabled=st.session_state.get("browser_default_portfolio") is None)
+    if save_as_default:
+        if abs(sleeve_total - 100.0) > 1e-9 or any(sleeve["weight"] <= 0 for sleeve in updated_sleeves):
+            st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
+        else:
+            saved_payload = portfolio_payload(updated_sleeves, total_ils, ils_per_usd, portfolio_name)
+            st.session_state["browser_default_portfolio"] = saved_payload
+            st.session_state["browser_portfolio_checked"] = True
+            store_portfolio_in_browser(saved_payload)
+            st.success("Saved as this browser's default portfolio. Today will use it after a refresh or your next visit.")
+    if clear_default:
+        st.session_state["browser_default_portfolio"] = None
+        store_portfolio_in_browser(None)
+        st.success("Removed the saved default portfolio from this browser.")
 
     st.subheader("Funding and FX")
     total_ils_column, total_usd_column = st.columns(2)
