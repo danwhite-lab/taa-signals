@@ -9,8 +9,9 @@ from .haa_simple_israel import HAASimpleIsrael
 from .buy_and_hold import TA125SmartMomentum
 from .century_momentum import CenturyMomentum, CenturyMomentumIsrael
 from .growth_inflation import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified
+from .gem import GEM, GEMIsrael
 from .orthogonal_alpha import OrthogonalAlpha
 from .baa import BAAG4Aggressive, BAAG4AggressiveIsrael
 from .vaa import VAAG4
 
-__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]
+__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GEM", "GEMIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]
