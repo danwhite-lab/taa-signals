@@ -13,6 +13,15 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "IEF_IL"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
     ("ILS", "SPMO_IL"): "MTF Tracking S&P 500 Momentum (4D) — 5140850",
     ("ILS", "AYALON_KASPIT"): "Keren Kaspit — 5136866",
+    ("ILS", "QQQ"): "QQQ — 1186063",
+    ("ILS", "VWO"): "VWO proxy — 1159169",
+    ("ILS", "VEA"): "VXUS proxy — 5142476",
+    ("ILS", "BND"): "BNDW proxy — 1159102",
+    ("ILS", "TIP"): "TIP — 1159060",
+    ("ILS", "DBC"): "GLDM proxy — 1147875",
+    ("ILS", "BIL"): "BIL proxy (Keren Kaspit) — 5136866",
+    ("ILS", "TLT"): "IEF proxy — 1159268",
+    ("ILS", "LQD"): "LQD — 1159185",
     ("ILS", "IEF"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
     ("ILS", "XLK"): "XLK — iShares S&P 500 IT UCITS — 1159193",
     ("ILS", "XLU"): "XLU — MTF S&P Utilities — 1150507",
@@ -95,5 +104,4 @@ def funding_plan(
         "required": required,
         "sleeves": sleeve_allocations,
     }
-
 
