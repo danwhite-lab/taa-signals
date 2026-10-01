@@ -36,5 +36,6 @@ def test_israel_variant_uses_its_tase_funds_for_signal_and_execution():
     source = prices([100] * 9 + [120]).rename(columns={"SPMO": "SPMO_IL", "IEF": "IEF_IL"}).drop(columns="SPY")
     decision = CenturyMomentumIsrael().decisions(source).iloc[-1]
     assert decision["selected_asset"] == "SPMO_IL"
+    assert decision["regime"] == "risk-on"
     assert decision["SPMO_IL_10m_sma"] == 102
     assert CenturyMomentumIsrael.benchmark_asset == "SPMO_IL"
