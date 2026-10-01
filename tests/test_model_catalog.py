@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import BAAG4Aggressive, CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -46,6 +46,9 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("Growth-Inflation Sector Timing", "Diversified", "Original").model_class is GrowthInflationDiversified
     assert resolve("VAA", "G4 (T1/B1)", "Original").model_class is VAAG4
     assert resolve("BAA", "G4 (Aggressive)", "Original").model_class is BAAG4Aggressive
+    assert resolve("BAA", "G4 (Aggressive)", "Israel").model_class is BAAG4AggressiveIsrael
+    assert resolve("BAA", "G4 (Aggressive)", "Israel").execution_currency == "ILS"
+    assert not resolve("BAA", "G4 (Aggressive)", "Israel").model_class.backtest_available
     assert variants("Orthogonal Alpha") == (None,)
     assert implementations("Orthogonal Alpha", None) == ("Standard",)
     assert resolve("Orthogonal Alpha", None, "Standard").model_class is OrthogonalAlpha
