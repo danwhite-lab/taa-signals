@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -21,7 +21,7 @@ def test_israel_implementations_are_available_for_simple_haa_and_inflation_compa
 
 
 def test_catalog_selection_resolves_existing_stable_model_class():
-    assert strategies() == ("HAA", "Inflation Compass", "Buy and Hold", "Century Momentum", "Growth-Inflation Sector Timing", "VAA", "BAA", "Orthogonal Alpha")
+    assert strategies() == ("HAA", "Inflation Compass", "Buy and Hold", "Century Momentum", "Growth-Inflation Sector Timing", "GEM", "VAA", "BAA", "Orthogonal Alpha")
     assert "HAA 4" in variants("HAA")
     assert resolve("Inflation Compass", "Standard", "Original").model_class is InflationCompassStandard
     assert resolve("Inflation Compass", "Fast (40-day)", "Original").model_class is InflationCompassFast
@@ -46,6 +46,9 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Original").model_class is GrowthInflationConcentrated
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Israel").model_class is GrowthInflationConcentratedIsrael
     assert resolve("Growth-Inflation Sector Timing", "Diversified", "Original").model_class is GrowthInflationDiversified
+    assert resolve("GEM", "Standard", "Original").model_class is GEM
+    assert resolve("GEM", "Standard", "Israel").model_class is GEMIsrael
+    assert resolve("GEM", "Standard", "Israel").execution_currency == "ILS"
     assert resolve("VAA", "G4 (T1/B1)", "Original").model_class is VAAG4
     assert resolve("BAA", "G4 (Aggressive)", "Original").model_class is BAAG4Aggressive
     assert resolve("BAA", "G4 (Aggressive)", "Israel").model_class is BAAG4AggressiveIsrael
