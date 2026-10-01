@@ -16,9 +16,12 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "QQQ"): "QQQ — 1186063",
     ("ILS", "VWO"): "VWO proxy — 1159169",
     ("ILS", "VEA"): "VXUS proxy — 5142476",
+    ("ILS", "VXUS"): "VXUS proxy — 5142476",
     ("ILS", "BND"): "BNDW proxy — 1159102",
+    ("ILS", "BNDW"): "BNDW proxy — 1159102",
     ("ILS", "TIP"): "TIP — 1159060",
     ("ILS", "DBC"): "GLDM proxy — 1147875",
+    ("ILS", "GLDM"): "GLDM proxy — 1147875",
     ("ILS", "BIL"): "BIL proxy (Keren Kaspit) — 5136866",
     ("ILS", "TLT"): "IEF proxy — 1159268",
     ("ILS", "LQD"): "LQD — 1159185",
@@ -104,4 +107,3 @@ def funding_plan(
         "required": required,
         "sleeves": sleeve_allocations,
     }
-

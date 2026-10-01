@@ -48,7 +48,7 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("BAA", "G4 (Aggressive)", "Original").model_class is BAAG4Aggressive
     assert resolve("BAA", "G4 (Aggressive)", "Israel").model_class is BAAG4AggressiveIsrael
     assert resolve("BAA", "G4 (Aggressive)", "Israel").execution_currency == "ILS"
-    assert not resolve("BAA", "G4 (Aggressive)", "Israel").model_class.backtest_available
+    assert resolve("BAA", "G4 (Aggressive)", "Israel").model_class.backtest_available
     assert variants("Orthogonal Alpha") == (None,)
     assert implementations("Orthogonal Alpha", None) == ("Standard",)
     assert resolve("Orthogonal Alpha", None, "Standard").model_class is OrthogonalAlpha

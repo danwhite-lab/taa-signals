@@ -59,6 +59,10 @@ BAA_G4_CANARY_ASSETS = ("SPY", "VEA", "VWO", "BND")
 BAA_G4_OFFENSIVE_ASSETS = ("QQQ", "VWO", "VEA", "BND")
 BAA_DEFENSIVE_ASSETS = ("TIP", "DBC", "BIL", "IEF", "TLT", "LQD", "BND")
 BAA_G4_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_CANARY_ASSETS, *BAA_G4_OFFENSIVE_ASSETS, *BAA_DEFENSIVE_ASSETS)))
+# U.S. return series used to approximate the specified Israeli BAA execution
+# funds when their own compatible TASE histories are unavailable.
+BAA_G4_ISRAEL_PROXY_ASSETS = ("VXUS", "BNDW", "GLDM")
+BAA_G4_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*BAA_G4_DATA_ASSETS, *BAA_G4_ISRAEL_PROXY_ASSETS)))
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")
