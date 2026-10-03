@@ -227,6 +227,7 @@ st.markdown("""
 DEFAULT_TICKERS = "\n".join(f"{role}={ticker}" for role, ticker in default_ticker_map(YAHOO_ASSETS).items())
 DEFAULT_MODEL = "HAA-Simple"
 PORTFOLIO_STORAGE_KEY = "taa-signals.default-portfolio.v1"
+PORTFOLIO_LIBRARY_STORAGE_KEY = "taa-signals.portfolio-library.v1"
 
 
 def seed_model_selection(prefix: str, label: str) -> None:
@@ -324,7 +325,7 @@ def portfolio_payload(sleeves: list[dict], total_ils: float, ils_per_usd: float,
     }
 
 
-def apply_browser_portfolio(payload: object) -> bool:
+def apply_browser_portfolio(payload: object, *, as_default: bool = False) -> bool:
     """Validate an untrusted browser payload before placing it in session state."""
     if not isinstance(payload, dict) or payload.get("version") != 1:
         return False
@@ -354,7 +355,8 @@ def apply_browser_portfolio(payload: object) -> bool:
     st.session_state["portfolio_total_ils"] = total_ils
     st.session_state["portfolio_fx_rate"] = ils_per_usd
     st.session_state["portfolio_name"] = str(payload.get("name", "My portfolio"))[:80] or "My portfolio"
-    st.session_state["browser_default_portfolio"] = portfolio_payload(cleaned_sleeves, total_ils, ils_per_usd, st.session_state["portfolio_name"])
+    if as_default:
+        st.session_state["browser_default_portfolio"] = portfolio_payload(cleaned_sleeves, total_ils, ils_per_usd, st.session_state["portfolio_name"])
     return True
 
 
@@ -377,6 +379,49 @@ def store_portfolio_in_browser(payload: dict | None) -> None:
     )
 
 
+def store_portfolio_library_in_browser(portfolios: list[dict]) -> None:
+    """Save the named portfolio library in this browser only."""
+    payload_json = json.dumps({"version": 1, "portfolios": portfolios}, separators=(",", ":"))
+    components.html(
+        f"""
+        <script>
+        try {{ window.parent.localStorage.setItem({json.dumps(PORTFOLIO_LIBRARY_STORAGE_KEY)}, {json.dumps(payload_json)}); }}
+        catch (error) {{ console.warn("Portfolio library storage is unavailable", error); }}
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def apply_browser_portfolio_library(payload: object) -> bool:
+    """Validate the browser-only named portfolio library without loading one."""
+    if not isinstance(payload, dict) or payload.get("version") != 1 or not isinstance(payload.get("portfolios"), list):
+        return False
+    portfolios: list[dict] = []
+    seen_names: set[str] = set()
+    state_keys = ("portfolio_sleeves", "portfolio_next_id", "portfolio_total_ils", "portfolio_fx_rate", "portfolio_name", "browser_default_portfolio")
+    for candidate in payload["portfolios"]:
+        snapshot = {key: st.session_state[key] for key in state_keys if key in st.session_state}
+        def restore_snapshot() -> None:
+            for key in state_keys:
+                if key in snapshot:
+                    st.session_state[key] = snapshot[key]
+                elif key in st.session_state:
+                    del st.session_state[key]
+        if not apply_browser_portfolio(candidate):
+            restore_snapshot()
+            return False
+        cleaned = portfolio_payload(st.session_state["portfolio_sleeves"], st.session_state["portfolio_total_ils"], st.session_state["portfolio_fx_rate"], st.session_state["portfolio_name"])
+        restore_snapshot()
+        name_key = cleaned["name"].casefold()
+        if name_key not in seen_names:
+            portfolios.append(cleaned)
+            seen_names.add(name_key)
+    st.session_state["browser_portfolio_library"] = portfolios
+    return True
+
+
 def request_browser_portfolio() -> None:
     """Ask the browser for its saved portfolio through a one-time URL handoff."""
     if st.session_state.get("browser_portfolio_checked"):
@@ -387,13 +432,13 @@ def request_browser_portfolio() -> None:
         try {{
           const parentWindow = window.parent;
           const url = new URL(parentWindow.location.href);
+          const encode = (value) => btoa(unescape(encodeURIComponent(value)))
+            .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
           const saved = parentWindow.localStorage.getItem({json.dumps(PORTFOLIO_STORAGE_KEY)});
-          if (saved && !url.searchParams.has("portfolio_state")) {{
-            const encoded = btoa(unescape(encodeURIComponent(saved)))
-              .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-            url.searchParams.set("portfolio_state", encoded);
-            parentWindow.location.replace(url.toString());
-          }}
+          const library = parentWindow.localStorage.getItem({json.dumps(PORTFOLIO_LIBRARY_STORAGE_KEY)});
+          if (saved && !url.searchParams.has("portfolio_state")) url.searchParams.set("portfolio_state", encode(saved));
+          if (library && !url.searchParams.has("portfolio_library_state")) url.searchParams.set("portfolio_library_state", encode(library));
+          if (url.searchParams.has("portfolio_state") || url.searchParams.has("portfolio_library_state")) parentWindow.location.replace(url.toString());
         }} catch (error) {{ console.warn("Portfolio storage is unavailable", error); }}
         </script>
         """,
@@ -421,6 +466,7 @@ for key, value in {
     "portfolio_base_currency": "USD",
     "portfolio_name": "My portfolio",
     "browser_default_portfolio": None,
+    "browser_portfolio_library": [],
     "browser_portfolio_checked": False,
     "backtest_mode": "Single strategy",
     "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
@@ -429,20 +475,30 @@ for key, value in {
 }.items():
     st.session_state.setdefault(key, value)
 
-# Browser storage is deliberately used only for the user's saved default
-# portfolio. It never leaves the browser other than a short-lived handoff used
+# Browser storage is used only for named portfolios and the optional Today
+# default. It never leaves the browser other than a short-lived handoff used
 # to restore the Streamlit session after a reload.
 encoded_browser_portfolio = st.query_params.get("portfolio_state")
+encoded_browser_portfolio_library = st.query_params.get("portfolio_library_state")
 if encoded_browser_portfolio and not st.session_state["browser_portfolio_checked"]:
     try:
         padded = str(encoded_browser_portfolio) + "=" * (-len(str(encoded_browser_portfolio)) % 4)
         decoded_browser_portfolio = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-        apply_browser_portfolio(decoded_browser_portfolio)
+        apply_browser_portfolio(decoded_browser_portfolio, as_default=True)
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         pass
     st.session_state["browser_portfolio_checked"] = True
     del st.query_params["portfolio_state"]
-elif not encoded_browser_portfolio:
+if encoded_browser_portfolio_library:
+    try:
+        padded = str(encoded_browser_portfolio_library) + "=" * (-len(str(encoded_browser_portfolio_library)) % 4)
+        apply_browser_portfolio_library(json.loads(base64.urlsafe_b64decode(padded).decode("utf-8")))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    del st.query_params["portfolio_library_state"]
+if encoded_browser_portfolio or encoded_browser_portfolio_library:
+    st.session_state["browser_portfolio_checked"] = True
+if not encoded_browser_portfolio and not encoded_browser_portfolio_library:
     request_browser_portfolio()
 
 seed_model_selection("signals", st.session_state["signals_model_name"])
@@ -1079,6 +1135,25 @@ if page == "Today":
 if page == "Portfolio":
     title_column.title("Portfolio")
     title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
+    library = st.session_state["browser_portfolio_library"]
+    if library:
+        library_by_name = {portfolio["name"]: portfolio for portfolio in library}
+        picker_column, load_column, delete_column, library_spacer = st.columns([2.3, 0.8, 0.8, 5.1])
+        with picker_column:
+            selected_saved_name = st.selectbox("Saved portfolios", tuple(library_by_name), key="portfolio_library_selection")
+        with load_column:
+            load_saved = st.button("Load", key="portfolio_load_saved")
+        with delete_column:
+            delete_saved = st.button("Delete", key="portfolio_delete_saved")
+        if load_saved:
+            apply_browser_portfolio(library_by_name[selected_saved_name])
+            st.rerun()
+        if delete_saved:
+            st.session_state["browser_portfolio_library"] = [portfolio for portfolio in library if portfolio["name"] != selected_saved_name]
+            store_portfolio_library_in_browser(st.session_state["browser_portfolio_library"])
+            st.rerun()
+    else:
+        st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
     with st.container(key="portfolio-investment-settings"):
         name_column, base_column, rate_column = st.columns([1.15, 1, 1])
@@ -1142,20 +1217,32 @@ if page == "Portfolio":
     else:
         st.success("Sleeve weights total 100%.")
 
-    save_column, clear_column, save_spacer = st.columns([1.8, 1.5, 6.7])
+    save_column, default_column, clear_column, save_spacer = st.columns([1.35, 2.0, 1.5, 5.15])
     with save_column:
-        save_as_default = st.button("Use as my default portfolio", type="primary")
+        save_named = st.button("Save portfolio")
+    with default_column:
+        save_as_default = st.button("Use as Today default", type="primary")
     with clear_column:
         clear_default = st.button("Clear saved default", disabled=st.session_state.get("browser_default_portfolio") is None)
+    valid_portfolio = abs(sleeve_total - 100.0) <= 1e-9 and all(sleeve["weight"] > 0 for sleeve in updated_sleeves)
+    current_payload = portfolio_payload(updated_sleeves, total_ils, ils_per_usd, portfolio_name)
+    if save_named:
+        if not valid_portfolio:
+            st.error("Set one or more positive sleeve weights totaling exactly 100% before saving a portfolio.")
+        else:
+            updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
+            updated_library.append(current_payload)
+            st.session_state["browser_portfolio_library"] = updated_library
+            store_portfolio_library_in_browser(updated_library)
+            st.success(f"Saved {current_payload['name']} in this browser.")
     if save_as_default:
-        if abs(sleeve_total - 100.0) > 1e-9 or any(sleeve["weight"] <= 0 for sleeve in updated_sleeves):
+        if not valid_portfolio:
             st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
         else:
-            saved_payload = portfolio_payload(updated_sleeves, total_ils, ils_per_usd, portfolio_name)
-            st.session_state["browser_default_portfolio"] = saved_payload
+            st.session_state["browser_default_portfolio"] = current_payload
             st.session_state["browser_portfolio_checked"] = True
-            store_portfolio_in_browser(saved_payload)
-            st.success("Saved as this browser's default portfolio. Today will use it after a refresh or your next visit.")
+            store_portfolio_in_browser(current_payload)
+            st.success("Saved as Today’s default portfolio. Today will use it after a refresh or your next visit.")
     if clear_default:
         st.session_state["browser_default_portfolio"] = None
         store_portfolio_in_browser(None)
