@@ -915,7 +915,15 @@ The useful question is not which strategy has the highest historical CAGR. It is
         strategy,
         decision_prices,
     )
-    if st.button("Run Full Validation", type="primary", key="run_full_validation"):
+    history_start, history_end = result.monthly.index.min(), result.monthly.index.max()
+    history_years = len(result.monthly) / 12
+    st.subheader("Quick confidence check")
+    st.caption(
+        f"History examined: {history_start:%B %Y}–{history_end:%B %Y} ({history_years:.1f} years). "
+        "This is the shared period with usable data for every asset this model needs."
+    )
+    st.info("This checks whether the historical result stays broadly similar after realistic timing delays, costs, and different periods. It is not a prediction or a guarantee.")
+    if st.button("Run confidence check", type="primary", key="run_full_validation"):
         with st.spinner("Running deterministic validation and block-bootstrap scenarios…"):
             st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
         st.session_state["research_report_model"] = model_name
@@ -923,25 +931,52 @@ The useful question is not which strategy has the highest historical CAGR. It is
 
     report = st.session_state.get("research_report") if st.session_state.get("research_report_model") == model_name else None
     if report is None:
-        st.caption("Run the validation to generate standardized execution, cost, tax, period, proxy, and data-quality results.")
+        st.caption("Run the confidence check to see a plain-English summary. Advanced technical results remain optional below.")
     else:
         if st.session_state.get("research_report_completed") == model_name:
-            st.success("Validation completed. The results below are based on the currently selected model and data.")
-        summary_tab, execution_tab, periods_tab, proxy_data_tab, monte_carlo_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Monte Carlo", "Robustness Scorecard"])
-        with summary_tab:
-            complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
-            baseline_row = complete.loc[complete["test"] == "baseline"]
-            if not baseline_row.empty:
-                baseline_metrics = baseline_row.iloc[0]
-                metric_cagr, metric_dd, metric_periods = st.columns(3)
-                metric_cagr.metric("Published baseline CAGR", f"{baseline_metrics['CAGR']:.2%}")
-                metric_dd.metric("Published baseline max drawdown", f"{baseline_metrics['Maximum drawdown']:.2%}")
-                metric_periods.metric("Completed holding periods", f"{int(baseline_metrics['holding_periods'])}")
-            st.subheader("Validation scenarios")
-            st.dataframe(report.scenarios, use_container_width=True, hide_index=True)
-            if not complete.empty:
-                st.plotly_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
-            st.download_button("Download validation scenarios CSV", report.scenarios.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_validation_scenarios.csv", "text/csv")
+            st.success("Confidence check completed for the currently selected model and data.")
+        complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
+        baseline_row = complete.loc[complete["test"] == "baseline"]
+        overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
+        grade = str(overall.iloc[0]["Grade"]) if not overall.empty else "Not assessed"
+        plain_verdict = {
+            "A": "Reasonably robust", "B+": "Reasonably robust", "B": "Reasonably robust",
+            "C": "Mixed", "D": "Fragile", "Not assessed": "Not enough evidence yet",
+        }.get(grade, "Mixed")
+        verdict_column, cagr_column, drawdown_column = st.columns(3)
+        verdict_column.metric("Historical confidence", plain_verdict)
+        if not baseline_row.empty:
+            baseline_metrics = baseline_row.iloc[0]
+            cagr_column.metric("Historical CAGR", f"{baseline_metrics['CAGR']:.2%}")
+            drawdown_column.metric("Historical max drawdown", f"{baseline_metrics['Maximum drawdown']:.2%}")
+        else:
+            cagr_column.metric("Historical CAGR", "Unavailable")
+            drawdown_column.metric("Historical max drawdown", "Unavailable")
+        evidence = report.scorecard.set_index("Category")["Evidence"] if not report.scorecard.empty else pd.Series(dtype=str)
+        simple_rows = [
+            {"Check": "Trading delays", "What it asks": "Would small delays in trading materially change the result?", "Result": evidence.get("Execution robustness", "Not assessed")},
+            {"Check": "Trading costs", "What it asks": "Would realistic costs materially reduce the result?", "Result": evidence.get("Costs and tax resilience", "Not assessed")},
+            {"Check": "Different periods", "What it asks": "Did it work across different historical windows, not only one lucky start?", "Result": evidence.get("Rolling-period resilience", "Not assessed")},
+        ]
+        st.subheader("The three checks that matter most")
+        st.dataframe(pd.DataFrame(simple_rows), use_container_width=True, hide_index=True)
+        st.subheader("What this means for me")
+        if plain_verdict == "Reasonably robust":
+            st.write("The available historical tests did not show a large dependence on one exact timing or assumption. That supports further consideration, but does not predict future returns.")
+        elif plain_verdict == "Mixed":
+            st.write("Some historical checks were less convincing. Treat the strategy as an idea to diversify with, rather than evidence that it will reliably perform on its own.")
+        elif plain_verdict == "Fragile":
+            st.write("The historical result changed materially in at least some realistic checks. Be cautious about relying on the published backtest alone.")
+        else:
+            st.write("There is not enough completed evidence to give a useful robustness verdict. The date range and available scenarios are shown above.")
+        st.caption("Limits: this uses the price and macro histories available to the app. It cannot know future market conditions, your exact execution, or data revisions that were not available in real time.")
+        with st.expander("Advanced research details", expanded=False):
+            summary_tab, execution_tab, periods_tab, proxy_data_tab, monte_carlo_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Monte Carlo", "Robustness Scorecard"])
+            with summary_tab:
+                st.dataframe(report.scenarios, use_container_width=True, hide_index=True)
+                if not complete.empty:
+                    st.plotly_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
+                st.download_button("Download validation scenarios CSV", report.scenarios.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_validation_scenarios.csv", "text/csv")
         with execution_tab:
             execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["parameter_sweep", "execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift", "signal_perturbation"])]
             st.dataframe(execution_tests, use_container_width=True, hide_index=True)
