@@ -350,11 +350,26 @@ def apply_browser_portfolio(payload: object, *, as_default: bool = False) -> boo
         return False
     if ils_per_usd <= 0:
         return False
+    # Model selector and weight widgets retain their own session values. Clear
+    # them before loading so the saved sleeve choices are not overwritten on
+    # the next Streamlit render.
+    for key in list(st.session_state):
+        if key.startswith("portfolio_") and any(
+            token in key for token in ("_strategy", "_variant", "_implementation", "_weight", "_model", "_currency_")
+        ):
+            del st.session_state[key]
     st.session_state["portfolio_sleeves"] = cleaned_sleeves
     st.session_state["portfolio_next_id"] = len(cleaned_sleeves) + 1
     st.session_state["portfolio_total_ils"] = total_ils
     st.session_state["portfolio_fx_rate"] = ils_per_usd
     st.session_state["portfolio_name"] = str(payload.get("name", "My portfolio"))[:80] or "My portfolio"
+    for sleeve in cleaned_sleeves:
+        definition = definition_for_label(sleeve["model"])
+        prefix = f"portfolio_{sleeve['id']}"
+        st.session_state[f"{prefix}_strategy"] = definition.strategy
+        st.session_state[f"{prefix}_variant"] = definition.variant
+        st.session_state[f"{prefix}_implementation"] = definition.implementation
+        st.session_state[f"{prefix}_weight"] = sleeve["weight"]
     if as_default:
         st.session_state["browser_default_portfolio"] = portfolio_payload(cleaned_sleeves, total_ils, ils_per_usd, st.session_state["portfolio_name"])
     return True
@@ -1239,10 +1254,14 @@ if page == "Portfolio":
         if not valid_portfolio:
             st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
         else:
+            updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
+            updated_library.append(current_payload)
+            st.session_state["browser_portfolio_library"] = updated_library
+            store_portfolio_library_in_browser(updated_library)
             st.session_state["browser_default_portfolio"] = current_payload
             st.session_state["browser_portfolio_checked"] = True
             store_portfolio_in_browser(current_payload)
-            st.success("Saved as Today’s default portfolio. Today will use it after a refresh or your next visit.")
+            st.success("Saved in this browser and set as Today’s default portfolio.")
     if clear_default:
         st.session_state["browser_default_portfolio"] = None
         store_portfolio_in_browser(None)
