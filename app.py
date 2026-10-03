@@ -1092,14 +1092,41 @@ def current_portfolio_signal(model_label: str):
     sleeve_assets = getattr(sleeve_strategy, "data_assets", ASSETS)
     sleeve_prices = all_prices.loc[:, sleeve_assets]
     sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
-    sleeve_monthly = to_month_end(sleeve_prices.loc[:, list(sleeve_market_assets)])
-    sleeve_decision_prices = sleeve_prices if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_monthly
+    sleeve_monthly, sleeve_monthly_input = monthly_strategy_input(sleeve_prices, sleeve_market_assets)
+    sleeve_decision_prices = sleeve_prices if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_monthly_input
     status = latest_actionable_signal(sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_market_assets)
     if status.decision is None:
         return None, status.reason
     decision = status.decision
     weights = decision.get("target_weights", {decision["selected_asset"]: 1.0})
     return {"decision": decision, "weights": dict(weights), "strategy": sleeve_strategy}, None
+
+
+def next_portfolio_preview(model_label: str):
+    """Return one sleeve's non-actionable current-month estimate."""
+    if definition_for_label(model_label).strategy_mode == "buy_and_hold":
+        return None, "This sleeve is held continuously and has no next-month timing preview."
+    strategy = MODEL_OPTIONS[model_label]()
+    assets = getattr(strategy, "data_assets", ASSETS)
+    prices = all_prices.loc[:, assets]
+    market_assets = getattr(strategy, "market_data_assets", assets)
+    monthly, _ = monthly_strategy_input(prices, market_assets)
+    preview_monthly, price_as_of, reason = month_to_date_snapshot(monthly, prices, market_assets)
+    if reason is not None or price_as_of is None:
+        return None, reason or "No common current-month price row is available."
+    if getattr(strategy, "uses_daily_signals", False):
+        preview_decisions = strategy.decisions(prices.loc[:price_as_of], include_current_month=True)
+    else:
+        preview_input = preview_monthly.join(
+            prices.drop(columns=list(market_assets), errors="ignore").reindex(preview_monthly.index, method="ffill")
+        )
+        preview_decisions = strategy.decisions(preview_input)
+    status = latest_preview_signal(preview_decisions, price_as_of)
+    if status.decision is None:
+        return None, status.reason or "No preview is available."
+    decision = status.decision
+    weights = decision.get("target_weights", {decision["selected_asset"]: 1.0})
+    return {"decision": decision, "weights": dict(weights), "price_as_of": status.price_as_of}, None
 
 
 def display_allocation(weights: dict[str, float], currency: str) -> str:
@@ -1140,7 +1167,7 @@ if page == "Today":
         saved_sleeves = st.session_state["portfolio_sleeves"]
         saved_total_weight = total_weight(saved_sleeves)
         title_column.caption(f"{saved_portfolio['name']} · saved in this browser")
-        signal_rows, valid_sleeves, signal_dates, changed_models = [], [], [], []
+        signal_rows, valid_sleeves, signal_dates, changed_models, current_weights_by_model = [], [], [], [], {}
         for sleeve in saved_sleeves:
             currency = definition_for_label(sleeve["model"]).execution_currency
             signal, error = current_portfolio_signal(sleeve["model"])
@@ -1152,6 +1179,7 @@ if page == "Today":
                 signal_dates.append(pd.Timestamp(decision.name))
                 if bool(decision.get("trade", False)):
                     changed_models.append(sleeve["model"])
+                current_weights_by_model[sleeve["model"]] = signal["weights"]
                 valid_sleeves.append({"name": sleeve["model"], "weight": sleeve["weight"], "currency": currency, "target_weights": signal["weights"]})
             signal_rows.append(row)
         if len(valid_sleeves) == len(saved_sleeves) and abs(saved_total_weight - 100.0) < 1e-9:
@@ -1179,6 +1207,24 @@ if page == "Today":
                 st.warning("This signal may be stale. Check that the data sources are up to date before acting.")
         st.subheader("Sleeve signals")
         st.dataframe(pd.DataFrame(signal_rows).style.format({"Weight": "{:.2%}"}), use_container_width=True, hide_index=True)
+        with st.expander("Next month portfolio preview (provisional)", expanded=False):
+            st.warning("**Provisional only — not a trading instruction.** This estimates the next completed month-end decision from current-month prices. It can change before month-end.")
+            preview_rows, preview_dates = [], []
+            for sleeve in saved_sleeves:
+                currency = definition_for_label(sleeve["model"]).execution_currency
+                preview, error = next_portfolio_preview(sleeve["model"])
+                row = {"Sleeve": sleeve["model"], "Projected allocation": "Unavailable", "Change vs current": "—", "Price data through": "—"}
+                if preview is not None:
+                    row["Projected allocation"] = display_allocation(preview["weights"], currency)
+                    row["Change vs current"] = "Yes" if preview["weights"] != current_weights_by_model.get(sleeve["model"]) else "No"
+                    row["Price data through"] = preview["price_as_of"].date().isoformat()
+                    preview_dates.append(preview["price_as_of"])
+                else:
+                    row["Projected allocation"] = error or "Unavailable"
+                preview_rows.append(row)
+            st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+            if preview_dates:
+                st.caption(f"Uses the latest common eligible price data for each sleeve (latest: {max(preview_dates):%Y-%m-%d}). The official portfolio remains the completed-month signal above.")
         st.caption("Edit this portfolio or choose a different default on the Portfolio page.")
 
 
