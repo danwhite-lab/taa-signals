@@ -1148,7 +1148,12 @@ if page == "Backtest":
         substitution_years = len(substitution_result.monthly) / 12
         summary.loc["Allocation changes", substitution_pre_tax_label] = substitution_changes
         summary.loc["Average changes/year", substitution_pre_tax_label] = substitution_changes / substitution_years if substitution_years else 0
-        summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_result.monthly["turnover"].sum() / substitution_years if substitution_years else 0
+        substitution_turnover = (
+            substitution_result.monthly["turnover"].sum() / substitution_years
+            if "turnover" in substitution_result.monthly and substitution_years
+            else substitution_changes / substitution_years if substitution_years else 0
+        )
+        summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_turnover
     st.subheader("Results")
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
     result_columns = st.columns(4)
