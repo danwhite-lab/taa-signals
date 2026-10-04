@@ -69,6 +69,14 @@ MODEL_RULES = {
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
+ISRAEL_EXPOSURE_FILE = Path(__file__).parent / "data" / "israel_exposures.csv"
+ISRAEL_EXPOSURE_LABELS = {
+    "IL_CASH": "Israel cash", "IL_EQUITY": "Israel equity", "IL_GOV_BROAD": "Israel government bonds (broad)",
+    "IL_GOV_CPI": "Israel CPI-linked government bonds", "IL_BOND_AGG": "Israel aggregate bonds",
+    "IL_GOV_2_5": "Israel government bonds (2–5 years)", "IL_GOV_5_10": "Israel government bonds (5–10 years)",
+    "IL_GOV_LONG": "Israel long government bonds", "IL_GOV_SHORT": "Israel short government bonds",
+    "IL_REAL_ESTATE": "Israel real estate", "IL_TA125_MOM": "Israel TA-125 momentum",
+}
 
 st.set_page_config(
     page_title="TAA Signals",
@@ -309,6 +317,20 @@ def append_missing_default_tickers(text: str) -> str:
     defaults = default_ticker_map(YAHOO_ASSETS)
     lines.extend(f"{asset}={defaults[asset]}" for asset in YAHOO_ASSETS if asset not in roles)
     return "\n".join(lines)
+
+
+def load_israel_exposures() -> pd.DataFrame:
+    """Load the versioned Israel exposure series supplied with the app."""
+    frame = pd.read_csv(ISRAEL_EXPOSURE_FILE, parse_dates=["date"])
+    required = {"date", "exposure_id", "value"}
+    if not required.issubset(frame.columns):
+        raise ValueError("Israel exposure data must contain date, exposure_id, and value columns.")
+    values = frame.pivot(index="date", columns="exposure_id", values="value").sort_index()
+    values = values.apply(pd.to_numeric, errors="coerce")
+    missing = set(ISRAEL_EXPOSURE_LABELS) - set(values.columns)
+    if missing:
+        raise ValueError(f"Israel exposure data is missing: {', '.join(sorted(missing))}.")
+    return values
 
 
 def portfolio_payload(sleeves: list[dict], total_ils: float, ils_per_usd: float, name: str) -> dict:
@@ -635,6 +657,35 @@ except (ValueError, TypeError) as exc:
     st.error(str(exc))
     st.stop()
 
+israel_substitutions: dict[str, str] = {}
+israel_exposures = pd.DataFrame()
+if page == "Backtest" and backtest_mode == "Single strategy":
+    try:
+        israel_exposures = load_israel_exposures()
+    except (OSError, ValueError) as exc:
+        st.error(f"Israel exposure data could not be loaded: {exc}")
+        st.stop()
+    eligible_assets = tuple(asset for asset in data_assets if asset in YAHOO_ASSETS)
+    with backtest_configuration:
+        st.divider()
+        substitution_lab_enabled = st.toggle("Substitution lab", key="substitution_lab_enabled")
+        if substitution_lab_enabled:
+            st.caption("Compare the published strategy with the identical rules run on selected Israel exposure series. Both results use only their shared available history.")
+            choices = {"Keep published asset": None, **{label: code for code, label in ISRAEL_EXPOSURE_LABELS.items()}}
+            for asset in eligible_assets:
+                selected_label = st.selectbox(
+                    f"Replace {asset} ({ticker_map[asset]}) with",
+                    tuple(choices),
+                    key=f"israel_substitution_{model_name}_{asset}",
+                )
+                exposure = choices[selected_label]
+                if exposure is not None:
+                    israel_substitutions[asset] = exposure
+            if israel_substitutions:
+                st.success("Comparing published inputs with: " + ", ".join(f"{asset} → {ISRAEL_EXPOSURE_LABELS[exposure]}" for asset, exposure in israel_substitutions.items()))
+            else:
+                st.info("Choose one or more Israel exposures to compare against the published strategy.")
+
 @st.cache_data(ttl=3600, show_spinner="Downloading Yahoo Finance price history...")
 def load_data(source_items: tuple[tuple[str, str], ...]):
     return download_yahoo_prices(dict(source_items))
@@ -713,6 +764,11 @@ if page == "Backtest":
     st.session_state["uploaded_replacements"] = replacements
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
 all_prices = combine_replacements(downloaded_all, replacements, ALL_MODEL_ASSETS)
+substitution_all_prices: pd.DataFrame | None = None
+if israel_substitutions:
+    substitution_all_prices = all_prices.copy()
+    for asset, exposure in israel_substitutions.items():
+        substitution_all_prices[asset] = israel_exposures[exposure]
 source_metadata = pd.DataFrame(
     {
         "source": "Yahoo Finance",
@@ -824,11 +880,23 @@ if page == "Backtest" and backtest_mode == "Portfolio":
 prices = all_prices.loc[:, data_assets]
 market_data_assets = getattr(strategy, "market_data_assets", data_assets)
 monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
+substitution_prices = None
+substitution_monthly = None
+substitution_decision_input = None
 all_monthly = to_month_end(all_prices)
 ranges = date_ranges(prices)
 common_start, common_end = common_monthly_period(monthly)
 
-if common_start is None:
+if substitution_all_prices is not None:
+    substitution_prices = substitution_all_prices.loc[:, data_assets]
+    substitution_monthly, substitution_decision_input = monthly_strategy_input(substitution_prices, market_data_assets)
+    replacement_start, replacement_end = common_monthly_period(substitution_monthly)
+    if replacement_start is None or replacement_end is None or common_start is None or common_end is None:
+        st.error("The selected Israel exposures do not have enough shared month-end history.")
+        st.stop()
+    common_start, common_end = max(common_start, replacement_start), min(common_end, replacement_end)
+
+if common_start is None or common_end is None or common_start > common_end:
     if isinstance(strategy, HAASimpleIsrael) and tase_warning:
         st.error(f"HAA-Simple Israel has no common month-end observations because its public TASE/Maya data source is unavailable. {tase_warning}")
     else:
@@ -836,6 +904,8 @@ if common_start is None:
     st.stop()
 start = st.session_state.get("start", common_start.date())
 execution_end_limit = prices.index.max().date()
+if substitution_prices is not None:
+    execution_end_limit = min(execution_end_limit, substitution_prices.index.max().date())
 end = st.session_state.get("end", execution_end_limit)
 # A model can have a shorter history than the previously configured model.
 # Keep saved backtest dates valid when returning to its configuration page.
@@ -859,12 +929,26 @@ decisions = strategy.decisions(decision_prices)
 if decisions.empty:
     st.error(f"Insufficient history for {strategy.name}.")
     st.stop()
+substitution_decisions = None
+if substitution_prices is not None and substitution_decision_input is not None:
+    substitution_signal_prices = substitution_prices if getattr(strategy, "uses_daily_signals", False) else substitution_decision_input
+    substitution_decisions = strategy.decisions(substitution_signal_prices)
+    if substitution_decisions.empty:
+        st.error(f"Insufficient history for the substituted {strategy.name} run.")
+        st.stop()
 first_signal = decisions.index.min()
 try:
     result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset)
 except ValueError as exc:
     st.error(str(exc))
     st.stop()
+substitution_result = None
+if substitution_decisions is not None and substitution_monthly is not None and substitution_prices is not None:
+    try:
+        substitution_result = run_backtest(substitution_decisions, substitution_monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=substitution_prices, benchmark_asset=benchmark_asset)
+    except ValueError as exc:
+        st.error(f"The substituted run could not be compared: {exc}")
+        st.stop()
 
 # Shared result-table formatting used by both Backtest and Compare Models.
 percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
@@ -1036,14 +1120,19 @@ if page == "Backtest":
     title_column.title(strategy.name)
     st.caption("These settings configure this backtest only.")
     st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
+    if substitution_result is not None:
+        st.caption("Substitution lab: published and Israel-exposure runs use identical rules, settings, and shared periods.")
     if hasattr(strategy, "risk_warning"):
         st.warning(strategy.risk_warning)
     st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. SPY benchmark uses these same monthly periods.")
-    pre_tax_label = f"{strategy.name} pre-tax"
+    pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
     after_tax_label = f"{strategy.name} after-tax"
     comparison = {pre_tax_label: performance_metrics(result.monthly["pre_tax_value"], initial)}
     if tax_enabled:
         comparison[after_tax_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+    substitution_pre_tax_label = "Israel exposure substitution pre-tax"
+    if substitution_result is not None:
+        comparison[substitution_pre_tax_label] = performance_metrics(substitution_result.monthly["pre_tax_value"], initial)
     # Keep the benchmark at the far right; the after-tax strategy result sits
     # beside its pre-tax counterpart for direct capital-gains comparison.
     comparison[benchmark_label] = performance_metrics(result.monthly["benchmark_value"], initial)
@@ -1054,16 +1143,27 @@ if page == "Backtest":
     summary.loc["Allocation changes", pre_tax_label] = changes
     summary.loc["Average changes/year", pre_tax_label] = changes / years if years else 0
     summary.loc["Annual turnover", pre_tax_label] = annual_turnover
+    if substitution_result is not None:
+        substitution_changes = int(substitution_result.monthly["allocation_change"].sum())
+        substitution_years = len(substitution_result.monthly) / 12
+        summary.loc["Allocation changes", substitution_pre_tax_label] = substitution_changes
+        summary.loc["Average changes/year", substitution_pre_tax_label] = substitution_changes / substitution_years if substitution_years else 0
+        summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_result.monthly["turnover"].sum() / substitution_years if substitution_years else 0
     st.subheader("Results")
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
     result_columns = st.columns(4)
-    result_columns[0].metric("CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
-    result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
+    result_columns[0].metric("Published CAGR" if substitution_result is not None else "CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
+    if substitution_result is not None:
+        result_columns[1].metric("Israel exposure CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{summary.loc['CAGR', substitution_pre_tax_label] - summary.loc['CAGR', pre_tax_label]:+.2%}")
+    else:
+        result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
     result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
     result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
     curves = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_value"]})
     if tax_enabled:
         curves[after_tax_label] = result.monthly["after_tax_value"]
+    if substitution_result is not None:
+        curves[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_value"]
     curves[benchmark_label] = result.monthly["benchmark_value"]
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     drawdowns = curves.div(curves.cummax()).sub(1)
@@ -1073,10 +1173,14 @@ if page == "Backtest":
     annual = pd.DataFrame({pre_tax_label: annual_returns(result.monthly["pre_tax_monthly_return"])})
     if tax_enabled:
         annual[after_tax_label] = annual_returns(result.monthly["after_tax_monthly_return"])
+    if substitution_result is not None:
+        annual[substitution_pre_tax_label] = annual_returns(substitution_result.monthly["pre_tax_monthly_return"])
     annual[benchmark_label] = annual_returns(result.monthly["benchmark_monthly_return"])
     monthly_returns = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_monthly_return"]})
     if tax_enabled:
         monthly_returns[after_tax_label] = result.monthly["after_tax_monthly_return"]
+    if substitution_result is not None:
+        monthly_returns[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_monthly_return"]
     monthly_returns[benchmark_label] = result.monthly["benchmark_monthly_return"]
     with st.expander("Return history", expanded=False):
         annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
