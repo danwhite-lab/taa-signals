@@ -14,5 +14,6 @@ from .ggcem import GGCEMLinkOriginal, GGCEMLinkOriginalIsrael
 from .orthogonal_alpha import OrthogonalAlpha
 from .baa import BAAG4Aggressive, BAAG4AggressiveIsrael
 from .vaa import VAAG4
+from .momentum_correlation_triplet import MomentumCorrelationTriplet
 
-__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GEM", "GEMIsrael", "GGCEMLinkOriginal", "GGCEMLinkOriginalIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]
+__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GEM", "GEMIsrael", "GGCEMLinkOriginal", "GGCEMLinkOriginalIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "MomentumCorrelationTriplet", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]

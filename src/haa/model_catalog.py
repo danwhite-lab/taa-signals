@@ -33,6 +33,7 @@ from .strategies import (
     BAAG4Aggressive,
     BAAG4AggressiveIsrael,
     VAAG4,
+    MomentumCorrelationTriplet,
 )
 
 
@@ -76,6 +77,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("GGCEM", "Link Original", "Original", "GGCEM Link Original", GGCEMLinkOriginal),
     ModelDefinition("GGCEM", "Link Original", "Israel", "GGCEM Link Original Israel", GGCEMLinkOriginalIsrael, "ILS", "externally_timed", "external", None, "Uses the published OECD CLI diffusion regime and maps SPY to CSPX (1159250), VEU to ACWX (5142476), IEF to IEF (1159268), and BIL to Keren Kaspit (5136866). Its backtest uses U.S. SPY, ACWX, IEF, and BIL returns, not TASE or ILS performance."),
     ModelDefinition("VAA", "G4 (T1/B1)", "Original", "VAA-G4 (T1/B1)", VAAG4),
+    ModelDefinition("Momentum-Correlation Triplet", "Standard", "Original", "Momentum-Correlation Triplet", MomentumCorrelationTriplet),
     ModelDefinition("BAA", "G4 (Aggressive)", "Original", "BAA-G4 (Aggressive)", BAAG4Aggressive),
     ModelDefinition("BAA", "G4 (Aggressive)", "Israel", "BAA-G4 (Aggressive) Israel", BAAG4AggressiveIsrael, "ILS", "externally_timed", "external", None, "Uses published USD BAA-G4 signals and maps the selected holdings to the specified TASE-listed ILS securities. Its backtest uses the corresponding U.S. execution-proxy returns—VXUS, BNDW, and GLDM where needed—not TASE fund returns or ILS performance."),
     ModelDefinition("Orthogonal Alpha", None, "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
