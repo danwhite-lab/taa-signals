@@ -33,3 +33,33 @@ def test_monthly_data_uses_actual_last_trading_date_and_excludes_partial_month()
     daily = pd.DataFrame({"SPY": [100.0, 101.0, 102.0]}, index=pd.to_datetime(["2026-08-31", "2026-09-01", "2026-09-22"]))
     monthly = to_month_end(daily, as_of=pd.Timestamp("2026-09-22"))
     assert monthly.index.equals(pd.DatetimeIndex([pd.Timestamp("2026-08-31")]))
+
+
+def test_month_end_uses_each_market_last_close_when_us_and_tase_dates_differ():
+    """TASE closed Thursday while the U.S. market traded Friday month-end."""
+    daily = pd.DataFrame(
+        {
+            "US": [100.0, 101.0, 102.0],
+            "TASE": [200.0, 201.0, np.nan],
+        },
+        index=pd.to_datetime(["2023-09-27", "2023-09-28", "2023-09-29"]),
+    )
+
+    monthly = to_month_end(daily, as_of=pd.Timestamp("2023-10-01"))
+
+    assert monthly.index.equals(pd.DatetimeIndex([pd.Timestamp("2023-09-29")]))
+    assert monthly.loc[pd.Timestamp("2023-09-29"), "US"] == 102.0
+    # This is the actual Thursday close, not a synthetic Friday fill.
+    assert monthly.loc[pd.Timestamp("2023-09-29"), "TASE"] == 201.0
+
+
+def test_month_end_never_uses_tase_close_after_common_signal_date():
+    daily = pd.DataFrame(
+        {"US": [100.0, 101.0], "TASE": [200.0, 999.0]},
+        # The Sunday row belongs to October and must not affect September.
+        index=pd.to_datetime(["2023-09-29", "2023-10-01"]),
+    )
+
+    monthly = to_month_end(daily, as_of=pd.Timestamp("2023-10-02"))
+
+    assert monthly.loc[pd.Timestamp("2023-09-29"), "TASE"] == 200.0

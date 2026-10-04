@@ -196,24 +196,35 @@ def _clean_prices(prices: pd.DataFrame) -> pd.DataFrame:
 
 
 def to_month_end(daily_prices: pd.DataFrame, as_of: pd.Timestamp | None = None) -> pd.DataFrame:
-    """Return completed months, indexed by their actual final trading date.
+    """Return completed month observations without inventing trading sessions.
 
     The current calendar month is deliberately excluded.  This prevents a
     partial month from being relabelled as its future calendar month-end.
+
+    Each asset contributes its own final valid close in a completed calendar
+    month.  The row is indexed by the latest of those actual sessions.  Thus,
+    for a U.S. Friday month-end and a TASE Thursday month-end, the Friday row
+    contains Friday's U.S. close and Thursday's already-known TASE close.  No
+    series is forward-filled across exchange calendars.
     """
     prices = _clean_prices(daily_prices)
     timestamp = pd.Timestamp.now(tz="UTC").tz_localize(None) if as_of is None else pd.Timestamp(as_of).tz_localize(None)
     completed_month = timestamp.to_period("M") - 1
     periods = prices.index.to_period("M")
-    # A mixed U.S./TASE model is final only on a date with prices for every
-    # series it needs. This avoids treating one exchange's holiday as a final
-    # signal for another exchange.
-    completed = prices.loc[(periods <= completed_month) & prices.notna().all(axis=1)]
+    completed = prices.loc[periods <= completed_month]
     if completed.empty:
         return completed
-    # ``tail(1)`` keeps the real last trading date rather than assigning a
-    # synthetic calendar-end label such as 2026-09-30 to 2026-09-22 prices.
-    return completed.groupby(completed.index.to_period("M"), group_keys=False).tail(1)
+    rows: list[pd.Series] = []
+    dates: list[pd.Timestamp] = []
+    for _, month in completed.groupby(completed.index.to_period("M")):
+        # ``apply`` selects the last actual observation for each column; it
+        # does not carry values into a date on which that market was closed.
+        values = month.apply(lambda series: series.dropna().iloc[-1] if series.notna().any() else float("nan"))
+        last_dates = [series.dropna().index[-1] for _, series in month.items() if series.notna().any()]
+        if last_dates:
+            rows.append(values)
+            dates.append(max(last_dates))
+    return pd.DataFrame(rows, index=pd.DatetimeIndex(dates), columns=prices.columns)
 
 
 def date_ranges(prices: pd.DataFrame) -> pd.DataFrame:
