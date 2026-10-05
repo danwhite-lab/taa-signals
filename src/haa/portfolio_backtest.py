@@ -8,6 +8,7 @@ import pandas as pd
 
 from .comparison import ModelInput
 from .engine import BacktestResult, run_backtest
+from .tax import IsraeliTaxState
 
 
 @dataclass(frozen=True)
@@ -17,22 +18,28 @@ class PortfolioBacktestResult:
     monthly: pd.DataFrame
     sleeve_returns: pd.DataFrame
     common_index: pd.DatetimeIndex
+    tax_events: pd.DataFrame
 
 
 def run_portfolio_backtest(
     sleeves: Mapping[str, tuple[float, ModelInput]],
     initial_investment: float,
     transaction_cost: float = 0.0,
+    tax_enabled: bool = False,
+    tax_rate: float = 0.25,
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
 ) -> PortfolioBacktestResult:
     """Backtest weighted sleeves, resetting sleeve weights each month-end.
 
     A sleeve's own engine remains responsible for tactical allocations and
-    transaction costs.  The portfolio then earns the weighted sum of each
-    sleeve's monthly return and resets to target sleeve weights before the
-    following holding period.  This deliberately uses only the intersection
-    of executable holding periods; no return series is padded or synthesized.
+    transaction costs and realized-gain tax. The portfolio then earns the
+    weighted sum of each sleeve's monthly return and resets to target sleeve
+    weights before the following holding period. Tax is charged on tactical
+    sleeve sales and on profitable sleeve reductions at the monthly reset;
+    the latter is an explicit portfolio-level approximation, not tax advice.
+    This deliberately uses only the intersection of executable holding
+    periods; no return series is padded or synthesized.
     """
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
@@ -48,6 +55,8 @@ def run_portfolio_backtest(
             model.monthly_prices,
             1.0,
             transaction_cost=transaction_cost,
+            tax_enabled=tax_enabled,
+            tax_rate=tax_rate,
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
         )
@@ -70,6 +79,10 @@ def run_portfolio_backtest(
         for name, result in sleeve_results.items()
     })
     portfolio_returns = returns.mul(pd.Series(weights), axis=1).sum(axis=1)
+    after_returns = pd.DataFrame({
+        name: result.monthly.loc[common, "after_tax_monthly_return"]
+        for name, result in sleeve_results.items()
+    })
     # Inputs share the app-wide benchmark (SPY); taking the first column keeps
     # this helper usable for any future uniformly configured benchmark.
     benchmark_return = benchmark_returns.iloc[:, 0]
@@ -81,4 +94,56 @@ def run_portfolio_backtest(
     monthly["benchmark_value"] = initial_investment * (1 + benchmark_return).cumprod()
     monthly["allocation_change"] = False
     monthly["turnover"] = 0.0
-    return PortfolioBacktestResult(monthly, returns, common)
+    after_value = initial_investment
+    positions: dict[str, float] = {}
+    tax_state = IsraeliTaxState(tax_rate=tax_rate)
+    tax_events: list[dict[str, object]] = []
+    after_values: list[float] = []
+    after_period_returns: list[float] = []
+    for date, period_returns in after_returns.iterrows():
+        prior_value = after_value
+        tax_paid = 0.0
+        if not positions:
+            positions = {name: after_value * weight for name, weight in weights.items()}
+            if tax_enabled:
+                for name, amount in positions.items():
+                    tax_state.buy(name, amount)
+        else:
+            total_before_reset = sum(positions.values())
+            desired_before_tax = {name: total_before_reset * weight for name, weight in weights.items()}
+            residual = positions.copy()
+            if tax_enabled:
+                for name, current in positions.items():
+                    sale = max(0.0, current - desired_before_tax[name])
+                    if sale:
+                        basis = tax_state.cost_bases.get(name, 0.0)
+                        event = tax_state.sell(sale, asset=name, cost_basis_sold=basis * sale / current if current else 0.0)
+                        tax_paid += event["tax_paid"]
+                        residual[name] -= sale
+                        tax_events.append({"date": date, "tax_level": "portfolio reset", "sold_sleeve": name, "proceeds": sale, **event})
+            after_value = max(0.0, total_before_reset - tax_paid)
+            target_positions = {name: after_value * weight for name, weight in weights.items()}
+            if tax_enabled:
+                for name, target in target_positions.items():
+                    if target > residual[name]:
+                        tax_state.buy(name, target - residual[name])
+                    elif residual[name] > target and residual[name] > 0:
+                        # Tax payment reduces portfolio capital. It is not an
+                        # extra strategy sale, so trim the remaining basis in
+                        # proportion to the post-tax position.
+                        tax_state.cost_bases[name] = tax_state.cost_bases.get(name, 0.0) * target / residual[name]
+            positions = target_positions
+        for name, sleeve_return in period_returns.items():
+            positions[name] *= 1 + sleeve_return
+        after_value = sum(positions.values())
+        after_values.append(after_value)
+        after_period_returns.append(after_value / prior_value - 1)
+        monthly.loc[date, "portfolio_reset_tax"] = tax_paid
+
+    monthly["after_tax_value"] = after_values
+    monthly["after_tax_monthly_return"] = after_period_returns
+    if tax_enabled:
+        for name, result in sleeve_results.items():
+            if not result.tax_events.empty:
+                tax_events.extend({"date": row.get("date"), "tax_level": "strategy sleeve", "sold_sleeve": name, **row.to_dict()} for _, row in result.tax_events.iterrows())
+    return PortfolioBacktestResult(monthly, returns, common, pd.DataFrame(tax_events))

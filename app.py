@@ -21,14 +21,13 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementatio
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, MomentumCorrelationTriplet, OrthogonalAlpha, TA125SmartMomentum, VAAG4
-from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
-    "Momentum-Correlation Triplet": """**Momentum-Correlation Triplet:** At each completed month-end, score BWX, EEM, EWJ, GLDM, IEF, PDBC, QQQ, RWX, SCZ, SPY, TIP, TLT, VGK, and VNQ by the unweighted average of their 3-, 6-, and 12-month returns. Keep the five highest scorers that exceed BIL's score. Test every three-asset combination using the average pairwise correlation of the prior 252 aligned actual daily returns, then hold the lowest-correlation triplet at one-third each. If fewer than three assets qualify, the remaining slots are held in BIL. No market-calendar values are forward-filled.""",
     "Century Momentum Israel": """**Century Momentum Israel:** At each completed month-end, compare MTF Tracking S&P 500 Momentum (4D) (5140850) with its 10-month simple moving average, calculated from the ten completed TASE month-end closes including the current signal close. If it is strictly above the average, hold 100% MTF Tracking S&P 500 Momentum (4D) (5140850); if it is equal to or below the average, hold 100% iShares $ Treasury Bond 7–10yr UCITS (1159268). The decision takes effect from the following available TASE trading day. This ILS execution variant uses actual TASE fund histories only; it does not synthesize a longer history.""",
     "Century Momentum": """**Century Momentum:** At each completed month-end, compare SPMO's close with its 10-month simple moving average, calculated from the ten completed month-end closes including the current signal close. If SPMO is strictly above the average, hold 100% SPMO; if it is equal to or below the average, hold 100% IEF. The decision takes effect from the following available trading day. The backtest deliberately starts with SPMO's actual ETF history; it does not splice in the non-investable academic Fama-French momentum-decile history.""",
     "Growth-Inflation Concentrated Israel": """**Growth-Inflation Concentrated Israel:** Uses the original strategy's completed U.S. daily signals—SPY versus its 200-day SMA for growth and the inflation-positive/negative sector ratio versus its 200-day SMA for inflation—but executes each selected regime through TASE-listed instruments in ILS: reflation → KSM ETF S&P Energy (1145903); goldilocks → iShares S&P 500 IT UCITS (1159193); stagflation → MTF סל S&P Health Care (4D) (1150390); deflation → MTF S&P Consumer Staples (1150366). Decisions are made at month-end and take effect on the following available TASE trading day.""",
@@ -70,14 +69,6 @@ MODEL_RULES = {
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
-ISRAEL_EXPOSURE_FILE = Path(__file__).parent / "data" / "israel_exposures.csv"
-ISRAEL_EXPOSURE_LABELS = {
-    "IL_CASH": "Israel cash", "IL_EQUITY": "Israel equity", "IL_GOV_BROAD": "Israel government bonds (broad)",
-    "IL_GOV_CPI": "Israel CPI-linked government bonds", "IL_BOND_AGG": "Israel aggregate bonds",
-    "IL_GOV_2_5": "Israel government bonds (2–5 years)", "IL_GOV_5_10": "Israel government bonds (5–10 years)",
-    "IL_GOV_LONG": "Israel long government bonds", "IL_GOV_SHORT": "Israel short government bonds",
-    "IL_REAL_ESTATE": "Israel real estate", "IL_TA125_MOM": "Israel TA-125 momentum",
-}
 
 st.set_page_config(
     page_title="TAA Signals",
@@ -320,18 +311,17 @@ def append_missing_default_tickers(text: str) -> str:
     return "\n".join(lines)
 
 
-def load_israel_exposures() -> pd.DataFrame:
-    """Load the versioned Israel exposure series supplied with the app."""
-    frame = pd.read_csv(ISRAEL_EXPOSURE_FILE, parse_dates=["date"])
-    required = {"date", "exposure_id", "value"}
-    if not required.issubset(frame.columns):
-        raise ValueError("Israel exposure data must contain date, exposure_id, and value columns.")
-    values = frame.pivot(index="date", columns="exposure_id", values="value").sort_index()
-    values = values.apply(pd.to_numeric, errors="coerce")
-    missing = set(ISRAEL_EXPOSURE_LABELS) - set(values.columns)
-    if missing:
-        raise ValueError(f"Israel exposure data is missing: {', '.join(sorted(missing))}.")
-    return values
+def substitution_ticker_map(
+    base_tickers: dict[str, str], yahoo_substitutions: dict[str, str]
+) -> dict[str, str]:
+    """Return a second role-to-ticker map without changing the published run.
+
+    Strategy classes continue to receive their canonical asset-role columns
+    (for example ``SPY`` or ``IEF``). The selected-source comparison changes only the
+    Yahoo series placed into those columns, so it can run the exact same rules
+    beside the unmodified published inputs.
+    """
+    return {asset: yahoo_substitutions.get(asset, ticker) for asset, ticker in base_tickers.items()}
 
 
 def portfolio_payload(sleeves: list[dict], total_ils: float, ils_per_usd: float, name: str) -> dict:
@@ -617,7 +607,9 @@ if page == "Backtest":
                 st.warning(f"Sleeve weights total {backtest_weight_total:.2f}%. Set them to exactly 100% to run the portfolio backtest.")
             else:
                 st.success("Sleeve weights total 100%.")
-            st.info("Portfolio backtests show pre-tax results. Transaction costs within each tactical sleeve are included; portfolio-level capital-gains tax accounting will be added separately.")
+            st.toggle("Israeli capital-gains tax", key="tax_enabled")
+            st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
+            st.caption("When enabled, tax applies to realized tactical sleeve sales and profitable sleeve reductions during monthly portfolio rebalancing. Unrealized gains are not taxed.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -625,6 +617,8 @@ if page == "Backtest":
 
 st.session_state["cost_pct"] = st.session_state["settings_cost_pct"] / 100
 st.session_state["tax_rate"] = st.session_state["settings_tax_rate"] / 100
+tax_enabled = st.session_state["tax_enabled"]
+tax_rate = st.session_state["tax_rate"]
 
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
@@ -658,34 +652,63 @@ except (ValueError, TypeError) as exc:
     st.error(str(exc))
     st.stop()
 
-israel_substitutions: dict[str, str] = {}
-israel_exposures = pd.DataFrame()
+substitution_mode = "Original"
+yahoo_substitutions: dict[str, str] = {}
+tase_substitutions: dict[str, str] = {}
 if page == "Backtest" and backtest_mode == "Single strategy":
-    try:
-        israel_exposures = load_israel_exposures()
-    except (OSError, ValueError) as exc:
-        st.error(f"Israel exposure data could not be loaded: {exc}")
-        st.stop()
-    eligible_assets = tuple(asset for asset in data_assets if asset in YAHOO_ASSETS)
+    substitutable_assets = tuple(asset for asset in data_assets if asset not in (*FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
     with backtest_configuration:
         st.divider()
-        substitution_lab_enabled = st.toggle("Substitution lab", key="substitution_lab_enabled")
-        if substitution_lab_enabled:
-            st.caption("Compare the published strategy with the identical rules run on selected Israel exposure series. Both results use only their shared available history.")
-            choices = {"Keep published asset": None, **{label: code for code, label in ISRAEL_EXPOSURE_LABELS.items()}}
-            for asset in eligible_assets:
-                selected_label = st.selectbox(
-                    f"Replace {asset} ({ticker_map[asset]}) with",
-                    tuple(choices),
-                    key=f"israel_substitution_{model_name}_{asset}",
-                )
-                exposure = choices[selected_label]
-                if exposure is not None:
-                    israel_substitutions[asset] = exposure
-            if israel_substitutions:
-                st.success("Comparing published inputs with: " + ", ".join(f"{asset} → {ISRAEL_EXPOSURE_LABELS[exposure]}" for asset, exposure in israel_substitutions.items()))
+        substitution_mode = st.segmented_control(
+            "Asset sources",
+            ("Original", "Israeli defaults", "Custom"),
+            default="Original",
+            key="substitution_mode",
+            help="Original preserves published inputs. Israeli defaults use available locally traded TASE implementations. Custom lets you select Yahoo Finance tickers or numeric TASE security IDs for individual asset roles.",
+        )
+        if substitution_mode == "Israeli defaults":
+            for asset in substitutable_assets:
+                security_id = ISRAEL_DEFAULT_TASE_SUBSTITUTIONS.get(asset)
+                if security_id:
+                    tase_substitutions[asset] = security_id
+            mapped = [f"{asset} -> TASE {security_id}" for asset, security_id in tase_substitutions.items()]
+            unmapped = [asset for asset in substitutable_assets if asset not in tase_substitutions]
+            if mapped:
+                st.success("Israeli defaults: " + ", ".join(mapped))
+            if unmapped:
+                st.info("No Israeli default is configured for: " + ", ".join(unmapped) + ". Those roles keep their original data.")
+            st.caption("Defaults are practical local implementations, not claims of identical exposures or returns. Public TASE history can be materially shorter than Yahoo history.")
+        elif substitution_mode == "Custom":
+            st.caption(
+                "Choose the data source for each role. A TASE entry is a numeric security ID, not an index code. The strategy rules remain unchanged, but the selected source replaces that role's price history."
+            )
+            for asset in substitutable_assets:
+                source_column, kind_column, replacement_column = st.columns((1, 1.05, 1.4))
+                with source_column:
+                    baseline = ticker_map.get(asset, f"TASE {TASE_ISRAEL_ASSET_IDS.get(asset, asset)}")
+                    st.text_input(f"{asset} original", value=baseline, disabled=True, key=f"published_ticker_{asset}")
+                with kind_column:
+                    source_kind = st.selectbox("Source", ("Original", "Yahoo Finance", "TASE security"), key=f"substitution_source_{model_name}_{asset}", label_visibility="collapsed")
+                with replacement_column:
+                    if source_kind == "Yahoo Finance":
+                        replacement = st.text_input(f"{asset} Yahoo ticker", placeholder="Example: EFA", key=f"substitution_yahoo_{model_name}_{asset}").strip().upper()
+                    elif source_kind == "TASE security":
+                        replacement = st.text_input(f"{asset} TASE security ID", placeholder="Example: 1159250", key=f"substitution_tase_{model_name}_{asset}").strip()
+                    else:
+                        replacement = ""
+                        st.caption("Keep original")
+                if source_kind == "Yahoo Finance" and replacement:
+                    yahoo_substitutions[asset] = replacement
+                elif source_kind == "TASE security" and replacement:
+                    tase_substitutions[asset] = replacement
+            if tase_substitutions and any(not identifier.isdigit() for identifier in tase_substitutions.values()):
+                st.error("Each custom TASE security ID must contain digits only.")
+                st.stop()
+            chosen = [*(f"{asset} -> Yahoo {ticker}" for asset, ticker in yahoo_substitutions.items()), *(f"{asset} -> TASE {identifier}" for asset, identifier in tase_substitutions.items())]
+            if chosen:
+                st.success("Custom sources: " + ", ".join(chosen))
             else:
-                st.info("Choose one or more Israel exposures to compare against the published strategy.")
+                st.info("Select at least one Yahoo ticker or TASE security ID, or choose Original mode.")
 
 @st.cache_data(ttl=3600, show_spinner="Downloading Yahoo Finance price history...")
 def load_data(source_items: tuple[tuple[str, str], ...]):
@@ -717,11 +740,27 @@ def load_tase_data():
     """Cache successful public-source requests and avoid repeated TASE traffic."""
     return download_tase_israel_prices()
 
+
+@st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading selected TASE security history...")
+def load_tase_substitution_data(source_items: tuple[tuple[str, str], ...]):
+    """Cache custom TASE security lookups by canonical role and security ID."""
+    return download_tase_security_prices(dict(source_items))
+
 try:
     downloaded = load_data(tuple(ticker_map.items()))
 except Exception as exc:
     st.error(f"Yahoo Finance download failed: {exc}")
     st.stop()
+
+substitution_downloaded: pd.DataFrame | None = None
+if yahoo_substitutions:
+    try:
+        substitution_downloaded = load_data(
+            tuple(substitution_ticker_map(ticker_map, yahoo_substitutions).items())
+        )
+    except Exception as exc:
+        st.error(f"Selected-source Yahoo data download failed: {exc}")
+        st.stop()
 
 try:
     fred_prices = load_fred_data()
@@ -751,6 +790,14 @@ except TaseDataError as exc:
         index=pd.Index(TASE_ASSETS, name="asset"),
     )
 
+substitution_tase_prices: pd.DataFrame | None = None
+if tase_substitutions:
+    try:
+        substitution_tase_prices, _ = load_tase_substitution_data(tuple(tase_substitutions.items()))
+    except TaseDataError as exc:
+        st.error(f"TASE substitution data failed: {exc}")
+        st.stop()
+
 replacements = st.session_state["uploaded_replacements"].copy()
 if page == "Backtest":
     replacements = {}
@@ -766,10 +813,15 @@ if page == "Backtest":
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
 all_prices = combine_replacements(downloaded_all, replacements, ALL_MODEL_ASSETS)
 substitution_all_prices: pd.DataFrame | None = None
-if israel_substitutions:
+if substitution_downloaded is not None or substitution_tase_prices is not None:
     substitution_all_prices = all_prices.copy()
-    for asset, exposure in israel_substitutions.items():
-        substitution_all_prices[asset] = israel_exposures[exposure]
+    for asset in yahoo_substitutions:
+        # Assign by index rather than replacing the full frame: macro, TASE,
+        # and uploaded CSV inputs remain identical in both comparison runs.
+        substitution_all_prices[asset] = substitution_downloaded[asset]
+    if substitution_tase_prices is not None:
+        for asset in tase_substitutions:
+            substitution_all_prices[asset] = substitution_tase_prices[asset]
 source_metadata = pd.DataFrame(
     {
         "source": "Yahoo Finance",
@@ -811,7 +863,9 @@ if page == "Backtest" and backtest_mode == "Portfolio":
             portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
                 sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, "SPY"
             ))
-        preliminary_portfolio = run_portfolio_backtest(portfolio_inputs, initial, cost_pct)
+        preliminary_portfolio = run_portfolio_backtest(
+            portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate
+        )
     except (ValueError, KeyError) as exc:
         title_column.title("Portfolio backtest")
         st.error(str(exc))
@@ -832,7 +886,13 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.session_state.update({"portfolio_backtest_start": portfolio_start, "portfolio_backtest_end": portfolio_end})
     try:
         portfolio_result = run_portfolio_backtest(
-            portfolio_inputs, initial, cost_pct, pd.Timestamp(portfolio_start), pd.Timestamp(portfolio_end)
+            portfolio_inputs,
+            initial,
+            transaction_cost=cost_pct,
+            tax_enabled=tax_enabled,
+            tax_rate=tax_rate,
+            start=pd.Timestamp(portfolio_start),
+            end=pd.Timestamp(portfolio_end),
         )
     except ValueError as exc:
         title_column.title("Portfolio backtest")
@@ -840,23 +900,33 @@ if page == "Backtest" and backtest_mode == "Portfolio":
         st.stop()
 
     title_column.title("Portfolio backtest")
-    st.caption("Monthly sleeve rebalancing: sleeve weights reset to their target percentages at each month-end. Results are pre-tax and use only the shared available history.")
+    st.caption("Monthly sleeve rebalancing resets sleeve weights to targets at each month-end and uses only shared available history.")
     st.caption(f"Holding periods: {portfolio_result.monthly.index.min().date()} through {portfolio_result.monthly.index.max().date()}. SPY is the buy-and-hold benchmark.")
     portfolio_label = "Portfolio pre-tax"
+    portfolio_after_tax_label = "Portfolio after-tax"
     benchmark_label = "SPY buy-and-hold"
     summary = pd.DataFrame({
         portfolio_label: performance_metrics(portfolio_result.monthly["pre_tax_value"], initial),
         benchmark_label: performance_metrics(portfolio_result.monthly["benchmark_value"], initial),
     })
+    if tax_enabled:
+        summary.insert(1, portfolio_after_tax_label, performance_metrics(portfolio_result.monthly["after_tax_value"], initial))
     portfolio_percentage_rows = [row for row in percentage_rows if row in summary.index]
     portfolio_numeric_rows = [row for row in ratio_rows + numeric_rows if row in summary.index]
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[portfolio_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[portfolio_numeric_rows, :])
     st.subheader("Results")
-    result_columns = st.columns(3)
+    result_columns = st.columns(4 if tax_enabled else 3)
     result_columns[0].metric("Portfolio CAGR", f"{summary.loc['CAGR', portfolio_label]:.2%}")
-    result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', portfolio_label]:.2%}")
-    result_columns[2].metric("Final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
+    if tax_enabled:
+        result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', portfolio_after_tax_label]:.2%}", delta=f"{summary.loc['CAGR', portfolio_after_tax_label] - summary.loc['CAGR', portfolio_label]:+.2%}")
+        result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
+        result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', portfolio_after_tax_label]:,.0f}")
+    else:
+        result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', portfolio_label]:.2%}")
+        result_columns[2].metric("Final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
     curves = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_value"], benchmark_label: portfolio_result.monthly["benchmark_value"]})
+    if tax_enabled:
+        curves.insert(1, portfolio_after_tax_label, portfolio_result.monthly["after_tax_value"])
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     st.plotly_chart(px.line(curves.div(curves.cummax()).sub(1), title="Drawdown"), use_container_width=True)
     with st.expander("Full performance table", expanded=False):
@@ -871,6 +941,9 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.dataframe(sleeve_summary.style.format({"Target weight": "{:.2%}", "CAGR": "{:.2%}", "Total return": "{:.2%}"}), use_container_width=True, hide_index=True)
     annual = pd.DataFrame({portfolio_label: annual_returns(portfolio_result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(portfolio_result.monthly["benchmark_monthly_return"])})
     monthly_returns = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_monthly_return"], benchmark_label: portfolio_result.monthly["benchmark_monthly_return"]})
+    if tax_enabled:
+        annual.insert(1, portfolio_after_tax_label, annual_returns(portfolio_result.monthly["after_tax_monthly_return"]))
+        monthly_returns.insert(1, portfolio_after_tax_label, portfolio_result.monthly["after_tax_monthly_return"])
     with st.expander("Return history", expanded=False):
         history_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
         with history_tab:
@@ -881,9 +954,9 @@ if page == "Backtest" and backtest_mode == "Portfolio":
 prices = all_prices.loc[:, data_assets]
 market_data_assets = getattr(strategy, "market_data_assets", data_assets)
 monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
-substitution_prices = None
-substitution_monthly = None
-substitution_decision_input = None
+substitution_prices: pd.DataFrame | None = None
+substitution_monthly: pd.DataFrame | None = None
+substitution_decision_input: pd.DataFrame | None = None
 all_monthly = to_month_end(all_prices)
 ranges = date_ranges(prices)
 common_start, common_end = common_monthly_period(monthly)
@@ -891,11 +964,15 @@ common_start, common_end = common_monthly_period(monthly)
 if substitution_all_prices is not None:
     substitution_prices = substitution_all_prices.loc[:, data_assets]
     substitution_monthly, substitution_decision_input = monthly_strategy_input(substitution_prices, market_data_assets)
-    replacement_start, replacement_end = common_monthly_period(substitution_monthly)
-    if replacement_start is None or replacement_end is None or common_start is None or common_end is None:
-        st.error("The selected Israel exposures do not have enough shared month-end history.")
+    substitution_common_start, substitution_common_end = common_monthly_period(substitution_monthly)
+    if substitution_common_start is None or substitution_common_end is None:
+        st.error("The substituted assets have no common month-end history. Choose replacements with overlapping price history.")
         st.stop()
-    common_start, common_end = max(common_start, replacement_start), min(common_end, replacement_end)
+    # Both versions must use the same completed holding periods. This prevents
+    # a newer replacement ETF from giving either result a different sample.
+    if common_start is not None and common_end is not None:
+        common_start = max(common_start, substitution_common_start)
+        common_end = min(common_end, substitution_common_end)
 
 if common_start is None or common_end is None or common_start > common_end:
     if isinstance(strategy, HAASimpleIsrael) and tase_warning:
@@ -930,8 +1007,8 @@ decisions = strategy.decisions(decision_prices)
 if decisions.empty:
     st.error(f"Insufficient history for {strategy.name}.")
     st.stop()
-substitution_decisions = None
-if substitution_prices is not None and substitution_decision_input is not None:
+substitution_decisions: pd.DataFrame | None = None
+if substitution_prices is not None and substitution_monthly is not None and substitution_decision_input is not None:
     substitution_signal_prices = substitution_prices if getattr(strategy, "uses_daily_signals", False) else substitution_decision_input
     substitution_decisions = strategy.decisions(substitution_signal_prices)
     if substitution_decisions.empty:
@@ -946,7 +1023,18 @@ except ValueError as exc:
 substitution_result = None
 if substitution_decisions is not None and substitution_monthly is not None and substitution_prices is not None:
     try:
-        substitution_result = run_backtest(substitution_decisions, substitution_monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=substitution_prices, benchmark_asset=benchmark_asset)
+        substitution_result = run_backtest(
+            substitution_decisions,
+            substitution_monthly,
+            initial,
+            cost_pct,
+            tax_enabled,
+            tax_rate,
+            pd.Timestamp(start),
+            pd.Timestamp(end),
+            daily_prices=substitution_prices,
+            benchmark_asset=benchmark_asset,
+        )
     except ValueError as exc:
         st.error(f"The substituted run could not be compared: {exc}")
         st.stop()
@@ -1122,18 +1210,23 @@ if page == "Backtest":
     st.caption("These settings configure this backtest only.")
     st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
     if substitution_result is not None:
-        st.caption("Substitution lab: published and Israel-exposure runs use identical rules, settings, and shared periods.")
+        st.caption(
+            f"{substitution_mode} comparison: both runs use the same strategy rules, costs, tax settings, and shared available holding periods."
+        )
     if hasattr(strategy, "risk_warning"):
         st.warning(strategy.risk_warning)
     st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. SPY benchmark uses these same monthly periods.")
     pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
-    after_tax_label = f"{strategy.name} after-tax"
+    after_tax_label = f"Published {strategy.name} after-tax" if substitution_result is not None else f"{strategy.name} after-tax"
+    substitution_pre_tax_label = "Substituted strategy pre-tax"
+    substitution_after_tax_label = "Substituted strategy after-tax"
     comparison = {pre_tax_label: performance_metrics(result.monthly["pre_tax_value"], initial)}
     if tax_enabled:
         comparison[after_tax_label] = performance_metrics(result.monthly["after_tax_value"], initial)
-    substitution_pre_tax_label = "Israel exposure substitution pre-tax"
     if substitution_result is not None:
         comparison[substitution_pre_tax_label] = performance_metrics(substitution_result.monthly["pre_tax_value"], initial)
+        if tax_enabled:
+            comparison[substitution_after_tax_label] = performance_metrics(substitution_result.monthly["after_tax_value"], initial)
     # Keep the benchmark at the far right; the after-tax strategy result sits
     # beside its pre-tax counterpart for direct capital-gains comparison.
     comparison[benchmark_label] = performance_metrics(result.monthly["benchmark_value"], initial)
@@ -1147,29 +1240,31 @@ if page == "Backtest":
     if substitution_result is not None:
         substitution_changes = int(substitution_result.monthly["allocation_change"].sum())
         substitution_years = len(substitution_result.monthly) / 12
+        substitution_turnover = substitution_result.monthly["turnover"].sum() / substitution_years if "turnover" in substitution_result.monthly and substitution_years else substitution_changes / substitution_years if substitution_years else 0
         summary.loc["Allocation changes", substitution_pre_tax_label] = substitution_changes
         summary.loc["Average changes/year", substitution_pre_tax_label] = substitution_changes / substitution_years if substitution_years else 0
-        substitution_turnover = (
-            substitution_result.monthly["turnover"].sum() / substitution_years
-            if "turnover" in substitution_result.monthly and substitution_years
-            else substitution_changes / substitution_years if substitution_years else 0
-        )
         summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_turnover
     st.subheader("Results")
     styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
     result_columns = st.columns(4)
-    result_columns[0].metric("Published CAGR" if substitution_result is not None else "CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
-    if substitution_result is not None:
-        result_columns[1].metric("Israel exposure CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{summary.loc['CAGR', substitution_pre_tax_label] - summary.loc['CAGR', pre_tax_label]:+.2%}")
-    else:
+    if substitution_result is None:
+        result_columns[0].metric("CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
         result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
-    result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
-    result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
+        result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
+        result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
+    else:
+        cagr_delta = summary.loc["CAGR", substitution_pre_tax_label] - summary.loc["CAGR", pre_tax_label]
+        result_columns[0].metric("Published CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
+        result_columns[1].metric("Substituted CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{cagr_delta:+.2%}")
+        result_columns[2].metric("Published maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
+        result_columns[3].metric("Substituted maximum drawdown", f"{summary.loc['Maximum drawdown', substitution_pre_tax_label]:.2%}")
     curves = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_value"]})
     if tax_enabled:
         curves[after_tax_label] = result.monthly["after_tax_value"]
     if substitution_result is not None:
         curves[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_value"]
+        if tax_enabled:
+            curves[substitution_after_tax_label] = substitution_result.monthly["after_tax_value"]
     curves[benchmark_label] = result.monthly["benchmark_value"]
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     drawdowns = curves.div(curves.cummax()).sub(1)
@@ -1181,12 +1276,16 @@ if page == "Backtest":
         annual[after_tax_label] = annual_returns(result.monthly["after_tax_monthly_return"])
     if substitution_result is not None:
         annual[substitution_pre_tax_label] = annual_returns(substitution_result.monthly["pre_tax_monthly_return"])
+        if tax_enabled:
+            annual[substitution_after_tax_label] = annual_returns(substitution_result.monthly["after_tax_monthly_return"])
     annual[benchmark_label] = annual_returns(result.monthly["benchmark_monthly_return"])
     monthly_returns = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_monthly_return"]})
     if tax_enabled:
         monthly_returns[after_tax_label] = result.monthly["after_tax_monthly_return"]
     if substitution_result is not None:
         monthly_returns[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_monthly_return"]
+        if tax_enabled:
+            monthly_returns[substitution_after_tax_label] = substitution_result.monthly["after_tax_monthly_return"]
     monthly_returns[benchmark_label] = result.monthly["benchmark_monthly_return"]
     with st.expander("Return history", expanded=False):
         annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])

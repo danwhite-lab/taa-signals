@@ -36,3 +36,14 @@ def test_rejects_invalid_sleeve_weights():
     source = model(["2024-01-31", "2024-02-29"], [100, 101], "A")
     with pytest.raises(ValueError, match="total exactly 100%"):
         run_portfolio_backtest({"A": (0.9, source)}, 100)
+
+
+def test_realized_gain_tax_applies_when_monthly_reset_reduces_a_profitable_sleeve():
+    dates = ["2024-01-31", "2024-02-29", "2024-03-31"]
+    result = run_portfolio_backtest({
+        "growth": (0.5, model(dates, [100, 120, 144], "A")),
+        "defensive": (0.5, model(dates, [100, 100, 100], "B")),
+    }, 100, tax_enabled=True, tax_rate=0.25)
+    assert result.monthly["after_tax_value"].iloc[-1] < result.monthly["pre_tax_value"].iloc[-1]
+    assert not result.tax_events.empty
+    assert (result.tax_events["tax_level"] == "portfolio reset").any()

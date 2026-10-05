@@ -7,7 +7,7 @@ only and can be unavailable when those endpoints change or are blocked.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 
 import pandas as pd
 
@@ -25,6 +25,28 @@ TASE_ISRAEL_ASSET_IDS = {
 }
 TASE_ETF_ASSETS = frozenset({"CSPX_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
 PUBLIC_HISTORY_YEARS = 5
+
+# Default locally tradable implementations for the substitution mode. They
+# deliberately represent practical Israeli execution choices, not claims that
+# their return histories or exposures are identical to the original U.S. role.
+ISRAEL_DEFAULT_TASE_SUBSTITUTIONS = {
+    "SPY": "1159250",
+    "IEF": "1159268",
+    "BIL": "5136866",
+    "SPMO": "5140850",
+    "XLE": "1145903",
+    "XLK": "1159193",
+    "XLV": "1150390",
+    "XLP": "1150366",
+    "VEA": "5142476",
+    "VNQ": "5131834",
+    "VWO": "1159169",
+    "BND": "1146638",
+    "AGG": "1146638",
+    "TIP": "1159060",
+    "DBC": "1147875",
+    "LQD": "1159185",
+}
 
 
 class TaseDataError(RuntimeError):
@@ -134,3 +156,32 @@ class TasePriceSource:
 def download_tase_israel_prices() -> tuple[pd.DataFrame, pd.DataFrame]:
     """Download the three Israeli sleeves used by HAA-Simple Israel."""
     return TasePriceSource().fetch_all()
+
+
+def download_tase_security_prices(role_to_security_id: Mapping[str, str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fetch user-selected TASE security histories under canonical asset roles.
+
+    Custom mode accepts numeric TASE *security* identifiers. TASE indices use
+    a different public endpoint and are intentionally not treated as a
+    security ticker here. The UI makes that distinction explicit.
+    """
+    series: dict[str, pd.Series] = {}
+    metadata: list[dict[str, str]] = []
+    for role, raw_identifier in role_to_security_id.items():
+        security_id = str(raw_identifier).strip()
+        if not security_id.isdigit():
+            raise TaseDataError(f"{role}: TASE security ID must contain digits only.")
+        try:
+            security = _default_security_factory(security_id)
+            frame = security.history(years=PUBLIC_HISTORY_YEARS)
+            field, label = select_etf_price_field(frame, role)
+            series[role] = _normalise_series(frame, field, role)
+            metadata.append({"asset": role, "source": f"TASE via tasekit ({label})", "identifier": security_id, "price_field": label})
+        except TaseDataError:
+            raise
+        except Exception as exc:
+            raise TaseDataError(
+                f"{role} ({security_id}): public TASE retrieval failed: {exc}. "
+                "Verify the security ID or use a Yahoo ticker/CSV history instead."
+            ) from exc
+    return pd.DataFrame(series), pd.DataFrame(metadata).set_index("asset")
