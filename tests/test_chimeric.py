@@ -8,6 +8,7 @@ from haa.engine import run_backtest
 from haa.market_sessions import us_equity_sessions
 from haa.model_catalog import resolve, strategies, variants
 from haa.strategies import ChimericAssetAllocation, ChimericFullRetreat
+from haa.signals import execution_assets, first_trading_day_after
 
 
 def fixture():
@@ -166,6 +167,26 @@ class TestChimeric(unittest.TestCase):
     def test_full_retreat_catalog_is_a_separate_variant(self):
         self.assertEqual(variants("Chimeric Asset Allocation"), ("Standard", "Full Retreat"))
         self.assertIs(resolve("Chimeric Asset Allocation", "Full Retreat", "Ablation (experimental)").model_class, ChimericFullRetreat)
+
+    def test_signal_and_history_execution_dates_do_not_require_spy(self):
+        for model in (self.model, ChimericFullRetreat()):
+            prices = self.prices.loc[:, model.data_assets]
+            self.assertNotIn("SPY", prices.columns)
+            decisions = model.decisions(prices)
+            for date, decision in decisions.iterrows():
+                holdings = execution_assets(decision)
+                self.assertEqual(set(holdings), set(decision.target_weights))
+                expected = prices.index[prices.index > date]
+                actual = first_trading_day_after(prices, date, holdings)
+                self.assertEqual(actual, expected.min() if len(expected) else None)
+
+    def test_execution_date_requires_all_holdings_but_not_benchmark(self):
+        dates = pd.to_datetime(["2026-09-30", "2026-10-01", "2026-10-02"])
+        prices = pd.DataFrame({"UPRO": [100, 101, 102], "ERX": [100, None, 103]}, index=dates)
+        decision = pd.Series({"target_weights": {"UPRO": .5, "ERX": .5}, "selected_asset": "UPRO, ERX"})
+        self.assertEqual(first_trading_day_after(prices, dates[0], execution_assets(decision)), dates[2])
+        self.assertIsNone(first_trading_day_after(prices.drop(columns="ERX"), dates[0], execution_assets(decision)))
+        self.assertEqual(execution_assets(pd.Series({"selected_asset": "UPRO"})), ("UPRO",))
 
 
 if __name__ == "__main__":

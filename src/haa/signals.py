@@ -128,10 +128,25 @@ def latest_preview_signal(
     return PreviewStatus(decisions.loc[decision_date].copy(), None, decision_date)
 
 
+def execution_assets(decision: pd.Series) -> tuple[str, ...]:
+    """Actual holdings needed for a signal's execution, not its benchmark.
+
+    Weighted decisions use individual ticker keys, never the comma-separated
+    display label. A comparison-only asset must not block an allocation.
+    """
+    weights = decision.get("target_weights")
+    holdings = tuple(weights) if isinstance(weights, dict) else (str(decision["selected_asset"]),)
+    return tuple(dict.fromkeys(holdings))
+
+
 def first_trading_day_after(daily_prices: pd.DataFrame, signal_date: pd.Timestamp, required_assets: Iterable[str] | None = None) -> pd.Timestamp | None:
     """Find the first post-signal date with usable prices for required assets."""
     eligible = pd.Series(True, index=daily_prices.index)
     if required_assets:
-        eligible = daily_prices.loc[:, list(required_assets)].notna().all(axis=1)
+        assets = list(required_assets)
+        if not set(assets).issubset(daily_prices.columns):
+            # No executable date can be established without every holding.
+            return None
+        eligible = daily_prices.loc[:, assets].notna().all(axis=1)
     future = daily_prices.index[(daily_prices.index > pd.Timestamp(signal_date)) & eligible]
     return future.min() if len(future) else None

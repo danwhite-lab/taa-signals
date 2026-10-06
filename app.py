@@ -23,7 +23,7 @@ from haa.metrics import annual_returns, performance_metrics, rolling_annualized_
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
-from haa.signals import daily_signal_heading, first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
+from haa.signals import daily_signal_heading, execution_assets, first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
@@ -337,17 +337,6 @@ def render_deep_history_rolling_returns(monthly_returns: pd.DataFrame, key_prefi
         st.caption("Each point is the annualized compounded return for the preceding complete rolling period.")
         st.plotly_chart(px.line(rolling, title=f"{years}-year rolling CAGR"), use_container_width=True)
         st.dataframe(rolling.style.format("{:.2%}"), use_container_width=True)
-
-
-def execution_assets(decision: pd.Series, benchmark_asset: str) -> tuple[str, ...]:
-    """Return individual holdings required to find an executable next date.
-
-    Multi-asset strategies store their display label as a comma-separated
-    string, but price lookup must receive the underlying asset symbols.
-    """
-    weights = decision.get("target_weights")
-    holdings = tuple(weights) if isinstance(weights, dict) else (str(decision["selected_asset"]),)
-    return tuple(dict.fromkeys((*holdings, benchmark_asset)))
 
 
 def append_missing_default_tickers(text: str) -> str:
@@ -2275,7 +2264,7 @@ if page == "Signals":
     else:
         signal = signal_status.decision
         signal_date = pd.Timestamp(signal.name)
-        effective_start = first_trading_day_after(signal_prices, signal_date, execution_assets(signal, getattr(signal_strategy, "benchmark_asset", "SPY")))
+        effective_start = first_trading_day_after(signal_prices, signal_date, execution_assets(signal))
         previous = signal["previous_asset"] if pd.notna(signal["previous_asset"]) else "No prior allocation"
         weights = signal.get("target_weights", {signal["selected_asset"]: 1.0})
         if getattr(signal_strategy, "is_multi_asset", False):
@@ -2502,7 +2491,7 @@ if page == "Signals":
         history.index.name = "signal_date"
     else:
         history = signal_decisions.loc[:, history_columns].copy()
-        history["effective_start"] = [first_trading_day_after(signal_prices, date, execution_assets(history.loc[date], getattr(signal_strategy, "benchmark_asset", "SPY"))) for date in history.index]
+        history["effective_start"] = [first_trading_day_after(signal_prices, date, execution_assets(history.loc[date])) for date in history.index]
         if "target_weights" in history:
             history["target_weights"] = history["target_weights"].map(lambda weights: ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()))
         history.index = pd.to_datetime(history.index).strftime("%Y-%m-%d")
