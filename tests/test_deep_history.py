@@ -76,13 +76,35 @@ def test_return_reader_rejects_duplicate_months(tmp_path):
 
 
 def test_global_sleeve_blends_with_all_other_sleeves_and_tax():
-    models = {key: (0.2, deep_history_model_input(spec, GLOBAL_TOTAL_RETURN_BENCHMARK)) for key, spec in DEEP_HISTORY_SPECS.items()}
+    models = {key: (1 / len(DEEP_HISTORY_SPECS), deep_history_model_input(spec, GLOBAL_TOTAL_RETURN_BENCHMARK)) for key, spec in DEEP_HISTORY_SPECS.items()}
     blend = run_portfolio_backtest(models, 100_000, tax_enabled=True)
-    assert len(blend.sleeve_returns.columns) == 5
-    assert blend.monthly.index.min() == pd.Timestamp("1974-03-31")
+    assert len(blend.sleeve_returns.columns) == 6
+    assert blend.monthly.index.min() == pd.Timestamp("1986-03-31")
     assert blend.monthly.index.max() == pd.Timestamp("2026-09-30")
     assert blend.monthly["after_tax_value"].iloc[-1] <= blend.monthly["pre_tax_value"].iloc[-1]
     assert not blend.tax_events.empty
+
+
+def test_gem_returns_signals_tax_and_both_benchmarks():
+    spec = DEEP_HISTORY_SPECS["gem"]
+    signals, returns = load_deep_history(spec)
+    assert len(signals) == len(returns) == 488
+    assert returns.index.equals(pd.date_range("1986-03-31", "2026-10-31", freq="ME"))
+    assert (signals.index + pd.offsets.MonthEnd(0)).equals(pd.date_range("1986-02-28", "2026-09-30", freq="ME"))
+    assert {asset for weights in signals.target_weights for asset in weights} == {"SPY", "VEU", "AGG"}
+    assert abs(returns.iloc[0] - 0.108) < 1e-12
+    for benchmark in (SP500_TOTAL_RETURN_BENCHMARK, GLOBAL_TOTAL_RETURN_BENCHMARK):
+        model = deep_history_model_input(spec, benchmark)
+        result = run_backtest(model.decisions, model.monthly_prices, 100_000, benchmark_asset=model.benchmark_asset, tax_enabled=True)
+        assert result.monthly.index.equals(pd.date_range("1986-03-31", "2026-09-30", freq="ME"))
+        expected = 100_000 * (1 + returns.loc[:"2026-09-30"]).prod()
+        assert abs(result.monthly["pre_tax_value"].iloc[-1] / expected - 1) < 1e-10
+        assert result.monthly["after_tax_value"].iloc[-1] <= result.monthly["pre_tax_value"].iloc[-1]
+        assert not result.tax_events.empty
+        cm = deep_history_model_input(DEEP_HISTORY_SPECS["century_momentum"], benchmark)
+        blend = run_portfolio_backtest({"GEM": (0.3, model), "CM": (0.7, cm)}, 100_000, tax_enabled=True)
+        assert len(blend.sleeve_returns.columns) == 2
+        assert blend.monthly.index.equals(result.monthly.index)
 
 
 def test_rolling_annualized_returns_compound_exact_monthly_periods():

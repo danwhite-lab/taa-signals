@@ -44,6 +44,7 @@ DEEP_HISTORY_SPECS = {
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
     "haa_simple": DeepHistorySpec("haa_simple", "HAA-Simple", "haa_simple_signals.csv", "haa_simple_monthly_returns.csv"),
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
+    "gem": DeepHistorySpec("gem", "GEM", "gem_signals.csv", "gem_monthly_returns.csv"),
 }
 
 SP500_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
