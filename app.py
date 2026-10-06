@@ -257,7 +257,7 @@ def model_selector(prefix: str, heading: str | None = None, columns=None, implem
     strategy_key, variant_key, implementation_key = (f"{prefix}_{name}" for name in ("strategy", "variant", "implementation"))
     available_strategies = catalog_strategies()
     if st.session_state.get(strategy_key) not in available_strategies:
-        st.session_state[strategy_key] = available_strategies[0]
+        st.session_state[strategy_key] = definition_for_label(DEFAULT_MODEL).strategy
     if columns is None:
         with st.container(key=f"{prefix}-model-selector"):
             selected_strategy = st.selectbox("Strategy", available_strategies, key=strategy_key)
@@ -655,7 +655,7 @@ if page == "Backtest":
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
             benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option uses nominal USD ACWI proxy returns from 1970. Early history uses substitute assets; it is not actual ACWI or ISAC ETF history throughout.")
             deep_history_benchmark = DEEP_HISTORY_BENCHMARKS[benchmark_key]
-            proxy_options = tuple(DEEP_HISTORY_SPECS)
+            proxy_options = tuple(sorted(DEEP_HISTORY_SPECS, key=lambda key: DEEP_HISTORY_SPECS[key].label.casefold()))
             proxy_labels = {key: spec.label for key, spec in DEEP_HISTORY_SPECS.items()}
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
             _, add_column, remove_column = st.columns([7, 0.5, 0.5])
@@ -2059,7 +2059,7 @@ if page == "Compare":
     st.caption("Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.")
     default_model = model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))
     default_comparison = [default_model, next(name for name in BACKTEST_MODEL_OPTIONS if name != default_model)]
-    selected_models = st.multiselect("Models", tuple(BACKTEST_MODEL_OPTIONS), default=default_comparison, key="compare_models")
+    selected_models = st.multiselect("Models", tuple(sorted(BACKTEST_MODEL_OPTIONS, key=str.casefold)), default=default_comparison, key="compare_models")
     if len(selected_models) < 2:
         st.info("Select at least two models to compare.")
     else:

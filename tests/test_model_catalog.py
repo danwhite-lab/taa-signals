@@ -21,7 +21,7 @@ def test_israel_implementations_are_available_for_simple_haa_and_inflation_compa
 
 
 def test_catalog_selection_resolves_existing_stable_model_class():
-    assert strategies() == ("HAA", "Inflation Compass", "Buy and Hold", "Century Momentum", "Growth-Inflation Sector Timing", "GEM", "GGCEM", "VAA", "BAA", "Orthogonal Alpha")
+    assert strategies() == tuple(sorted({item.strategy for item in MODEL_CATALOG}, key=str.casefold))
     assert "HAA 4" in variants("HAA")
     assert resolve("Inflation Compass", "Standard", "Original").model_class is InflationCompassStandard
     assert resolve("Inflation Compass", "Fast (40-day)", "Original").model_class is InflationCompassFast

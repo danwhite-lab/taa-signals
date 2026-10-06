@@ -99,7 +99,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
 
 
 def strategies() -> tuple[str, ...]:
-    return tuple(dict.fromkeys(item.strategy for item in MODEL_CATALOG))
+    return tuple(sorted({item.strategy for item in MODEL_CATALOG}, key=str.casefold))
 
 
 def variants(strategy: str) -> tuple[str | None, ...]:
