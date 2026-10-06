@@ -18,6 +18,7 @@ from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input
 from haa.engine import run_backtest
+from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
@@ -30,6 +31,11 @@ from haa.validation import ValidationInput, profile_for, run_deterministic_valid
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "A-RVol Shifter V3 Cash-Only": """**Daily three-state Cash-Only interpretation.** TQQQ → QLD when RVol >18%, VR >1.25, or SPY is below SMA(200)−3%. QLD → BIL when RVol >36%, VR >1.40, SPY is below SMA−3%, or the HYG/LQD ratio falls more than 4% in 20 sessions. Otherwise QLD → BIL on a close-based 40-session QQQ low with RVol ≥20%; QLD → TQQQ when RVol <14%, VR <0.90 and SPY is above SMA+3%. Ordinary BIL → QLD requires RVol <25%, VR <1.10 and SPY above SMA−1.5%. After a Donchian exit, QQQ recovery ≥3% from its trailing five-session closing low or a 20-session timeout replaces the ordinary re-entry gate.
+
+**Explicit conventions:** RVol is 15-session log-return sample standard deviation × √252. VR divides that RVol by its trailing 252-session mean, including the current session. All indicators use adjusted closes; rolling lows include the current close. Start in BIL after full warm-up and actual ETF availability. One state transition per signal; ordinary exits take priority over Donchian. A signal executes at the next session **close**, not the creator's next open. No synthetic ETF prehistory. Fees apply to each buy and sell; tax uses the existing realized-gain/loss-carryforward logic without final liquidation. This is not a verified reproduction of published performance.
+
+Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update_2_arvol_v3_adding_credit_spreads_and/) and [original post/code](https://www.reddit.com/r/TQQQ/comments/1rpzweg/stop_blindly_holding_3x_the_rvol_shifter_for_the/).""",
     "Century Momentum Israel": """**Century Momentum Israel:** At each completed month-end, compare MTF Tracking S&P 500 Momentum (4D) (5140850) with its 10-month simple moving average, calculated from the ten completed TASE month-end closes including the current signal close. If it is strictly above the average, hold 100% MTF Tracking S&P 500 Momentum (4D) (5140850); if it is equal to or below the average, hold 100% iShares $ Treasury Bond 7–10yr UCITS (1159268). The decision takes effect from the following available TASE trading day. This ILS execution variant uses actual TASE fund histories only; it does not synthesize a longer history.""",
     "Century Momentum": """**Century Momentum:** At each completed month-end, compare SPMO's close with its 10-month simple moving average, calculated from the ten completed month-end closes including the current signal close. If SPMO is strictly above the average, hold 100% SPMO; if it is equal to or below the average, hold 100% IEF. The decision takes effect from the following available trading day. The backtest deliberately starts with SPMO's actual ETF history; it does not splice in the non-investable academic Fama-French momentum-decile history.""",
     "Growth-Inflation Concentrated Israel": """**Growth-Inflation Concentrated Israel:** Uses the original strategy's completed U.S. daily signals—SPY versus its 200-day SMA for growth and the inflation-positive/negative sector ratio versus its 200-day SMA for inflation—but executes each selected regime through TASE-listed instruments in ILS: reflation → KSM ETF S&P Energy (1145903); goldilocks → iShares S&P 500 IT UCITS (1159193); stagflation → MTF סל S&P Health Care (4D) (1150390); deflation → MTF S&P Consumer Staples (1150366). Decisions are made at month-end and take effect on the following available TASE trading day.""",
@@ -1305,6 +1311,9 @@ if page in {"Backtest", "Research", "Rules"}:
     common_start, common_end = common_monthly_period(monthly)
 
     if substitution_all_prices is not None:
+        if getattr(strategy, "execution_frequency", "monthly") == "daily":
+            st.error("Daily RVol Shifter currently supports Original assets only. Substitution comparisons require separate daily-history alignment and are not enabled.")
+            st.stop()
         substitution_prices = substitution_all_prices.loc[:, data_assets]
         substitution_monthly, substitution_decision_input = monthly_strategy_input(substitution_prices, market_data_assets)
         substitution_common_start, substitution_common_end = common_monthly_period(substitution_monthly)
@@ -1323,8 +1332,24 @@ if page in {"Backtest", "Research", "Rules"}:
         else:
             st.error("The selected model assets have no common month-end observations. Check the data sources or upload compatible CSV histories.")
         st.stop()
+    if getattr(strategy, "execution_frequency", "monthly") == "daily":
+        try:
+            daily_available_decisions = strategy.decisions(prices)
+        except ValueError as exc:
+            st.error(str(exc))
+            st.stop()
+        if daily_available_decisions.empty:
+            st.error("Insufficient daily warm-up and actual ETF history for this strategy.")
+            st.stop()
+        common_start = first_trading_day_after(prices, daily_available_decisions.index.min(), strategy.data_assets)
+        common_end = daily_available_decisions.attrs["completed_through"]
+        if common_start is None or common_start > common_end:
+            st.error("No completed post-signal execution session is available.")
+            st.stop()
     start = st.session_state.get("start", common_start.date())
     execution_end_limit = prices.index.max().date()
+    if getattr(strategy, "execution_frequency", "monthly") == "daily":
+        execution_end_limit = common_end.date()
     if substitution_prices is not None:
         execution_end_limit = min(execution_end_limit, substitution_prices.index.max().date())
     end = st.session_state.get("end", execution_end_limit)
@@ -1336,17 +1361,22 @@ if page in {"Backtest", "Research", "Rules"}:
         start = common_start.date()
     if page == "Backtest":
         with backtest_configuration:
-            st.caption(f"Common monthly data: {common_start.date()} to {common_end.date()}")
+            data_frequency = "daily execution" if getattr(strategy, "execution_frequency", "monthly") == "daily" else "monthly"
+            st.caption(f"Common {data_frequency} data: {common_start.date()} to {common_end.date()}")
             with st.expander("Data & validation"):
                 st.caption("Available adjusted-price history for the assets required by the selected model.")
                 st.dataframe(ranges, use_container_width=True, hide_index=True)
-                st.caption(f"Actual common monthly data period: {common_start.date()} through {common_end.date()}.")
+                st.caption(f"Actual common {data_frequency} data period: {common_start.date()} through {common_end.date()}.")
             start = st.date_input("Backtest start (holding-period end)", value=start, min_value=common_start.date(), max_value=common_end.date())
             end = st.date_input("Backtest end (holding-period execution date)", value=end, min_value=common_start.date(), max_value=execution_end_limit)
         st.session_state.update({"start": start, "end": end})
 
     decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_decision_input
-    decisions = strategy.decisions(decision_prices)
+    try:
+        decisions = strategy.decisions(decision_prices)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
     if decisions.empty:
         st.error(f"Insufficient history for {strategy.name}.")
         st.stop()
@@ -1551,31 +1581,42 @@ The useful question is not which strategy has the highest historical CAGR. It is
 if page == "Backtest":
     title_column.title(strategy.name)
     st.caption("These settings configure this backtest only.")
-    st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
+    if result.daily is not None:
+        st.caption("Signals are evaluated every completed session and execute at the next session close. Fees apply separately to buys and sells. Daily drawdown/volatility; monthly returns below are reporting aggregates, including partial boundary months.")
+        st.info("Standalone daily backtests only. Monthly portfolio/Compare integration and Deep History proxies are not enabled for this strategy.")
+    else:
+        st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
     if substitution_result is not None:
         st.caption(
             f"{substitution_mode} comparison: both runs use the same strategy rules, costs, tax settings, and shared available holding periods."
         )
     if hasattr(strategy, "risk_warning"):
         st.warning(strategy.risk_warning)
-    st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. {benchmark_label} uses these same monthly periods.")
+    report_nav = result.daily if result.daily is not None else result.monthly
+    report_frequency = "daily sessions" if result.daily is not None else "monthly periods"
+    st.caption(f"Holding periods: {report_nav.index.min().date()} through {report_nav.index.max().date()}. {benchmark_label} uses these same {report_frequency}.")
     pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
     after_tax_label = f"Published {strategy.name} after-tax" if substitution_result is not None else f"{strategy.name} after-tax"
     substitution_pre_tax_label = "Substituted strategy pre-tax"
     substitution_after_tax_label = "Substituted strategy after-tax"
-    comparison = {pre_tax_label: performance_metrics(result.monthly["pre_tax_value"], initial)}
+    result_metrics = lambda column: daily_performance_metrics(result, column, initial) if result.daily is not None else performance_metrics(result.monthly[column], initial)
+    comparison = {pre_tax_label: result_metrics("pre_tax_value")}
     if tax_enabled:
-        comparison[after_tax_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+        comparison[after_tax_label] = result_metrics("after_tax_value")
     if substitution_result is not None:
         comparison[substitution_pre_tax_label] = performance_metrics(substitution_result.monthly["pre_tax_value"], initial)
         if tax_enabled:
             comparison[substitution_after_tax_label] = performance_metrics(substitution_result.monthly["after_tax_value"], initial)
     # Keep the benchmark at the far right; the after-tax strategy result sits
     # beside its pre-tax counterpart for direct capital-gains comparison.
-    comparison[benchmark_label] = performance_metrics(result.monthly["benchmark_value"], initial)
+    comparison[benchmark_label] = result_metrics("benchmark_value")
     summary = pd.DataFrame(comparison)
     changes = int(result.monthly["allocation_change"].sum())
     years = len(result.monthly) / 12
+    if result.daily is not None:
+        years = max((result.daily.index[-1] - result.daily.index[0]).days, 1) / 365.25
+        st.download_button("Download daily NAV and executions CSV", result.daily.to_csv().encode("utf-8"), "rvol_shifter_daily_nav.csv", "text/csv")
+        st.download_button("Download realized-gain tax events CSV", result.tax_events.to_csv(index=False).encode("utf-8"), "rvol_shifter_tax_events.csv", "text/csv")
     annual_turnover = result.monthly["turnover"].sum() / years if "turnover" in result.monthly and years else changes / years if years else 0
     summary.loc["Allocation changes", pre_tax_label] = changes
     summary.loc["Average changes/year", pre_tax_label] = changes / years if years else 0
@@ -1601,16 +1642,16 @@ if page == "Backtest":
         result_columns[1].metric("Substituted CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{cagr_delta:+.2%}")
         result_columns[2].metric("Published maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
         result_columns[3].metric("Substituted maximum drawdown", f"{summary.loc['Maximum drawdown', substitution_pre_tax_label]:.2%}")
-    curves = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_value"]})
+    curves = pd.DataFrame({pre_tax_label: report_nav["pre_tax_value"]})
     if tax_enabled:
-        curves[after_tax_label] = result.monthly["after_tax_value"]
+        curves[after_tax_label] = report_nav["after_tax_value"]
     if substitution_result is not None:
         curves[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_value"]
         if tax_enabled:
             curves[substitution_after_tax_label] = substitution_result.monthly["after_tax_value"]
-    curves[benchmark_label] = result.monthly["benchmark_value"]
+    curves[benchmark_label] = report_nav["benchmark_value"]
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
-    drawdowns = curves.div(curves.cummax()).sub(1)
+    drawdowns = curves.div(curves.cummax().clip(lower=initial)).sub(1) if result.daily is not None else curves.div(curves.cummax()).sub(1)
     st.plotly_chart(px.line(drawdowns, title="Drawdown"), use_container_width=True)
     with st.expander("Full performance table", expanded=False):
         st.dataframe(styled_summary, use_container_width=True)
@@ -1646,7 +1687,12 @@ def current_portfolio_signal(model_label: str):
     sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
     sleeve_monthly, sleeve_monthly_input = monthly_strategy_input(sleeve_prices, sleeve_market_assets)
     sleeve_decision_prices = sleeve_prices if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_monthly_input
-    status = latest_actionable_signal(sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_market_assets)
+    status_prices = sleeve_prices if getattr(sleeve_strategy, "execution_frequency", "monthly") == "daily" else sleeve_monthly
+    try:
+        sleeve_decisions = sleeve_strategy.decisions(sleeve_decision_prices)
+    except ValueError as exc:
+        return None, str(exc)
+    status = latest_actionable_signal(sleeve_decisions, status_prices, sleeve_market_assets)
     if status.decision is None:
         return None, status.reason
     decision = status.decision
@@ -1659,6 +1705,8 @@ def next_portfolio_preview(model_label: str):
     if definition_for_label(model_label).strategy_mode == "buy_and_hold":
         return None, "This sleeve is held continuously and has no next-month timing preview."
     strategy = MODEL_OPTIONS[model_label]()
+    if getattr(strategy, "execution_frequency", "monthly") == "daily":
+        return None, "This sleeve uses completed daily signals, not a next-month preview. Review its daily Signals page."
     assets = getattr(strategy, "data_assets", ASSETS)
     prices = all_prices.loc[:, assets]
     market_assets = getattr(strategy, "market_data_assets", assets)
@@ -2133,10 +2181,15 @@ if page == "Signals":
     signal_market_assets = getattr(signal_strategy, "market_data_assets", signal_data_assets)
     signal_monthly, signal_monthly_input = monthly_strategy_input(signal_prices, signal_market_assets)
     signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly_input
-    signal_decisions = signal_strategy.decisions(signal_decision_prices)
-    signal_status = latest_actionable_signal(signal_decisions, signal_monthly, signal_market_assets)
+    try:
+        signal_decisions = signal_strategy.decisions(signal_decision_prices)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
+    is_daily_execution = getattr(signal_strategy, "execution_frequency", "monthly") == "daily"
+    signal_status = latest_actionable_signal(signal_decisions, signal_prices if is_daily_execution else signal_monthly, signal_market_assets)
     preview_status = None
-    if signal_definition.strategy_mode != "buy_and_hold":
+    if signal_definition.strategy_mode != "buy_and_hold" and not is_daily_execution:
         preview_monthly, preview_price_as_of, preview_reason = month_to_date_snapshot(
             signal_monthly, signal_prices, signal_market_assets
         )
@@ -2153,6 +2206,24 @@ if page == "Signals":
             )
             preview_decisions = signal_strategy.decisions(preview_input)
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
+    if is_daily_execution:
+        title_column.title(signal_model_name)
+        title_column.caption("Completed daily signal · execute at the next session close · not a month-end signal")
+        st.warning(signal_strategy.risk_warning)
+        if signal_status.decision is None:
+            st.error(signal_status.reason)
+        else:
+            signal = signal_status.decision
+            st.dataframe(pd.DataFrame([{"Signal date": signal.name.date(), "Target": signal.selected_asset,
+                "State transition": signal.transition_reason, "RVol": signal.rvol,
+                "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
+                "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
+            st.caption("Targets reflect a model state replay from the start of available history, not your broker's current holding. Check your actual position before acting. Today's close is considered complete only after 17:00 New York time.")
+        with st.expander("Daily signal history"):
+            st.dataframe(signal_decisions.sort_index(ascending=False), use_container_width=True)
+            st.download_button("Download daily signal history CSV", signal_decisions.to_csv().encode("utf-8"), "rvol_shifter_daily_signals.csv", "text/csv")
+        st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
+        st.stop()
     if signal_definition.strategy_mode == "buy_and_hold":
         title_column.title(signal_model_name)
         title_column.caption("Continuous holding · no app-generated timing signal")
@@ -2435,6 +2506,11 @@ if page == "Rules":
     title_column.title("Rules")
     st.subheader("Model rules")
     st.markdown(MODEL_RULES[model_name])
+    if getattr(strategy, "execution_frequency", "monthly") == "daily":
+        st.warning(strategy.risk_warning)
+        st.caption("Single-strategy Backtest and daily Signals are available. Monthly portfolio/Compare and generic monthly Research workflows are not yet supported.")
+        st.dataframe(ranges, use_container_width=True, hide_index=True)
+        st.stop()
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
         st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)

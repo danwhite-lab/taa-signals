@@ -45,6 +45,21 @@ def latest_actionable_signal(
     allocation silently.
     """
     completed_month_end = last_completed_month_end(as_of)
+    if decisions.attrs.get("execution_frequency") == "daily":
+        from .strategies.rvol_shifter import completed_daily_cutoff
+        cutoff = completed_daily_cutoff(as_of)
+        assets = tuple(required_assets)
+        if decisions.empty or any(asset not in monthly_prices.columns for asset in assets):
+            return SignalStatus(None, "Required daily data or warm-up history is unavailable.", cutoff)
+        observed = monthly_prices.loc[monthly_prices.index <= cutoff, list(assets)].dropna(how="all")
+        if observed.empty:
+            return SignalStatus(None, "No completed daily price observation is available.", cutoff)
+        latest = observed.index.max()
+        if (cutoff - latest).days > 7:
+            return SignalStatus(None, "Daily data is stale by more than seven calendar days.", latest)
+        if observed.loc[latest, list(assets)].isna().any() or latest not in decisions.index:
+            return SignalStatus(None, "Latest session has incomplete data or no valid daily decision.", latest)
+        return SignalStatus(decisions.loc[latest].copy(), None, latest)
     completed_month = completed_month_end.to_period("M")
     assets = tuple(required_assets)
     if decisions.empty:

@@ -45,6 +45,8 @@ def compare_models(
     """
     if len(models) < 2:
         raise ValueError("Select at least two models to compare.")
+    if any(model.decisions.attrs.get("execution_frequency") == "daily" for model in models.values()):
+        raise ValueError("Daily-execution models currently support single-strategy Backtest only; monthly Compare periods are not equivalent.")
     # Strategies already contain completed-month signals only; execution dates
     # can legitimately fall in the next calendar month.
     requested_end = pd.Timestamp(end) if end is not None else completed_through

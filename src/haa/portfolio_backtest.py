@@ -43,6 +43,8 @@ def run_portfolio_backtest(
     """
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
+    if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
+        raise ValueError("Daily-execution models currently support single-strategy Backtest only; monthly sleeve tax/reset integration is not enabled.")
     weights = {name: float(weight) for name, (weight, _) in sleeves.items()}
     if any(weight <= 0 for weight in weights.values()) or abs(sum(weights.values()) - 1.0) > 1e-9:
         raise ValueError("Portfolio sleeve weights must be positive and total exactly 100%.")

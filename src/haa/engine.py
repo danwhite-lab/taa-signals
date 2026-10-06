@@ -13,6 +13,7 @@ class BacktestResult:
     monthly: pd.DataFrame
     audit: pd.DataFrame
     tax_events: pd.DataFrame
+    daily: pd.DataFrame | None = None
 
 
 def run_backtest(
@@ -37,6 +38,13 @@ def run_backtest(
     """
     if execution_delay_business_days < 0:
         raise ValueError("Execution delay must be zero or a positive number of business days.")
+    if decisions.attrs.get("execution_frequency") == "daily":
+        from .daily_engine import run_daily_backtest
+        if daily_prices is None:
+            raise ValueError("Daily execution requires daily prices, not month-end data.")
+        return run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost,
+                                  tax_enabled, tax_rate, start, end, benchmark_asset,
+                                  execution_delay_business_days)
     if "target_weights" in decisions.columns:
         return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset, execution_delay_business_days)
     if decisions.empty:
