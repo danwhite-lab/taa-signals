@@ -869,6 +869,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
         st.error(str(exc))
     st.stop()
 
+if page == "Signals":
+    with st.container(key="signals-model-selector"):
+        model_name = model_selector("signals", columns=st.columns([1.1, 1.25, 1.45]), implementation_dropdown=True)
+    st.session_state["signals_model_name"] = model_name
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
 if page == "Research":
@@ -984,7 +988,7 @@ def monthly_strategy_input(daily_prices: pd.DataFrame, market_assets: tuple[str,
     return monthly_market, monthly_market.join(values)
 
 
-def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_benchmark: bool = False) -> tuple[str, ...]:
+def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_benchmark: bool = False, include_research_proxies: bool = False) -> tuple[str, ...]:
     """Return only the histories needed by the active screen's selected models."""
     assets: list[str] = []
     for label in model_labels:
@@ -992,9 +996,10 @@ def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_ben
         assets.extend(getattr(strategy_class, "data_assets", ASSETS))
         benchmark = getattr(strategy_class, "benchmark_asset", "SPY")
         assets.append(benchmark)
-        profile = profile_for(strategy_class())
-        if profile is not None:
-            assets.extend(proxy.proxy_asset for proxy in profile.proxy_substitutions)
+        if include_research_proxies:
+            profile = profile_for(strategy_class())
+            if profile is not None:
+                assets.extend(proxy.proxy_asset for proxy in profile.proxy_substitutions)
     if include_spy_benchmark:
         assets.append("SPY")
     return tuple(dict.fromkeys(assets))
@@ -1008,10 +1013,17 @@ def selected_sleeve_labels(sleeves: list[dict[str, object]], prefix: str) -> lis
         definition = definition_for_label(fallback)
         sleeve_prefix = f"{prefix}_{sleeve['id']}"
         try:
+            selected_strategy = st.session_state.get(f"{sleeve_prefix}_strategy", definition.strategy)
+            available_variants = variants(selected_strategy)
+            selected_variant = st.session_state.get(f"{sleeve_prefix}_variant", definition.variant)
+            if selected_variant not in available_variants:
+                selected_variant = available_variants[0]
+            available_implementations = implementations(selected_strategy, selected_variant)
+            selected_implementation = st.session_state.get(f"{sleeve_prefix}_implementation", definition.implementation)
+            if selected_implementation not in available_implementations:
+                selected_implementation = available_implementations[0]
             label = resolve(
-                st.session_state.get(f"{sleeve_prefix}_strategy", definition.strategy),
-                st.session_state.get(f"{sleeve_prefix}_variant", definition.variant),
-                st.session_state.get(f"{sleeve_prefix}_implementation", definition.implementation),
+                selected_strategy, selected_variant, selected_implementation,
             ).label
         except ValueError:
             label = fallback
@@ -1049,6 +1061,7 @@ else:
 runtime_assets = assets_for_models(
     active_model_labels,
     include_spy_benchmark=page == "Backtest" and backtest_mode == "Portfolio",
+    include_research_proxies=page == "Research",
 )
 runtime_yahoo_assets = tuple(asset for asset in runtime_assets if asset in YAHOO_ASSETS)
 runtime_tase_assets = tuple(asset for asset in runtime_assets if asset in TASE_ASSETS)
@@ -1274,93 +1287,94 @@ if page == "Backtest" and backtest_mode == "Portfolio":
         with monthly_tab:
             st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
     st.stop()
-prices = all_prices.loc[:, data_assets]
-market_data_assets = getattr(strategy, "market_data_assets", data_assets)
-monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
-substitution_prices: pd.DataFrame | None = None
-substitution_monthly: pd.DataFrame | None = None
-substitution_decision_input: pd.DataFrame | None = None
-all_monthly = to_month_end(all_prices)
-ranges = date_ranges(prices)
-common_start, common_end = common_monthly_period(monthly)
+if page in {"Backtest", "Research", "Rules"}:
+    prices = all_prices.loc[:, data_assets]
+    market_data_assets = getattr(strategy, "market_data_assets", data_assets)
+    monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
+    substitution_prices: pd.DataFrame | None = None
+    substitution_monthly: pd.DataFrame | None = None
+    substitution_decision_input: pd.DataFrame | None = None
+    all_monthly = to_month_end(all_prices)
+    ranges = date_ranges(prices)
+    common_start, common_end = common_monthly_period(monthly)
 
-if substitution_all_prices is not None:
-    substitution_prices = substitution_all_prices.loc[:, data_assets]
-    substitution_monthly, substitution_decision_input = monthly_strategy_input(substitution_prices, market_data_assets)
-    substitution_common_start, substitution_common_end = common_monthly_period(substitution_monthly)
-    if substitution_common_start is None or substitution_common_end is None:
-        st.error("The substituted assets have no common month-end history. Choose replacements with overlapping price history.")
+    if substitution_all_prices is not None:
+        substitution_prices = substitution_all_prices.loc[:, data_assets]
+        substitution_monthly, substitution_decision_input = monthly_strategy_input(substitution_prices, market_data_assets)
+        substitution_common_start, substitution_common_end = common_monthly_period(substitution_monthly)
+        if substitution_common_start is None or substitution_common_end is None:
+            st.error("The substituted assets have no common month-end history. Choose replacements with overlapping price history.")
+            st.stop()
+        # Both versions must use the same completed holding periods. This prevents
+        # a newer replacement ETF from giving either result a different sample.
+        if common_start is not None and common_end is not None:
+            common_start = max(common_start, substitution_common_start)
+            common_end = min(common_end, substitution_common_end)
+
+    if common_start is None or common_end is None or common_start > common_end:
+        if isinstance(strategy, HAASimpleIsrael) and tase_warning:
+            st.error(f"HAA-Simple Israel has no common month-end observations because its public TASE/Maya data source is unavailable. {tase_warning}")
+        else:
+            st.error("The selected model assets have no common month-end observations. Check the data sources or upload compatible CSV histories.")
         st.stop()
-    # Both versions must use the same completed holding periods. This prevents
-    # a newer replacement ETF from giving either result a different sample.
-    if common_start is not None and common_end is not None:
-        common_start = max(common_start, substitution_common_start)
-        common_end = min(common_end, substitution_common_end)
+    start = st.session_state.get("start", common_start.date())
+    execution_end_limit = prices.index.max().date()
+    if substitution_prices is not None:
+        execution_end_limit = min(execution_end_limit, substitution_prices.index.max().date())
+    end = st.session_state.get("end", execution_end_limit)
+    # A model can have a shorter history than the previously configured model.
+    # Keep saved backtest dates valid when returning to its configuration page.
+    start = min(max(start, common_start.date()), common_end.date())
+    end = min(max(end, common_start.date()), execution_end_limit)
+    if start > end:
+        start = common_start.date()
+    if page == "Backtest":
+        with backtest_configuration:
+            st.caption(f"Common monthly data: {common_start.date()} to {common_end.date()}")
+            with st.expander("Data & validation"):
+                st.caption("Available adjusted-price history for the assets required by the selected model.")
+                st.dataframe(ranges, use_container_width=True, hide_index=True)
+                st.caption(f"Actual common monthly data period: {common_start.date()} through {common_end.date()}.")
+            start = st.date_input("Backtest start (holding-period end)", value=start, min_value=common_start.date(), max_value=common_end.date())
+            end = st.date_input("Backtest end (holding-period execution date)", value=end, min_value=common_start.date(), max_value=execution_end_limit)
+        st.session_state.update({"start": start, "end": end})
 
-if common_start is None or common_end is None or common_start > common_end:
-    if isinstance(strategy, HAASimpleIsrael) and tase_warning:
-        st.error(f"HAA-Simple Israel has no common month-end observations because its public TASE/Maya data source is unavailable. {tase_warning}")
-    else:
-        st.error("The selected model assets have no common month-end observations. Check the data sources or upload compatible CSV histories.")
-    st.stop()
-start = st.session_state.get("start", common_start.date())
-execution_end_limit = prices.index.max().date()
-if substitution_prices is not None:
-    execution_end_limit = min(execution_end_limit, substitution_prices.index.max().date())
-end = st.session_state.get("end", execution_end_limit)
-# A model can have a shorter history than the previously configured model.
-# Keep saved backtest dates valid when returning to its configuration page.
-start = min(max(start, common_start.date()), common_end.date())
-end = min(max(end, common_start.date()), execution_end_limit)
-if start > end:
-    start = common_start.date()
-if page == "Backtest":
-    with backtest_configuration:
-        st.caption(f"Common monthly data: {common_start.date()} to {common_end.date()}")
-        with st.expander("Data & validation"):
-            st.caption("Available adjusted-price history for the assets required by the selected model.")
-            st.dataframe(ranges, use_container_width=True, hide_index=True)
-            st.caption(f"Actual common monthly data period: {common_start.date()} through {common_end.date()}.")
-        start = st.date_input("Backtest start (holding-period end)", value=start, min_value=common_start.date(), max_value=common_end.date())
-        end = st.date_input("Backtest end (holding-period execution date)", value=end, min_value=common_start.date(), max_value=execution_end_limit)
-    st.session_state.update({"start": start, "end": end})
-
-decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_decision_input
-decisions = strategy.decisions(decision_prices)
-if decisions.empty:
-    st.error(f"Insufficient history for {strategy.name}.")
-    st.stop()
-substitution_decisions: pd.DataFrame | None = None
-if substitution_prices is not None and substitution_monthly is not None and substitution_decision_input is not None:
-    substitution_signal_prices = substitution_prices if getattr(strategy, "uses_daily_signals", False) else substitution_decision_input
-    substitution_decisions = strategy.decisions(substitution_signal_prices)
-    if substitution_decisions.empty:
-        st.error(f"Insufficient history for the substituted {strategy.name} run.")
+    decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_decision_input
+    decisions = strategy.decisions(decision_prices)
+    if decisions.empty:
+        st.error(f"Insufficient history for {strategy.name}.")
         st.stop()
-first_signal = decisions.index.min()
-try:
-    result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset)
-except ValueError as exc:
-    st.error(str(exc))
-    st.stop()
-substitution_result = None
-if substitution_decisions is not None and substitution_monthly is not None and substitution_prices is not None:
+    substitution_decisions: pd.DataFrame | None = None
+    if substitution_prices is not None and substitution_monthly is not None and substitution_decision_input is not None:
+        substitution_signal_prices = substitution_prices if getattr(strategy, "uses_daily_signals", False) else substitution_decision_input
+        substitution_decisions = strategy.decisions(substitution_signal_prices)
+        if substitution_decisions.empty:
+            st.error(f"Insufficient history for the substituted {strategy.name} run.")
+            st.stop()
+    first_signal = decisions.index.min()
     try:
-        substitution_result = run_backtest(
-            substitution_decisions,
-            substitution_monthly,
-            initial,
-            cost_pct,
-            tax_enabled,
-            tax_rate,
-            pd.Timestamp(start),
-            pd.Timestamp(end),
-            daily_prices=substitution_prices,
-            benchmark_asset=benchmark_asset,
-        )
+        result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset)
     except ValueError as exc:
-        st.error(f"The substituted run could not be compared: {exc}")
+        st.error(str(exc))
         st.stop()
+    substitution_result = None
+    if substitution_decisions is not None and substitution_monthly is not None and substitution_prices is not None:
+        try:
+            substitution_result = run_backtest(
+                substitution_decisions,
+                substitution_monthly,
+                initial,
+                cost_pct,
+                tax_enabled,
+                tax_rate,
+                pd.Timestamp(start),
+                pd.Timestamp(end),
+                daily_prices=substitution_prices,
+                benchmark_asset=benchmark_asset,
+            )
+        except ValueError as exc:
+            st.error(f"The substituted run could not be compared: {exc}")
+            st.stop()
 
 # Shared result-table formatting used by both Backtest and Compare Models.
 percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
@@ -2084,9 +2098,7 @@ if page == "Compare":
                 st.download_button(f"Download {name} common-period audit CSV", backtest.audit.to_csv().encode("utf-8"), f"{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_comparison_audit.csv", "text/csv", key=f"comparison_audit_{name}")
 
 if page == "Signals":
-    with st.container(key="signals-model-selector"):
-        signal_model_name = model_selector("signals", columns=st.columns([1.1, 1.25, 1.45]), implementation_dropdown=True)
-    st.session_state["signals_model_name"] = signal_model_name
+    signal_model_name = model_name
     signal_strategy = MODEL_OPTIONS[signal_model_name]()
     signal_definition = definition_for_label(signal_model_name)
     signal_execution_currency = signal_definition.execution_currency

@@ -82,9 +82,8 @@ def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None) -> pd.Dat
     import yfinance as yf
 
     sources = dict(ticker_map or DEFAULT_TICKER_MAP)
-    missing = set(ASSETS) - set(sources)
-    if missing:
-        raise ValueError(f"Missing Yahoo ticker mapping for: {', '.join(sorted(missing))}.")
+    if not sources:
+        raise ValueError("Provide at least one Yahoo ticker mapping.")
     raw = yf.download(list(sources.values()), period="max", auto_adjust=False, progress=False)
     if raw.empty:
         raise RuntimeError("Yahoo Finance returned no data. Try again or upload CSV files.")
