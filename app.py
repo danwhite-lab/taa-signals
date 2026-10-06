@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -402,6 +403,7 @@ def apply_browser_portfolio(payload: object, *, as_default: bool = False) -> boo
     st.session_state["portfolio_sleeves"] = cleaned_sleeves
     st.session_state["portfolio_next_id"] = len(cleaned_sleeves) + 1
     st.session_state["portfolio_total_ils"] = total_ils
+    st.session_state["portfolio_capital_text"] = f"{total_ils:,.2f}".rstrip("0").rstrip(".")
     st.session_state["portfolio_fx_rate"] = ils_per_usd
     st.session_state["portfolio_name"] = str(payload.get("name", "My portfolio"))[:80] or "My portfolio"
     for sleeve in cleaned_sleeves:
@@ -1688,6 +1690,20 @@ def latest_usd_ils_quote() -> tuple[float, pd.Timestamp]:
     return download_latest_yahoo_close("USDILS=X")
 
 
+def update_portfolio_capital() -> None:
+    """Store numeric capital while displaying thousands separators in its field."""
+    try:
+        amount = float(st.session_state["portfolio_capital_text"].replace(",", "").strip())
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError
+    except ValueError:
+        st.session_state["portfolio_capital_error"] = "Enter a valid non-negative capital amount, such as 100,000."
+        return
+    st.session_state["portfolio_total_ils"] = amount
+    st.session_state["portfolio_capital_text"] = f"{amount:,.2f}".rstrip("0").rstrip(".")
+    st.session_state["portfolio_capital_error"] = None
+
+
 def initialise_portfolio_fx_rate() -> tuple[pd.Timestamp | None, str | None]:
     """Seed the editable Portfolio FX field once without overwriting overrides."""
     if "portfolio_fx_rate" in st.session_state:
@@ -1799,15 +1815,20 @@ if page == "Portfolio":
     else:
         st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
+    st.session_state.setdefault("portfolio_total_ils", 100_000.0)
+    st.session_state.setdefault("portfolio_capital_text", f"{st.session_state['portfolio_total_ils']:,.2f}".rstrip("0").rstrip("."))
     with st.form("portfolio-investment-settings"):
         name_column, base_column, rate_column = st.columns([1.15, 1, 1])
         with name_column:
             portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
         with base_column:
-            total_ils = st.number_input("Total available capital (ILS)", min_value=0.0, value=100_000.0, step=1_000.0, key="portfolio_total_ils")
+            st.text_input("Total available capital (ILS)", key="portfolio_capital_text")
+            total_ils = st.session_state["portfolio_total_ils"]
         with rate_column:
-            ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.4f", key="portfolio_fx_rate")
-        st.form_submit_button("Update portfolio inputs")
+            ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.2f", key="portfolio_fx_rate")
+        st.form_submit_button("Update portfolio inputs", on_click=update_portfolio_capital)
+    if st.session_state.get("portfolio_capital_error"):
+        st.error(st.session_state["portfolio_capital_error"])
     if fx_error:
         st.info(fx_error)
     elif fx_quote_timestamp is not None:
