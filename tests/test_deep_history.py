@@ -2,7 +2,7 @@ import pandas as pd
 
 from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, _read_benchmark_returns, deep_history_model_input, load_deep_history
 from haa.engine import run_backtest
-from haa.metrics import rolling_annualized_returns
+from haa.metrics import rolling_annualized_returns, worst_rolling_annualized_return
 from haa.portfolio_backtest import run_portfolio_backtest
 
 
@@ -31,6 +31,7 @@ def test_rolling_annualized_returns_compound_exact_monthly_periods():
     assert rolling.iloc[:11].isna().all()
     assert abs(rolling.iloc[11] - ((1.01**12) - 1)) < 1e-12
     assert abs(rolling.iloc[-1] - ((1.01**12) - 1)) < 1e-12
+    assert abs(worst_rolling_annualized_return(returns, 1) - ((1.01**12) - 1)) < 1e-12
 
 
 def test_proxy_tax_path_and_cm_ic_blend_run():

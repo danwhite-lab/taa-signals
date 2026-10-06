@@ -17,7 +17,7 @@ from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, deep_history_model_input
 from haa.engine import run_backtest
-from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns
+from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -743,6 +743,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[proxy_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+            summary.loc["Worst 5-year rolling CAGR", proxy_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
+            summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
+            if tax_enabled:
+                summary.loc["Worst 5-year rolling CAGR", proxy_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
             st.subheader("Results")
             result_columns = st.columns(5 if tax_enabled else 3)
             result_columns[0].metric("Proxy CAGR", f"{summary.loc['CAGR', proxy_label]:.2%}")
@@ -760,7 +764,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             st.plotly_chart(px.line(curves, title="Proxy equity curve"), use_container_width=True)
             st.plotly_chart(px.line(curves.div(curves.cummax()).sub(1), title="Proxy drawdown"), use_container_width=True)
             with st.expander("Performance and tax details", expanded=False):
-                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month"] if row in summary.index]
+                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
                 proxy_numeric_rows = [row for row in ["Final value", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
                 st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
@@ -816,6 +820,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[blend_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+            summary.loc["Worst 5-year rolling CAGR", blend_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
+            summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
+            if tax_enabled:
+                summary.loc["Worst 5-year rolling CAGR", blend_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
             st.subheader("Results")
             result_columns = st.columns(5 if tax_enabled else 3)
             result_columns[0].metric("Blend CAGR", f"{summary.loc['CAGR', blend_label]:.2%}")
@@ -833,7 +841,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             st.plotly_chart(px.line(curves, title="Proxy blend equity curve"), use_container_width=True)
             st.plotly_chart(px.line(curves.div(curves.cummax()).sub(1), title="Proxy blend drawdown"), use_container_width=True)
             with st.expander("Performance and tax details", expanded=False):
-                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month"] if row in summary.index]
+                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
                 proxy_numeric_rows = [row for row in ["Final value", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
                 st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")

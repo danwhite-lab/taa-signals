@@ -34,3 +34,9 @@ def rolling_annualized_returns(monthly_returns: pd.Series, years: int) -> pd.Ser
     months = years * 12
     compounded = (1 + monthly_returns).rolling(months, min_periods=months).apply(np.prod, raw=True)
     return compounded.pow(1 / years).sub(1).rename(f"{years}-year rolling CAGR")
+
+
+def worst_rolling_annualized_return(monthly_returns: pd.Series, years: int) -> float:
+    """Return the worst completed rolling annualized return, or NaN if unavailable."""
+    rolling = rolling_annualized_returns(monthly_returns, years).dropna()
+    return float(rolling.min()) if not rolling.empty else np.nan
