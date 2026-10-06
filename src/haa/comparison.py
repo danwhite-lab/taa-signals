@@ -45,6 +45,8 @@ def compare_models(
     """
     if len(models) < 2:
         raise ValueError("Select at least two models to compare.")
+    if any(model.decisions.attrs.get("single_strategy_only") for model in models.values()):
+        raise ValueError("Daily supplied proxies are single-strategy only; use their built-in benchmark comparison.")
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for model in models.values()):
         raise ValueError("Daily-execution models currently support single-strategy Backtest only; monthly Compare periods are not equivalent.")
     # Strategies already contain completed-month signals only; execution dates

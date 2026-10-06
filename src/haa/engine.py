@@ -36,6 +36,10 @@ def run_backtest(
     exits at the next month's corresponding execution close. The last decision
     has no future holding period and is excluded.
     """
+    if tax_enabled and decisions.attrs.get("tax_supported") is False:
+        raise ValueError("Tax modeling requires daily trade/security values; monthly returns cannot reconstruct daily realized gains.")
+    if transaction_cost and decisions.attrs.get("trade_cost_supported") is False:
+        raise ValueError("Additional trade-fee modeling requires daily trade values; the supplied monthly return stream is used unchanged.")
     if execution_delay_business_days < 0:
         raise ValueError("Execution delay must be zero or a positive number of business days.")
     if decisions.attrs.get("execution_frequency") == "daily":

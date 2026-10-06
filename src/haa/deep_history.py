@@ -31,6 +31,7 @@ class DeepHistorySpec:
     completed_only: bool = False
     caveat: str = ""
     usable_through: str | None = None
+    daily_signal_history: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,22 @@ DEEP_HISTORY_BENCHMARKS = {
     "sp500": SP500_TOTAL_RETURN_BENCHMARK,
     "global": GLOBAL_TOTAL_RETURN_BENCHMARK,
 }
+
+# Kept outside the blendable registry: these returns summarize a daily model,
+# not a monthly sleeve whose trade-level taxes can be reconstructed.
+DEEP_HISTORY_SINGLE_SPECS = {
+    "rvol_daily": DeepHistorySpec("rvol_daily", "A-RVol Shifter (daily supplied proxy)",
+        "rvol_daily_signals.csv", "rvol_daily_monthly_returns.csv",
+        holding_asset="ARVOL_STRATEGY_NAV_PROXY", completed_only=True,
+        usable_through="2026-09-30", daily_signal_history=True,
+        caveat="Single strategy only. Supplied monthly returns of a daily-traded model, January 2003–September 2026. All 231 source signal changes are retained, not collapsed to monthly trades. Daily prices, trade values, source fee treatment and exact variant fidelity are unverified. Tax and additional trade-fee modeling are unavailable: monthly NAV cannot reconstruct daily realized gains. Risk statistics and drawdown use monthly observations, not daily drawdown. October's unfinished return is excluded. Live A-RVol rules are unchanged."),
+}
+ALL_DEEP_HISTORY_SPECS = {**DEEP_HISTORY_SPECS, **DEEP_HISTORY_SINGLE_SPECS}
+
+
+def deep_history_options(sleeve_count: int) -> tuple[str, ...]:
+    specs = ALL_DEEP_HISTORY_SPECS if sleeve_count == 1 else DEEP_HISTORY_SPECS
+    return tuple(sorted(specs, key=lambda key: specs[key].label.casefold()))
 
 
 def _parse_percent(value: str) -> float | None:
@@ -175,7 +192,7 @@ def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
         if spec.usable_through:
             cutoff = min(cutoff, pd.Timestamp(spec.usable_through))
         returns = returns.loc[returns.index <= cutoff]
-        holding_months = signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
+        holding_months = signals.index if spec.daily_signal_history else signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
         signals = signals.loc[holding_months <= cutoff]
     return signals, returns
 
@@ -192,9 +209,10 @@ def deep_history_model_input(
     security tax lots. The result is restricted to the independently supplied
     benchmark's usable months; no benchmark pre-history is invented.
     """
-    if spec.buy_and_hold:
+    if spec.buy_and_hold or spec.daily_signal_history:
         path = DEEP_HISTORY_DIR / spec.returns_file
-        returns = (_read_monthly_returns(path) if spec.key == "buy_and_hold_global" else _read_long_monthly_returns(path))
+        returns = (load_deep_history(spec)[1] if spec.daily_signal_history else
+                   _read_monthly_returns(path) if spec.key == "buy_and_hold_global" else _read_long_monthly_returns(path))
         benchmark_returns = _read_benchmark_returns(benchmark)
         common_months = returns.index.intersection(benchmark_returns.index)
         returns = returns.loc[common_months]
@@ -220,6 +238,10 @@ def deep_history_model_input(
             [{"target_weights": {spec.holding_asset: 1.0}, "selected_asset": spec.holding_asset} for _ in signal_index],
             index=signal_index,
         )
+        if spec.daily_signal_history:
+            # Monthly observation dates are not source trade dates. This NAV
+            # must never masquerade as a no-tax daily implementation.
+            decisions.attrs.update(single_strategy_only=True, tax_supported=False, trade_cost_supported=False)
         return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
     signals, returns = load_deep_history(spec)
     rows: list[tuple[pd.Timestamp, dict[str, float], float]] = []

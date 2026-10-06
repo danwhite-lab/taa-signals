@@ -43,6 +43,8 @@ def run_portfolio_backtest(
     """
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
+    if any(model.decisions.attrs.get("single_strategy_only") for _, model in sleeves.values()):
+        raise ValueError("Daily supplied proxies are single-strategy only and cannot be portfolio sleeves.")
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
         raise ValueError("Daily-execution models currently support single-strategy Backtest only; monthly sleeve tax/reset integration is not enabled.")
     weights = {name: float(weight) for name, (weight, _) in sleeves.items()}

@@ -16,7 +16,7 @@ from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_A
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
-from haa.deep_history import DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input
+from haa.deep_history import ALL_DEEP_HISTORY_SPECS, DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input, deep_history_options, load_deep_history
 from haa.engine import run_backtest
 from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
@@ -658,12 +658,13 @@ if page == "Backtest":
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
             benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option uses nominal USD ACWI proxy returns from 1970. Early history uses substitute assets; it is not actual ACWI or ISAC ETF history throughout.")
             deep_history_benchmark = DEEP_HISTORY_BENCHMARKS[benchmark_key]
-            proxy_options = tuple(sorted(DEEP_HISTORY_SPECS, key=lambda key: DEEP_HISTORY_SPECS[key].label.casefold()))
-            proxy_labels = {key: spec.label for key, spec in DEEP_HISTORY_SPECS.items()}
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+            proxy_options = deep_history_options(len(configured_proxy_sleeves))
+            proxy_labels = {key: spec.label for key, spec in ALL_DEEP_HISTORY_SPECS.items()}
+            configured_daily_proxy = any(ALL_DEEP_HISTORY_SPECS[st.session_state.get(f"deep_proxy_sleeve_{sleeve['id']}_model", sleeve["model"])].daily_signal_history for sleeve in configured_proxy_sleeves)
             _, add_column, remove_column = st.columns([7, 0.5, 0.5])
             with add_column:
-                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= len(proxy_options))
+                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve (daily proxies are standalone only)", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(DEEP_HISTORY_SPECS))
             with remove_column:
                 remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
             updated_proxy_sleeves = []
@@ -676,13 +677,18 @@ if page == "Backtest":
                     with strategy_column:
                         sleeve_model = st.selectbox("Proxy strategy", proxy_options, format_func=lambda key: proxy_labels[key], key=model_key)
                     with weight_column:
-                        sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"deep_proxy_sleeve_{sleeve_id}_weight")
+                        is_daily_proxy = ALL_DEEP_HISTORY_SPECS[sleeve_model].daily_signal_history
+                        if is_daily_proxy:
+                            st.text_input("Weight (%)", value="100", disabled=True, key=f"daily_proxy_fixed_weight_{sleeve_id}")
+                            sleeve_weight = 100.0
+                        else:
+                            sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"deep_proxy_sleeve_{sleeve_id}_weight")
                 updated_proxy_sleeves.append({"id": sleeve_id, "weight": float(sleeve_weight), "model": sleeve_model})
             st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves
             if add_proxy_sleeve:
                 next_id = st.session_state["deep_proxy_next_id"]
                 st.session_state["deep_proxy_next_id"] = next_id + 1
-                st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": proxy_options[0]})
+                st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": deep_history_options(2)[0]})
                 st.rerun()
             if remove_proxy_sleeve:
                 st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves[:-1]
@@ -695,9 +701,13 @@ if page == "Backtest":
                 st.warning(f"Sleeve weights total {proxy_weight_total:.2f}%. Set them to exactly 100% to run the proxy backtest.")
             else:
                 st.success("Sleeve weights total 100%.")
-            st.toggle("Israeli capital-gains tax", key="tax_enabled")
-            st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
-            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {deep_history_benchmark.label}.")
+            if any(ALL_DEEP_HISTORY_SPECS[s["model"]].daily_signal_history for s in updated_proxy_sleeves):
+                st.toggle("Israeli capital-gains tax (unavailable for this import)", value=False, disabled=True, key="daily_proxy_tax_unavailable")
+                st.caption("Standalone daily-strategy return history. Daily trade values are missing, so tax and additional trade-fee calculations are disabled. Source monthly returns are preserved.")
+            else:
+                st.toggle("Israeli capital-gains tax", key="tax_enabled")
+                st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
+                st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {deep_history_benchmark.label}.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -709,9 +719,14 @@ tax_enabled = st.session_state["tax_enabled"]
 tax_rate = st.session_state["tax_rate"]
 
 if page == "Backtest" and backtest_mode == "Deep History / Proxy":
-    proxy_specs = DEEP_HISTORY_SPECS
+    proxy_specs = ALL_DEEP_HISTORY_SPECS
     try:
         proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+        if any(proxy_specs[s["model"]].daily_signal_history for s in proxy_sleeves):
+            if len(proxy_sleeves) != 1:
+                raise ValueError("Daily supplied proxies support a single strategy only, not blends.")
+            tax_enabled = False
+            cost_pct = 0.0
         for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
             if proxy_specs[selected_proxy].caveat:
                 st.warning(proxy_specs[selected_proxy].caveat)
@@ -756,7 +771,8 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 benchmark_asset=proxy_input.benchmark_asset,
             )
             title_column.title(f"{spec.label} — Deep History / Proxy")
-            st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
+            if not spec.daily_signal_history:
+                st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
             st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
             proxy_label = f"{spec.label} proxy pre-tax"
             proxy_after_label = f"{spec.label} proxy after-tax"
@@ -790,7 +806,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
                 proxy_numeric_rows = [row for row in ["Final value", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
-                st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                if not spec.daily_signal_history:
+                    st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                else:
+                    st.caption("Monthly return statistics. Daily maximum drawdown and realized-gain tax are unavailable from this import.")
             annual = pd.DataFrame({proxy_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
             monthly_returns = pd.DataFrame({proxy_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
             if tax_enabled:
@@ -803,6 +822,13 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 with monthly_tab:
                     st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
             render_deep_history_rolling_returns(monthly_returns, "deep_proxy_single")
+            if spec.daily_signal_history:
+                with st.expander("Supplied daily signal changes (not monthly execution dates)"):
+                    source_signals, _ = load_deep_history(spec)
+                    visible = source_signals.copy()
+                    visible["target_weights"] = visible["target_weights"].map(lambda weights: ", ".join(f"{a} {w:.0%}" for a, w in weights.items()))
+                    st.dataframe(visible.sort_index(ascending=False), use_container_width=True)
+                    st.download_button("Download supplied daily signal history", visible.to_csv().encode("utf-8"), "rvol_daily_signal_history.csv", "text/csv", key="rvol_proxy_source_signals")
         else:
             portfolio_inputs = {}
             selected_sleeves = []
