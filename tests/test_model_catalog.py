@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, BuyAndHoldSPY, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -39,6 +39,10 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert momentum.strategy_mode == "buy_and_hold"
     assert momentum.signal_mode == "internal"
     assert momentum.suggested_max_weight == 0.20
+    spy = resolve("Buy and Hold", "S&P 500", "SPY")
+    assert spy.model_class is BuyAndHoldSPY
+    assert spy.execution_currency == "USD"
+    assert spy.strategy_mode == "buy_and_hold"
     assert variants("Century Momentum") == ("Standard",)
     assert implementations("Century Momentum", "Standard") == ("Original", "Israel")
     assert resolve("Century Momentum", "Standard", "Original").model_class is CenturyMomentum

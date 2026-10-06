@@ -1,7 +1,7 @@
 import pandas as pd
 
 from haa.constants import TA125_SMART_MOMENTUM_ASSET
-from haa.strategies import TA125SmartMomentum
+from haa.strategies import BuyAndHoldSPY, TA125SmartMomentum
 
 
 def test_buy_and_hold_strategy_remains_invested_without_momentum_signal():
@@ -13,3 +13,11 @@ def test_buy_and_hold_strategy_remains_invested_without_momentum_signal():
     assert list(decisions["selected_asset"]) == [TA125_SMART_MOMENTUM_ASSET] * 3
     assert list(decisions["trade"]) == [True, False, False]
     assert decisions["regime"].eq("buy-and-hold").all()
+
+
+def test_buy_and_hold_spy_remains_invested():
+    dates = pd.to_datetime(["2024-01-31", "2024-02-29"])
+    decisions = BuyAndHoldSPY().decisions(pd.DataFrame({"SPY": [500.0, 510.0]}, index=dates))
+
+    assert list(decisions["selected_asset"]) == ["SPY", "SPY"]
+    assert list(decisions["trade"]) == [True, False]

@@ -41,3 +41,38 @@ class TA125SmartMomentum:
                 "trade": not rows,
             })
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+
+class BuyAndHoldSPY:
+    """Continuous SPY holding using the actual ETF price history available to the app."""
+
+    name = "Buy and Hold SPY"
+    data_assets = ("SPY",)
+    market_data_assets = data_assets
+    signal_assets: tuple[str, ...] = ()
+    benchmark_asset = "SPY"
+    strategy_mode = "buy_and_hold"
+    signal_mode = "internal"
+    backtest_available = True
+    validation_profile = ValidationProfile(
+        profile_id="buy-and-hold-spy",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "SPY remains continuously invested; the app does not run a timing rule."),),
+        execution=ExecutionSpec("continuous", "SPY remains continuously invested", (0,), (0,)),
+        applicable_tests=frozenset({"alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "block_bootstrap", "data_quality"}),
+        data_confidence="established",
+        notes="Research evaluates continuous SPY holding using its available ETF history. No pre-ETF proxy or splice is used.",
+    )
+
+    def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
+        """Remain fully invested in SPY whenever its month-end price is available."""
+        rows: list[dict[str, object]] = []
+        for date, values in monthly_prices.loc[:, self.data_assets].dropna(how="any").iterrows():
+            rows.append({
+                "signal_date": date,
+                "SPY_price": values["SPY"],
+                "regime": "buy-and-hold",
+                "selected_asset": "SPY",
+                "previous_asset": "SPY" if rows else None,
+                "trade": not rows,
+            })
+        return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()

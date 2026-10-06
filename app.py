@@ -43,6 +43,7 @@ MODEL_RULES = {
     "Growth-Inflation Concentrated": """**Growth-Inflation Concentrated:** At each completed month-end, growth is high when SPY is above its 200-day SMA. Inflation is high when the equal-weighted XLE/XLB/XLI/XLF basket divided by the equal-weighted XLU/XLV/XLP/XLY basket is above its 200-day SMA. The four fixed allocations are: high growth/high inflation → XLE; high growth/low inflation → XLK; low growth/high inflation → XLV; low growth/low inflation → XLP. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
+    "Buy and Hold SPY": """**Buy and Hold SPY:** Holds the SPDR S&P 500 ETF Trust continuously. There is no timing, rotation, or cash rule; the backtest uses only actual SPY ETF history available from Yahoo Finance.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
     "HAA 4 Israel": """**HAA 4 Israel:** Uses the published HAA-4 USD signal logic: TIP is the canary; SPY, VEA, VNQ, and IEF are ranked by 13612U; and IEF/BIL provide defensive replacement. Holdings map to CSPX (1159250), IBI MSCI AC World ex USA (5142476), IBI DJ US Real Estate (5131834), IEF (1159268), and Keren Kaspit (5136866). Its backtest uses VXUS as the U.S. return proxy for the ex-US execution fund, so it is not actual TASE or ILS performance.""",
@@ -1995,11 +1996,11 @@ if page == "Signals":
             preview_decisions = signal_strategy.decisions(preview_input)
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if signal_definition.strategy_mode == "buy_and_hold":
-        title_column.title("TA-125 Smart Momentum")
-        title_column.caption("Internally managed momentum strategy · Israeli equity / momentum growth sleeve")
+        title_column.title(signal_model_name)
+        title_column.caption("Continuous holding · no app-generated timing signal")
         if signal_status.decision is None:
             st.error(signal_status.reason)
-        else:
+        elif signal_model_name == "TA-125 Smart Momentum":
             st.dataframe(pd.DataFrame([{
                 "Current allocation": "100% TA-125 Smart Momentum (5134713)",
                 "External signal": "None — Buy & Hold",
@@ -2007,6 +2008,14 @@ if page == "Signals":
             }]), use_container_width=True, hide_index=True)
             st.info("This fund is held continuously. The TA-125 Smart Momentum index performs its own momentum selection and reweighting; the app does not produce BUY, SELL, or CASH timing instructions.")
             st.caption("Fund 5134713 uses public TASE/Maya history only. No synthetic or pre-fund history is used; Backtest and Compare begin at the actual available fund history.")
+        else:
+            st.dataframe(pd.DataFrame([{
+                "Current allocation": "100% SPY",
+                "External signal": "None — Buy & Hold",
+                "Implementation": "Continuous SPY holding",
+            }]), use_container_width=True, hide_index=True)
+            st.info("SPY is held continuously. The app does not produce BUY, SELL, or CASH timing instructions for this strategy.")
+            st.caption("Backtest and Compare use actual SPY ETF history only; no synthetic pre-ETF history is used.")
     elif signal_status.decision is None:
         title_column.title("Signal")
         title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
@@ -2267,7 +2276,10 @@ if page == "Rules":
     title_column.title("Rules")
     st.subheader("Model rules")
     st.markdown(MODEL_RULES[model_name])
-    if model_definition.strategy_mode == "buy_and_hold":
+    if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
+        st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
+        st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)
+    elif model_definition.strategy_mode == "buy_and_hold":
         st.info("Internally managed momentum strategy: the fund is held continuously and the underlying index manages momentum weighting. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.write("**Market:** Israel  \\n+**Fund:** Migdal MTF TA-125 Smart Momentum (5134713)  \\n+**Underlying index:** TA-125 Smart Momentum  \\n+**Implementation:** Buy & Hold  \\n+**Signal frequency:** None  \\n+**Review frequency:** Annual  \\n+**Evidence status:** Limited / developing  \\n+**Suggested portfolio maximum:** 20% (guidance only)")
 
