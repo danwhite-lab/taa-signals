@@ -984,6 +984,41 @@ def monthly_strategy_input(daily_prices: pd.DataFrame, market_assets: tuple[str,
     return monthly_market, monthly_market.join(values)
 
 
+def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_benchmark: bool = False) -> tuple[str, ...]:
+    """Return only the histories needed by the active screen's selected models."""
+    assets: list[str] = []
+    for label in model_labels:
+        strategy_class = MODEL_OPTIONS[label]
+        assets.extend(getattr(strategy_class, "data_assets", ASSETS))
+        benchmark = getattr(strategy_class, "benchmark_asset", "SPY")
+        assets.append(benchmark)
+        profile = profile_for(strategy_class())
+        if profile is not None:
+            assets.extend(proxy.proxy_asset for proxy in profile.proxy_substitutions)
+    if include_spy_benchmark:
+        assets.append("SPY")
+    return tuple(dict.fromkeys(assets))
+
+
+def selected_sleeve_labels(sleeves: list[dict[str, object]], prefix: str) -> list[str]:
+    """Include a sleeve's pending widget selection before its UI is rendered."""
+    labels: list[str] = []
+    for sleeve in sleeves:
+        fallback = str(sleeve["model"])
+        definition = definition_for_label(fallback)
+        sleeve_prefix = f"{prefix}_{sleeve['id']}"
+        try:
+            label = resolve(
+                st.session_state.get(f"{sleeve_prefix}_strategy", definition.strategy),
+                st.session_state.get(f"{sleeve_prefix}_variant", definition.variant),
+                st.session_state.get(f"{sleeve_prefix}_implementation", definition.implementation),
+            ).label
+        except ValueError:
+            label = fallback
+        labels.append(label)
+    return labels
+
+
 @st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading public TASE/Maya price history...")
 def load_tase_data():
     """Cache successful public-source requests and avoid repeated TASE traffic."""
@@ -995,8 +1030,33 @@ def load_tase_substitution_data(source_items: tuple[tuple[str, str], ...]):
     """Cache custom TASE security lookups by canonical role and security ID."""
     return download_tase_security_prices(dict(source_items))
 
+if page == "Portfolio":
+    active_model_labels = selected_sleeve_labels(st.session_state["portfolio_sleeves"], "portfolio")
+elif page == "Today":
+    active_model_labels = [sleeve["model"] for sleeve in st.session_state.get("portfolio_sleeves", [])] if st.session_state.get("browser_default_portfolio") else []
+elif page == "Backtest" and backtest_mode == "Portfolio":
+    active_model_labels = selected_sleeve_labels(st.session_state["backtest_sleeves"], "backtest_sleeve")
+elif page == "Compare":
+    default_comparison = [model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))]
+    default_comparison.append(next(label for label in BACKTEST_MODEL_OPTIONS if label != default_comparison[0]))
+    active_model_labels = list(st.session_state.get("compare_models", default_comparison))
+else:
+    active_model_labels = [model_name]
+
+# Streamlit reruns on every widget interaction.  Keep the expensive market-data
+# preparation scoped to the models visible on this screen instead of the full
+# catalogue of strategies.
+runtime_assets = assets_for_models(
+    active_model_labels,
+    include_spy_benchmark=page == "Backtest" and backtest_mode == "Portfolio",
+)
+runtime_yahoo_assets = tuple(asset for asset in runtime_assets if asset in YAHOO_ASSETS)
+runtime_tase_assets = tuple(asset for asset in runtime_assets if asset in TASE_ASSETS)
+runtime_fred_assets = tuple(asset for asset in runtime_assets if asset in FRED_ASSETS)
+needs_oecd = OECD_CLI_DIFFUSION_ASSET in runtime_assets
+
 try:
-    downloaded = load_data(tuple(ticker_map.items()))
+    downloaded = load_data(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)) if runtime_yahoo_assets else pd.DataFrame()
 except Exception as exc:
     st.error(f"Yahoo Finance download failed: {exc}")
     st.stop()
@@ -1004,40 +1064,53 @@ except Exception as exc:
 substitution_downloaded: pd.DataFrame | None = None
 if yahoo_substitutions:
     try:
+        substituted_tickers = substitution_ticker_map(ticker_map, yahoo_substitutions)
         substitution_downloaded = load_data(
-            tuple(substitution_ticker_map(ticker_map, yahoo_substitutions).items())
+            tuple((asset, substituted_tickers[asset]) for asset in runtime_yahoo_assets)
         )
     except Exception as exc:
         st.error(f"Selected-source Yahoo data download failed: {exc}")
         st.stop()
 
-try:
-    fred_prices = load_fred_data()
-    fred_warning: str | None = None
-except Exception as exc:
-    # FRED is required only by Inflation Compass; keep existing models usable.
-    fred_warning = str(exc)
-    fred_prices = pd.DataFrame(columns=FRED_ASSETS, dtype=float)
+if runtime_fred_assets:
+    try:
+        fred_prices = load_fred_data()
+        fred_warning: str | None = None
+    except Exception as exc:
+        # FRED is required only by Inflation Compass; keep existing models usable.
+        fred_warning = str(exc)
+        fred_prices = pd.DataFrame(columns=FRED_ASSETS, dtype=float)
+else:
+    fred_prices, fred_warning = pd.DataFrame(), None
 
-try:
-    oecd_prices = load_oecd_cli_data()
-    oecd_warning: str | None = None
-except Exception as exc:
-    oecd_warning = str(exc)
-    oecd_prices = pd.DataFrame(columns=[OECD_CLI_DIFFUSION_ASSET], dtype=float)
+if needs_oecd:
+    try:
+        oecd_prices = load_oecd_cli_data()
+        oecd_warning: str | None = None
+    except Exception as exc:
+        oecd_warning = str(exc)
+        oecd_prices = pd.DataFrame(columns=[OECD_CLI_DIFFUSION_ASSET], dtype=float)
+else:
+    oecd_prices, oecd_warning = pd.DataFrame(), None
 
 tase_warning: str | None = None
-try:
-    tase_prices, tase_metadata = load_tase_data()
-except TaseDataError as exc:
-    # Do not take down US models if the public TASE/Maya site is unavailable.
-    # CSV uploads remain a deliberate, visible fallback for the Israel model.
-    tase_warning = str(exc)
-    tase_prices = pd.DataFrame(columns=TASE_ASSETS, dtype=float)
-    tase_metadata = pd.DataFrame(
-        {"source": "TASE/Maya via tasekit (unavailable)", "identifier": [TASE_ISRAEL_ASSET_IDS[asset] for asset in TASE_ASSETS], "price_field": "Unavailable"},
-        index=pd.Index(TASE_ASSETS, name="asset"),
-    )
+if runtime_tase_assets:
+    try:
+        tase_prices, tase_metadata = load_tase_data()
+        tase_prices = tase_prices.reindex(columns=runtime_tase_assets)
+        tase_metadata = tase_metadata.reindex(runtime_tase_assets)
+    except TaseDataError as exc:
+        # Do not take down US models if the public TASE/Maya site is unavailable.
+        # CSV uploads remain a deliberate, visible fallback for the Israel model.
+        tase_warning = str(exc)
+        tase_prices = pd.DataFrame(columns=runtime_tase_assets, dtype=float)
+        tase_metadata = pd.DataFrame(
+            {"source": "TASE/Maya via tasekit (unavailable)", "identifier": [TASE_ISRAEL_ASSET_IDS[asset] for asset in runtime_tase_assets], "price_field": "Unavailable"},
+            index=pd.Index(runtime_tase_assets, name="asset"),
+        )
+else:
+    tase_prices = pd.DataFrame()
+    tase_metadata = pd.DataFrame(columns=["source", "identifier", "price_field"])
 
 substitution_tase_prices: pd.DataFrame | None = None
 if tase_substitutions:
@@ -1060,7 +1133,7 @@ if page == "Backtest":
             st.error(str(exc))
     st.session_state["uploaded_replacements"] = replacements
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
-all_prices = combine_replacements(downloaded_all, replacements, ALL_MODEL_ASSETS)
+all_prices = combine_replacements(downloaded_all, replacements, runtime_assets)
 substitution_all_prices: pd.DataFrame | None = None
 if substitution_downloaded is not None or substitution_tase_prices is not None:
     substitution_all_prices = all_prices.copy()
@@ -1074,15 +1147,16 @@ if substitution_downloaded is not None or substitution_tase_prices is not None:
 source_metadata = pd.DataFrame(
     {
         "source": "Yahoo Finance",
-        "identifier": [ticker_map[asset] for asset in YAHOO_ASSETS],
+        "identifier": [ticker_map[asset] for asset in runtime_yahoo_assets],
         "price_field": "Adj Close (Close fallback)",
     },
-    index=pd.Index(YAHOO_ASSETS, name="asset"),
+    index=pd.Index(runtime_yahoo_assets, name="asset"),
 )
-source_metadata = pd.concat([source_metadata, tase_metadata]).reindex(ALL_MODEL_ASSETS)
-for asset in FRED_ASSETS:
+source_metadata = pd.concat([source_metadata, tase_metadata]).reindex(runtime_assets)
+for asset in runtime_fred_assets:
     source_metadata.loc[asset] = {"source": "FRED", "identifier": asset, "price_field": "Daily observation"}
-source_metadata.loc[OECD_CLI_DIFFUSION_ASSET] = {"source": "OECD SDMX", "identifier": "CLI diffusion (dynamic country panel)", "price_field": "Monthly observation; one-month lag"}
+if needs_oecd:
+    source_metadata.loc[OECD_CLI_DIFFUSION_ASSET] = {"source": "OECD SDMX", "identifier": "CLI diffusion (dynamic country panel)", "price_field": "Monthly observation; one-month lag"}
 for asset in replacements:
     source_metadata.loc[asset] = {"source": "User CSV replacement", "identifier": asset, "price_field": "Adj Close or Close"}
 
@@ -1709,7 +1783,7 @@ if page == "Portfolio":
     else:
         st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
     fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
-    with st.container(key="portfolio-investment-settings"):
+    with st.form("portfolio-investment-settings"):
         name_column, base_column, rate_column = st.columns([1.15, 1, 1])
         with name_column:
             portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
@@ -1717,6 +1791,7 @@ if page == "Portfolio":
             total_ils = st.number_input("Total available capital (ILS)", min_value=0.0, value=100_000.0, step=1_000.0, key="portfolio_total_ils")
         with rate_column:
             ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.4f", key="portfolio_fx_rate")
+        st.form_submit_button("Update portfolio inputs")
     if fx_error:
         st.info(fx_error)
     elif fx_quote_timestamp is not None:
