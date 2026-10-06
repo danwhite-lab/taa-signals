@@ -9,12 +9,17 @@ from haa.daily_engine import daily_performance_metrics
 from haa.engine import run_backtest
 from haa.model_catalog import resolve
 from haa.portfolio_backtest import run_portfolio_backtest
-from haa.signals import latest_actionable_signal
+from haa.signals import daily_signal_heading, latest_actionable_signal
 from haa.market_sessions import scheduled_execution_dates, us_equity_sessions, validate_us_equity_sessions
 from haa.strategies.rvol_shifter import RVolShifterCashOnly, completed_daily_cutoff
 
 
 class RVolShifterTests(unittest.TestCase):
+    def test_daily_header_displays_target_action_or_unavailable(self):
+        self.assertEqual(daily_signal_heading(pd.Series({"selected_asset": "TQQQ", "trade": False})), "Signal — 100% TQQQ · Hold")
+        self.assertEqual(daily_signal_heading(pd.Series({"selected_asset": "BIL", "trade": True})), "Signal — 100% BIL · Switch")
+        self.assertEqual(daily_signal_heading(None), "Signal unavailable")
+
     def test_experimental_warning_does_not_display_vendor_branding(self):
         self.assertIn("EXPERIMENTAL", RVolShifterCashOnly.risk_warning)
         self.assertNotIn("bestfolio", RVolShifterCashOnly.risk_warning.casefold())

@@ -23,7 +23,7 @@ from haa.metrics import annual_returns, performance_metrics, rolling_annualized_
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
-from haa.signals import first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
+from haa.signals import daily_signal_heading, first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
@@ -2207,8 +2207,8 @@ if page == "Signals":
             preview_decisions = signal_strategy.decisions(preview_input)
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if is_daily_execution:
-        title_column.title(signal_model_name)
-        title_column.caption("EXPERIMENTAL · independently implemented rules · completed daily decision · next-session-close execution")
+        title_column.title(daily_signal_heading(signal_status.decision))
+        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · independently implemented rules · completed daily decision · next-session-close execution")
         st.warning(signal_strategy.risk_warning)
         if signal_status.decision is None:
             st.error(signal_status.reason)

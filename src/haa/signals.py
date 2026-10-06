@@ -25,6 +25,14 @@ class PreviewStatus:
     price_as_of: pd.Timestamp | None
 
 
+def daily_signal_heading(decision: pd.Series | None) -> str:
+    """Display the validated daily target, not the strategy variant name."""
+    if decision is None:
+        return "Signal unavailable"
+    action = "Switch" if bool(decision["trade"]) else "Hold"
+    return f"Signal — 100% {decision['selected_asset']} · {action}"
+
+
 def last_completed_month_end(as_of: pd.Timestamp | None = None) -> pd.Timestamp:
     """Return the calendar month-end before ``as_of``'s current month."""
     timestamp = pd.Timestamp.now(tz="UTC").tz_localize(None) if as_of is None else pd.Timestamp(as_of).tz_localize(None)
