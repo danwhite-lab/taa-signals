@@ -11,6 +11,7 @@ SUPPORTED_CURRENCIES = ("USD", "ILS")
 EXECUTION_SECURITY_LABELS = {
     ("ILS", "CSPX_IL"): "CSPX — 1159250",
     ("ILS", "FTSE_ALL_WORLD_IL"): "FTSE All-World — 1209220",
+    ("ILS", "QQQ_IL"): "Nasdaq-100 — 1186063",
     ("ILS", "IEF_IL"): "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268",
     ("ILS", "SPMO_IL"): "MTF Tracking S&P 500 Momentum (4D) — 5140850",
     ("ILS", "AYALON_KASPIT"): "Keren Kaspit — 5136866",

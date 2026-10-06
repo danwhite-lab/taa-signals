@@ -48,6 +48,8 @@ MODEL_RULES = {
     "Buy and Hold SPY Israel": """**Buy and Hold SPY Israel:** Holds CSPX, TASE security 1159250, continuously. Backtests use the available local security history in ILS, including currency exposure. There is no timing or rotation rule.""",
     "Buy and Hold ACWI": """**Buy and Hold ACWI:** Holds iShares MSCI ACWI ETF continuously. There is no timing, rotation, or cash rule; the backtest uses only actual ACWI ETF history available from Yahoo Finance.""",
     "Buy and Hold Global Israel": """**Buy and Hold Global Israel:** Holds FTSE All-World, TASE security 1209220, continuously. Backtests use available local security history in ILS, including currency exposure. There is no timing or rotation rule.""",
+    "Buy and Hold QQQ": """**Buy and Hold QQQ:** Holds QQQ continuously using actual ETF history from Yahoo Finance. There is no timing, rotation, or cash rule; no pre-ETF history is spliced in.""",
+    "Buy and Hold QQQ Israel": """**Buy and Hold QQQ Israel:** Holds Nasdaq-100 through TASE security 1186063 continuously. Backtests use available local security history in ILS, including currency exposure, rather than QQQ proxy history.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
     "HAA 4 Israel": """**HAA 4 Israel:** Uses the published HAA-4 USD signal logic: TIP is the canary; SPY, VEA, VNQ, and IEF are ranked by 13612U; and IEF/BIL provide defensive replacement. Holdings map to CSPX (1159250), IBI MSCI AC World ex USA (5142476), IBI DJ US Real Estate (5131834), IEF (1159268), and Keren Kaspit (5136866). Its backtest uses VXUS as the U.S. return proxy for the ex-US execution fund, so it is not actual TASE or ILS performance.""",
@@ -2436,7 +2438,7 @@ if page == "Rules":
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
         st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)
-    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel"}:
+    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel", "Buy and Hold QQQ", "Buy and Hold QQQ Israel"}:
         holding = execution_security_label(strategy.data_assets[0], model_definition.execution_currency)
         st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
         st.write(f"Execution currency: {model_definition.execution_currency}. History: actual available security prices.")

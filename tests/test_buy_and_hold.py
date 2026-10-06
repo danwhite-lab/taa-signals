@@ -1,7 +1,7 @@
 import pandas as pd
 
 from haa.constants import TA125_SMART_MOMENTUM_ASSET
-from haa.strategies import BuyAndHoldSPY, BuyAndHoldSPYIsrael, TA125SmartMomentum
+from haa.strategies import BuyAndHoldQQQ, BuyAndHoldQQQIsrael, BuyAndHoldSPY, BuyAndHoldSPYIsrael, TA125SmartMomentum
 from haa.engine import run_backtest
 from haa.model_catalog import resolve
 from haa.portfolio import execution_security_label
@@ -43,3 +43,26 @@ def test_israel_spy_buy_and_hold_uses_actual_cspx_prices_and_ils_mapping():
     assert definition.execution_currency == "ILS"
     assert TASE_ISRAEL_ASSET_IDS["CSPX_IL"] == "1159250"
     assert execution_security_label("CSPX_IL", "ILS") == "CSPX — 1159250"
+
+
+def test_qqq_buy_and_hold_implementations_remain_invested_and_use_separate_histories():
+    dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31"])
+    for implementation, cls, asset, currency in (
+        ("QQQ", BuyAndHoldQQQ, "QQQ", "USD"),
+        ("Israel", BuyAndHoldQQQIsrael, "QQQ_IL", "ILS"),
+    ):
+        definition = resolve("Buy and Hold", "QQQ", implementation)
+        assert definition.model_class is cls
+        assert definition.execution_currency == currency
+        strategy = cls()
+        assert strategy.data_assets == (asset,)
+        prices = pd.DataFrame({asset: [100., 110., 121.]}, index=dates)
+        decisions = strategy.decisions(prices)
+        assert decisions["selected_asset"].eq(asset).all()
+        assert decisions["trade"].tolist() == [True, False, False]
+        result = run_backtest(decisions, prices, 1000, tax_enabled=True, benchmark_asset=strategy.benchmark_asset)
+        assert abs(result.monthly["pre_tax_value"].iloc[-1] - 1210) < 1e-9
+        assert result.monthly["pre_tax_value"].equals(result.monthly["benchmark_value"])
+        assert result.tax_events.empty
+    assert TASE_ISRAEL_ASSET_IDS["QQQ_IL"] == "1186063"
+    assert execution_security_label("QQQ_IL", "ILS") == "Nasdaq-100 — 1186063"

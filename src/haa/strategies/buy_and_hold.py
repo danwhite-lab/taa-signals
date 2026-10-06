@@ -81,6 +81,41 @@ class BuyAndHoldSPY:
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
 
 
+class BuyAndHoldQQQ(BuyAndHoldSPY):
+    """Continuous QQQ holding using actual ETF history, without a proxy splice."""
+
+    name = "Buy and Hold QQQ"
+    holding_asset = "QQQ"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-qqq",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold QQQ continuously in USD."),),
+        execution=ExecutionSpec("continuous", "QQQ remains continuously invested", (0,), (0,)),
+        notes="Uses actual QQQ ETF history. No pre-ETF proxy or splice is used.",
+    )
+
+
+class BuyAndHoldQQQIsrael(BuyAndHoldQQQ):
+    """Continuous Nasdaq-100 holding through the user's TASE implementation."""
+
+    name = "Buy and Hold QQQ Israel"
+    holding_asset = "QQQ_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldQQQ.validation_profile,
+        profile_id="buy-and-hold-qqq-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold TASE security 1186063 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "TASE security 1186063 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes="Uses actual TASE/Maya history for security 1186063 in ILS, including currency exposure. No QQQ history is spliced into the local security history.",
+    )
+
+
 class BuyAndHoldSPYIsrael(BuyAndHoldSPY):
     """Continuous S&P 500 holding through TASE CSPX security 1159250."""
 
