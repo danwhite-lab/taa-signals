@@ -723,6 +723,9 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
     proxy_specs = DEEP_HISTORY_SPECS
     try:
         proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+        for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
+            if proxy_specs[selected_proxy].caveat:
+                st.warning(proxy_specs[selected_proxy].caveat)
         proxy_weight_total = total_weight(proxy_sleeves)
         if abs(proxy_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in proxy_sleeves):
             raise ValueError("Set one or more positive proxy sleeve weights totaling exactly 100%.")

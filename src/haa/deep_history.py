@@ -28,6 +28,9 @@ class DeepHistorySpec:
     returns_file: str
     buy_and_hold: bool = False
     holding_asset: str = "SP500_TOTAL_RETURN_PROXY"
+    completed_only: bool = False
+    caveat: str = ""
+    usable_through: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class DeepHistoryBenchmarkSpec:
 
 
 DEEP_HISTORY_SPECS = {
+    "chimeric": DeepHistorySpec("chimeric", "Chimeric Asset Allocation (supplied proxy)", "chimeric_signals.csv", "chimeric_monthly_returns.csv", completed_only=True, usable_through="2026-09-30", caveat="Supplied strategy-level history from March 1982. Uses BIL, not the implemented variants' SGOV; variant fidelity and pre-ETF reconstruction are unverified. Three September 2026 rows all target October and are excluded, together with October's unfinished return. Reviewed coverage ends September 2026 and requires a source update to extend. Any repeated usable-month signals are rejected, never counted as separate monthly returns. Tax is an allocation-change approximation, not exact security-level CGT."),
     "buy_and_hold_sp500": DeepHistorySpec("buy_and_hold_sp500", "Buy & Hold S&P 500 Total Return", "", "sp500_total_return_proxy_monthly_returns.csv", True),
     "buy_and_hold_global": DeepHistorySpec("buy_and_hold_global", "Buy & Hold Global All-Country Equity USD Proxy", "", "global_all_country_usd_monthly_returns.csv", True, "GLOBAL_EQUITY_TOTAL_RETURN_PROXY"),
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
@@ -92,12 +96,14 @@ def _read_signals(path: Path) -> pd.DataFrame:
         for row in csv.reader(handle):
             if not row or row[0] == "Signal date":
                 continue
-            if len(row) < 4:
+            # Exports can omit the expand-marker cell on the first row.
+            date_column = next((i for i in (0, 1) if i < len(row) and re.search(r"\d{4}-\d{2}-\d{2}", row[i])), None)
+            if date_column is None or len(row) < date_column + 3:
                 continue
-            match = re.search(r"(\d{4}-\d{2}-\d{2})", row[1])
+            match = re.search(r"(\d{4}-\d{2}-\d{2})", row[date_column])
             if not match:
                 continue
-            rows.append({"signal_date": pd.Timestamp(match.group(1)), "regime": row[2], "target_weights": _parse_allocations(row[3])})
+            rows.append({"signal_date": pd.Timestamp(match.group(1)), "regime": row[date_column + 1], "target_weights": _parse_allocations(row[date_column + 2])})
     frame = pd.DataFrame(rows).set_index("signal_date").sort_index()
     if frame.empty or frame.index.has_duplicates:
         raise ValueError(f"Signal history is empty or has duplicate dates: {path.name}")
@@ -164,6 +170,13 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
     signals = _read_signals(DEEP_HISTORY_DIR / spec.signal_file)
     returns = _read_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+    if spec.completed_only:
+        cutoff = (pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M") - 1).to_timestamp("M")
+        if spec.usable_through:
+            cutoff = min(cutoff, pd.Timestamp(spec.usable_through))
+        returns = returns.loc[returns.index <= cutoff]
+        holding_months = signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
+        signals = signals.loc[holding_months <= cutoff]
     return signals, returns
 
 
@@ -228,7 +241,10 @@ def deep_history_model_input(
         signal_date + pd.offsets.MonthEnd(0) for signal_date, _, _ in rows
     )
     if signal_index.has_duplicates:
-        raise ValueError(f"{spec.label} has duplicate calendar-month signals.")
+        raise ValueError(f"{spec.label} has duplicate calendar-month signals. Monthly returns cannot reconstruct intramonth trades; supply confirmed final monthly allocations or daily security-level history.")
+    expected = pd.date_range(signal_index.min(), signal_index.max(), freq="ME")
+    if not signal_index.equals(expected):
+        raise ValueError(f"{spec.label} has gaps in aligned proxy holding periods; missing months cannot be bridged.")
     terminal_date = signal_index[-1] + pd.offsets.MonthEnd(1)
     levels = [100.0]
     for _, _, period_return in rows:

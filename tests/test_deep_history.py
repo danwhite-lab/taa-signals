@@ -78,7 +78,7 @@ def test_return_reader_rejects_duplicate_months(tmp_path):
 def test_global_sleeve_blends_with_all_other_sleeves_and_tax():
     models = {key: (1 / len(DEEP_HISTORY_SPECS), deep_history_model_input(spec, GLOBAL_TOTAL_RETURN_BENCHMARK)) for key, spec in DEEP_HISTORY_SPECS.items()}
     blend = run_portfolio_backtest(models, 100_000, tax_enabled=True)
-    assert len(blend.sleeve_returns.columns) == 6
+    assert len(blend.sleeve_returns.columns) == len(DEEP_HISTORY_SPECS)
     assert blend.monthly.index.min() == pd.Timestamp("1986-03-31")
     assert blend.monthly.index.max() == pd.Timestamp("2026-09-30")
     assert blend.monthly["after_tax_value"].iloc[-1] <= blend.monthly["pre_tax_value"].iloc[-1]
