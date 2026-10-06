@@ -55,7 +55,7 @@ GLOBAL_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
     asset_id="GLOBAL_EQUITY_TOTAL_RETURN_PROXY",
     label="Global Equity Total Return Proxy",
     returns_file="global_equity_total_return_proxy_monthly_returns.csv",
-    caveat="Synthetic FTSE All-World total-return proxy assembled from global index histories. It is not actual VT, and the proxy begins in 1970; actual VT ETF history begins in 2008.",
+    caveat="Synthetic FTSE All-World total-return proxy assembled from global index histories. It is not actual ACWI or ISAC, and the proxy begins in 1970; actual all-country ETF histories begin much later.",
 )
 
 DEEP_HISTORY_BENCHMARKS = {

@@ -78,24 +78,24 @@ class BuyAndHoldSPY:
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
 
 
-class BuyAndHoldVT:
-    """Continuous Vanguard Total World Stock ETF holding."""
+class BuyAndHoldACWI:
+    """Continuous iShares MSCI ACWI ETF holding."""
 
-    name = "Buy and Hold VT"
-    data_assets = ("VT",)
+    name = "Buy and Hold ACWI"
+    data_assets = ("ACWI",)
     market_data_assets = data_assets
     signal_assets: tuple[str, ...] = ()
-    benchmark_asset = "VT"
+    benchmark_asset = "ACWI"
     strategy_mode = "buy_and_hold"
     signal_mode = "internal"
     backtest_available = True
     validation_profile = ValidationProfile(
-        profile_id="buy-and-hold-vt",
-        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "VT remains continuously invested; the app does not run a timing rule."),),
-        execution=ExecutionSpec("continuous", "VT remains continuously invested", (0,), (0,)),
+        profile_id="buy-and-hold-acwi",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "ACWI remains continuously invested; the app does not run a timing rule."),),
+        execution=ExecutionSpec("continuous", "ACWI remains continuously invested", (0,), (0,)),
         applicable_tests=frozenset({"alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "block_bootstrap", "data_quality"}),
         data_confidence="established",
-        notes="Research evaluates continuous VT holding using its available ETF history. No pre-ETF splice is used.",
+        notes="Research evaluates continuous ACWI holding using its available ETF history. No pre-ETF splice is used.",
     )
 
     def decisions(self, monthly_prices: pd.DataFrame) -> pd.DataFrame:
@@ -103,10 +103,10 @@ class BuyAndHoldVT:
         for date, values in monthly_prices.loc[:, self.data_assets].dropna(how="any").iterrows():
             rows.append({
                 "signal_date": date,
-                "VT_price": values["VT"],
+                "ACWI_price": values["ACWI"],
                 "regime": "buy-and-hold",
-                "selected_asset": "VT",
-                "previous_asset": "VT" if rows else None,
+                "selected_asset": "ACWI",
+                "previous_asset": "ACWI" if rows else None,
                 "trade": not rows,
             })
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
