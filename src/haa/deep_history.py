@@ -137,15 +137,20 @@ def deep_history_model_input(
     if len(rows) < 2:
         raise ValueError(f"{spec.label} has fewer than two aligned proxy holding periods.")
     rows.sort(key=lambda item: item[0])
+    signal_index = pd.DatetimeIndex(
+        signal_date + pd.offsets.MonthEnd(0) for signal_date, _, _ in rows
+    )
+    if signal_index.has_duplicates:
+        raise ValueError(f"{spec.label} has duplicate calendar-month signals.")
+    terminal_date = signal_index[-1] + pd.offsets.MonthEnd(1)
     levels = [100.0]
-    for _, _, period_return in rows[:-1]:
+    for _, _, period_return in rows:
         levels.append(levels[-1] * (1 + period_return))
-    index = pd.DatetimeIndex([row[0] for row in rows])
     assets = sorted({asset for _, weights, _ in rows for asset in weights} | {"SPY"})
-    prices = pd.DataFrame({asset: levels for asset in assets}, index=index)
+    prices = pd.DataFrame({asset: levels for asset in assets}, index=signal_index.append(pd.DatetimeIndex([terminal_date])))
     benchmark_holding_months = pd.DatetimeIndex(
         signal_date + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
-        for signal_date, _, _ in rows[:-1]
+        for signal_date, _, _ in rows
     )
     benchmark_levels = [100.0]
     for holding_month in benchmark_holding_months:
@@ -153,8 +158,8 @@ def deep_history_model_input(
     prices[benchmark.asset_id] = benchmark_levels
     decisions = pd.DataFrame(
         [{"target_weights": weights, "selected_asset": next(iter(weights)) if len(weights) == 1 else ", ".join(weights), "proxy_return": period_return} for _, weights, period_return in rows],
-        index=index,
+        index=signal_index,
     )
-    # The final return is represented by the next price point only when there
-    # is a following signal; run_backtest therefore excludes the open last row.
+    # Add the known return of the final signal as a terminal price. It is based
+    # solely on its supplied monthly return; no subsequent signal is invented.
     return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)

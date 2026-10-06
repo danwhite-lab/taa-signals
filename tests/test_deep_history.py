@@ -21,6 +21,7 @@ def test_deep_history_uses_the_total_market_vti_proxy_only_over_shared_months():
     model = deep_history_model_input(DEEP_HISTORY_SPECS["century_momentum"])
     assert model.benchmark_asset == US_TOTAL_MARKET_BENCHMARK.asset_id
     assert model.monthly_prices.index.min() == pd.Timestamp("1987-12-31")
+    assert model.monthly_prices.index.max() == pd.Timestamp("2026-09-30")
     assert model.monthly_prices[US_TOTAL_MARKET_BENCHMARK.asset_id].notna().all()
 
 
@@ -50,3 +51,15 @@ def test_proxy_tax_path_and_cm_ic_blend_run():
     )
     assert len(three_sleeves.sleeve_returns.columns) == 3
     assert three_sleeves.monthly["after_tax_value"].iloc[-1] <= three_sleeves.monthly["pre_tax_value"].iloc[-1]
+
+
+def test_proxy_blend_aligns_last_trading_days_to_every_calendar_month():
+    models = {key: deep_history_model_input(spec) for key, spec in DEEP_HISTORY_SPECS.items()}
+    blend = run_portfolio_backtest(
+        {"CM": (0.7, models["century_momentum"]), "IC": (0.3, models["inflation_compass"])},
+        100_000,
+    )
+    expected = pd.date_range(blend.monthly.index.min(), blend.monthly.index.max(), freq="ME")
+    assert blend.monthly.index.equals(expected)
+    assert blend.monthly.index.min() == pd.Timestamp("1988-01-31")
+    assert blend.monthly.index.max() == pd.Timestamp("2026-09-30")
