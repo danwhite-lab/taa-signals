@@ -740,9 +740,11 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             proxy_label = f"{spec.label} proxy pre-tax"
             proxy_after_label = f"{spec.label} proxy after-tax"
             benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
-            summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
+            summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
             if tax_enabled:
                 summary[proxy_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+            # Keep the benchmark at the far right, after the comparable tax views.
+            summary[benchmark_label] = performance_metrics(result.monthly["benchmark_value"], initial)
             summary.loc["Worst 5-year rolling CAGR", proxy_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
             summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
             if tax_enabled:
@@ -817,9 +819,11 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
             benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
-            summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
+            summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
             if tax_enabled:
                 summary[blend_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
+            # Keep the benchmark at the far right, after the comparable tax views.
+            summary[benchmark_label] = performance_metrics(result.monthly["benchmark_value"], initial)
             summary.loc["Worst 5-year rolling CAGR", blend_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
             summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
             if tax_enabled:
