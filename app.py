@@ -15,7 +15,7 @@ from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_A
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
-from haa.deep_history import DEEP_HISTORY_SPECS, deep_history_model_input
+from haa.deep_history import DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, deep_history_model_input
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -656,7 +656,8 @@ if page == "Backtest":
                 st.success("Sleeve weights total 100%.")
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
-            st.caption("Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation.")
+            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}.")
+            st.caption(f"Benchmark source: [{US_TOTAL_MARKET_BENCHMARK.source_url}]({US_TOTAL_MARKET_BENCHMARK.source_url}).")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -686,7 +687,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 transaction_cost=cost_pct,
                 tax_enabled=tax_enabled,
                 tax_rate=tax_rate,
-                benchmark_asset="SPY",
+                benchmark_asset=proxy_input.benchmark_asset,
             )
             proxy_min = full_result.monthly.index.min().date()
             proxy_max = full_result.monthly.index.max().date()
@@ -709,26 +710,29 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 tax_rate=tax_rate,
                 start=pd.Timestamp(proxy_start),
                 end=pd.Timestamp(proxy_end),
-                benchmark_asset="SPY",
+                benchmark_asset=proxy_input.benchmark_asset,
             )
             title_column.title(f"{spec.label} — Deep History / Proxy")
             st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
-            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. No independent benchmark is implied by the synthetic SPY column.")
+            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}. {US_TOTAL_MARKET_BENCHMARK.caveat}")
             proxy_label = f"{spec.label} proxy pre-tax"
             proxy_after_label = f"{spec.label} proxy after-tax"
-            summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
+            benchmark_label = US_TOTAL_MARKET_BENCHMARK.label
+            summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[proxy_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
             st.subheader("Results")
-            result_columns = st.columns(4 if tax_enabled else 2)
+            result_columns = st.columns(5 if tax_enabled else 3)
             result_columns[0].metric("Proxy CAGR", f"{summary.loc['CAGR', proxy_label]:.2%}")
             if tax_enabled:
                 result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', proxy_after_label]:.2%}", delta=f"{summary.loc['CAGR', proxy_after_label] - summary.loc['CAGR', proxy_label]:+.2%}")
                 result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
                 result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', proxy_after_label]:,.0f}")
+                result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
             else:
                 result_columns[1].metric("Final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
-            curves = pd.DataFrame({proxy_label: result.monthly["pre_tax_value"]})
+                result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+            curves = pd.DataFrame({proxy_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
             if tax_enabled:
                 curves[proxy_after_label] = result.monthly["after_tax_value"]
             st.plotly_chart(px.line(curves, title="Proxy equity curve"), use_container_width=True)
@@ -738,8 +742,8 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 proxy_numeric_rows = [row for row in ["Final value", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
                 st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
-            annual = annual_returns(result.monthly["pre_tax_monthly_return"]).to_frame(proxy_label)
-            monthly_returns = result.monthly["pre_tax_monthly_return"].to_frame(proxy_label)
+            annual = pd.DataFrame({proxy_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
+            monthly_returns = pd.DataFrame({proxy_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
             if tax_enabled:
                 annual[proxy_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
                 monthly_returns[proxy_after_label] = result.monthly["after_tax_monthly_return"]
@@ -782,22 +786,25 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title("Deep History / Proxy portfolio blend")
             st.warning("Proxy blend: strategy-level returns are combined over their shared history. Tax uses the existing realized-gain portfolio logic, with allocation-change realization treated as a proxy because security-level prices are unavailable.")
-            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}.")
+            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}. {US_TOTAL_MARKET_BENCHMARK.caveat}")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
-            summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
+            benchmark_label = US_TOTAL_MARKET_BENCHMARK.label
+            summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[blend_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
             st.subheader("Results")
-            result_columns = st.columns(4 if tax_enabled else 2)
+            result_columns = st.columns(5 if tax_enabled else 3)
             result_columns[0].metric("Blend CAGR", f"{summary.loc['CAGR', blend_label]:.2%}")
             if tax_enabled:
                 result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', blend_after_label]:.2%}", delta=f"{summary.loc['CAGR', blend_after_label] - summary.loc['CAGR', blend_label]:+.2%}")
                 result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', blend_label]:,.0f}")
                 result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', blend_after_label]:,.0f}")
+                result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
             else:
                 result_columns[1].metric("Final value", f"{summary.loc['Final value', blend_label]:,.0f}")
-            curves = pd.DataFrame({blend_label: result.monthly["pre_tax_value"]})
+                result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+            curves = pd.DataFrame({blend_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
             if tax_enabled:
                 curves[blend_after_label] = result.monthly["after_tax_value"]
             st.plotly_chart(px.line(curves, title="Proxy blend equity curve"), use_container_width=True)
@@ -807,8 +814,8 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 proxy_numeric_rows = [row for row in ["Final value", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
                 st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
-            annual = annual_returns(result.monthly["pre_tax_monthly_return"]).to_frame(blend_label)
-            monthly_returns = result.monthly["pre_tax_monthly_return"].to_frame(blend_label)
+            annual = pd.DataFrame({blend_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
+            monthly_returns = pd.DataFrame({blend_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
             if tax_enabled:
                 annual[blend_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
                 monthly_returns[blend_after_label] = result.monthly["after_tax_monthly_return"]

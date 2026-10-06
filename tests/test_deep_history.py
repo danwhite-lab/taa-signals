@@ -1,6 +1,6 @@
 import pandas as pd
 
-from haa.deep_history import DEEP_HISTORY_SPECS, deep_history_model_input, load_deep_history
+from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, _read_monthly_returns, deep_history_model_input, load_deep_history
 from haa.engine import run_backtest
 from haa.portfolio_backtest import run_portfolio_backtest
 
@@ -11,6 +11,16 @@ def test_bundled_proxy_histories_align_without_invented_months():
         assert not signals.index.has_duplicates
         assert not returns.index.has_duplicates
         assert (signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)).isin(returns.index).all()
+
+
+def test_deep_history_uses_the_bestfolio_total_market_proxy_only_over_shared_months():
+    benchmark_returns = _read_monthly_returns(DEEP_HISTORY_DIR / US_TOTAL_MARKET_BENCHMARK.returns_file)
+    assert benchmark_returns.index.min() == pd.Timestamp("1988-01-31")
+    assert benchmark_returns.index.max() == pd.Timestamp("2026-10-31")
+    model = deep_history_model_input(DEEP_HISTORY_SPECS["century_momentum"])
+    assert model.benchmark_asset == US_TOTAL_MARKET_BENCHMARK.asset_id
+    assert model.monthly_prices.index.min() == pd.Timestamp("1987-12-31")
+    assert model.monthly_prices[US_TOTAL_MARKET_BENCHMARK.asset_id].notna().all()
 
 
 def test_proxy_tax_path_and_cm_ic_blend_run():

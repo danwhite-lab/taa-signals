@@ -28,11 +28,28 @@ class DeepHistorySpec:
     returns_file: str
 
 
+@dataclass(frozen=True)
+class DeepHistoryBenchmarkSpec:
+    asset_id: str
+    label: str
+    returns_file: str
+    source_url: str
+    caveat: str
+
+
 DEEP_HISTORY_SPECS = {
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
     "haa_simple": DeepHistorySpec("haa_simple", "HAA-Simple", "haa_simple_signals.csv", "haa_simple_monthly_returns.csv"),
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
 }
+
+US_TOTAL_MARKET_BENCHMARK = DeepHistoryBenchmarkSpec(
+    asset_id="US_TOTAL_MARKET_BESTFOLIO",
+    label="US Total Market (BestFolio VTI proxy)",
+    returns_file="us_total_market_bestfolio_monthly_returns.csv",
+    source_url="https://bestfolio.app/strategies/us-market-benchmark",
+    caveat="BestFolio labels the benchmark as VTI, but its history before May 2001 uses stand-in funds (VTSMX and VFINX). It is a simulated total-U.S.-market proxy, not actual pre-inception VTI or S&P 500/SPY history.",
+)
 
 
 def _parse_percent(value: str) -> float | None:
@@ -94,13 +111,17 @@ def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
     return signals, returns
 
 
-def deep_history_model_input(spec: DeepHistorySpec) -> ModelInput:
+def deep_history_model_input(
+    spec: DeepHistorySpec,
+    benchmark: DeepHistoryBenchmarkSpec = US_TOTAL_MARKET_BENCHMARK,
+) -> ModelInput:
     """Create synthetic monthly prices from the supplied strategy NAV returns.
 
     Each allocation component receives the same strategy-level NAV. This is
     intentional: component-level security returns are not present in the CSVs,
     so tax events are an allocation-change proxy, not a claim about individual
-    security tax lots.
+    security tax lots. The result is restricted to the independently supplied
+    benchmark's usable months; no benchmark pre-history is invented.
     """
     signals, returns = load_deep_history(spec)
     rows: list[tuple[pd.Timestamp, dict[str, float], float]] = []
@@ -110,6 +131,11 @@ def deep_history_model_input(spec: DeepHistorySpec) -> ModelInput:
         holding_month = signal_date + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
         if holding_month in returns.index:
             rows.append((signal_date, signal["target_weights"], float(returns.loc[holding_month])))
+    benchmark_returns = _read_monthly_returns(DEEP_HISTORY_DIR / benchmark.returns_file)
+    rows = [
+        row for row in rows
+        if row[0] + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1) in benchmark_returns.index
+    ]
     if len(rows) < 2:
         raise ValueError(f"{spec.label} has fewer than two aligned proxy holding periods.")
     rows.sort(key=lambda item: item[0])
@@ -119,10 +145,18 @@ def deep_history_model_input(spec: DeepHistorySpec) -> ModelInput:
     index = pd.DatetimeIndex([row[0] for row in rows])
     assets = sorted({asset for _, weights, _ in rows for asset in weights} | {"SPY"})
     prices = pd.DataFrame({asset: levels for asset in assets}, index=index)
+    benchmark_holding_months = pd.DatetimeIndex(
+        signal_date + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
+        for signal_date, _, _ in rows[:-1]
+    )
+    benchmark_levels = [100.0]
+    for holding_month in benchmark_holding_months:
+        benchmark_levels.append(benchmark_levels[-1] * (1 + float(benchmark_returns.loc[holding_month])))
+    prices[benchmark.asset_id] = benchmark_levels
     decisions = pd.DataFrame(
         [{"target_weights": weights, "selected_asset": next(iter(weights)) if len(weights) == 1 else ", ".join(weights), "proxy_return": period_return} for _, weights, period_return in rows],
         index=index,
     )
     # The final return is represented by the next price point only when there
     # is a following signal; run_backtest therefore excludes the open last row.
-    return ModelInput(spec.label, decisions, prices, None, "SPY")
+    return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
