@@ -44,6 +44,7 @@ MODEL_RULES = {
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
     "Buy and Hold SPY": """**Buy and Hold SPY:** Holds the SPDR S&P 500 ETF Trust continuously. There is no timing, rotation, or cash rule; the backtest uses only actual SPY ETF history available from Yahoo Finance.""",
+    "Buy and Hold SPY Israel": """**Buy and Hold SPY Israel:** Holds CSPX, TASE security 1159250, continuously. Backtests use the available local security history in ILS, including currency exposure. There is no timing or rotation rule.""",
     "Buy and Hold ACWI": """**Buy and Hold ACWI:** Holds iShares MSCI ACWI ETF continuously. There is no timing, rotation, or cash rule; the backtest uses only actual ACWI ETF history available from Yahoo Finance.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
@@ -1193,7 +1194,7 @@ if page == "Backtest" and backtest_mode == "Portfolio":
                 raise ValueError(f"{sleeve_name} is not available for backtesting.")
             sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), "SPY")))
             sleeve_daily = all_prices.loc[:, sleeve_assets]
-            sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
+            sleeve_market_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "market_data_assets", sleeve_assets), "SPY")))
             sleeve_monthly, sleeve_decision_monthly = monthly_strategy_input(sleeve_daily, sleeve_market_assets)
             sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_decision_monthly
             portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
@@ -1552,7 +1553,7 @@ if page == "Backtest":
         )
     if hasattr(strategy, "risk_warning"):
         st.warning(strategy.risk_warning)
-    st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. SPY benchmark uses these same monthly periods.")
+    st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. {benchmark_label} uses these same monthly periods.")
     pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
     after_tax_label = f"Published {strategy.name} after-tax" if substitution_result is not None else f"{strategy.name} after-tax"
     substitution_pre_tax_label = "Substituted strategy pre-tax"
@@ -2006,7 +2007,7 @@ if page == "Compare":
                     raise ValueError(f"{selected_name} has no common monthly data.")
                 comparison_bounds.append((first_date, last_date))
             if len({model.benchmark_asset for model in comparison_inputs.values()}) != 1:
-                raise ValueError("Compare only models with the same buy-and-hold benchmark. HAA-Simple Israel uses CSPX_IL; the other current models use SPY.")
+                raise ValueError("Compare only models with the same buy-and-hold benchmark. The selected models use different benchmark assets or currencies.")
             comparison_start_min = max(first for first, _ in comparison_bounds).date()
             comparison_end_max = min(last for _, last in comparison_bounds).date()
             compare_start = min(max(st.session_state.get("compare_start", comparison_start_min), comparison_start_min), comparison_end_max)
@@ -2142,13 +2143,14 @@ if page == "Signals":
             st.info("This fund is held continuously. The TA-125 Smart Momentum index performs its own momentum selection and reweighting; the app does not produce BUY, SELL, or CASH timing instructions.")
             st.caption("Fund 5134713 uses public TASE/Maya history only. No synthetic or pre-fund history is used; Backtest and Compare begin at the actual available fund history.")
         else:
+            holding = execution_security_label(str(signal_status.decision["selected_asset"]), signal_execution_currency)
             st.dataframe(pd.DataFrame([{
-                "Current allocation": "100% SPY",
+                "Current allocation": f"100% {holding}",
                 "External signal": "None — Buy & Hold",
-                "Implementation": "Continuous SPY holding",
+                "Implementation": f"Continuous {holding} holding",
             }]), use_container_width=True, hide_index=True)
-            st.info("SPY is held continuously. The app does not produce BUY, SELL, or CASH timing instructions for this strategy.")
-            st.caption("Backtest and Compare use actual SPY ETF history only; no synthetic pre-ETF history is used.")
+            st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
+            st.caption("Backtest and Compare use the actual available security history.")
     elif signal_status.decision is None:
         title_column.title("Signal")
         title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
@@ -2412,6 +2414,10 @@ if page == "Rules":
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
         st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)
+    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI"}:
+        holding = execution_security_label(strategy.data_assets[0], model_definition.execution_currency)
+        st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
+        st.write(f"Execution currency: {model_definition.execution_currency}. History: actual available security prices.")
     elif model_definition.strategy_mode == "buy_and_hold":
         st.info("Internally managed momentum strategy: the fund is held continuously and the underlying index manages momentum weighting. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.write("**Market:** Israel  \\n+**Fund:** Migdal MTF TA-125 Smart Momentum (5134713)  \\n+**Underlying index:** TA-125 Smart Momentum  \\n+**Implementation:** Buy & Hold  \\n+**Signal frequency:** None  \\n+**Review frequency:** Annual  \\n+**Evidence status:** Limited / developing  \\n+**Suggested portfolio maximum:** 20% (guidance only)")

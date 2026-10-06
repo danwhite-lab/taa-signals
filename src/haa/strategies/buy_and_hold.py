@@ -1,6 +1,8 @@
 """Reusable internally managed strategies held continuously by the investor."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 
 from ..constants import TA125_SMART_MOMENTUM_ASSET
@@ -47,6 +49,7 @@ class BuyAndHoldSPY:
     """Continuous SPY holding using the actual ETF price history available to the app."""
 
     name = "Buy and Hold SPY"
+    holding_asset = "SPY"
     data_assets = ("SPY",)
     market_data_assets = data_assets
     signal_assets: tuple[str, ...] = ()
@@ -69,13 +72,31 @@ class BuyAndHoldSPY:
         for date, values in monthly_prices.loc[:, self.data_assets].dropna(how="any").iterrows():
             rows.append({
                 "signal_date": date,
-                "SPY_price": values["SPY"],
+                f"{self.holding_asset}_price": values[self.holding_asset],
                 "regime": "buy-and-hold",
-                "selected_asset": "SPY",
-                "previous_asset": "SPY" if rows else None,
+                "selected_asset": self.holding_asset,
+                "previous_asset": self.holding_asset if rows else None,
                 "trade": not rows,
             })
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+
+class BuyAndHoldSPYIsrael(BuyAndHoldSPY):
+    """Continuous S&P 500 holding through TASE CSPX security 1159250."""
+
+    name = "Buy and Hold SPY Israel"
+    holding_asset = "CSPX_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-spy-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold CSPX (1159250) continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "CSPX (1159250) remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes="Uses actual TASE/Maya CSPX history in ILS, including currency exposure. History begins with available local security prices.",
+    )
 
 
 class BuyAndHoldACWI:
