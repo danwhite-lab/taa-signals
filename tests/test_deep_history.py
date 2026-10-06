@@ -1,6 +1,6 @@
 import pandas as pd
 
-from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, _read_benchmark_returns, deep_history_model_input, load_deep_history
+from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, GLOBAL_TOTAL_RETURN_BENCHMARK, _read_benchmark_returns, _read_monthly_returns, deep_history_model_input, load_deep_history
 from haa.engine import run_backtest
 from haa.metrics import rolling_annualized_returns, worst_rolling_annualized_return
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -29,9 +29,60 @@ def test_deep_history_uses_the_long_sp500_total_return_proxy():
 
 def test_buy_and_hold_sp500_is_available_as_a_deep_history_sleeve():
     model = deep_history_model_input(DEEP_HISTORY_SPECS["buy_and_hold_sp500"])
-    result = run_backtest(model.decisions, model.monthly_prices, 100_000)
+    result = run_backtest(model.decisions, model.monthly_prices, 100_000, benchmark_asset=model.benchmark_asset)
     assert result.monthly.index.min() == pd.Timestamp("1871-02-28")
     assert result.monthly["pre_tax_value"].equals(result.monthly["benchmark_value"])
+
+
+def test_global_usd_source_is_complete_and_preserves_exported_values():
+    returns = _read_benchmark_returns(GLOBAL_TOTAL_RETURN_BENCHMARK)
+    assert len(returns) == 681
+    assert returns.index.equals(pd.date_range("1970-01-31", "2026-09-30", freq="ME"))
+    assert abs(returns.iloc[0] - (-0.0787)) < 1e-12
+    assert abs(returns.iloc[-1] - (-0.0119)) < 1e-12
+    frame = pd.read_csv(DEEP_HISTORY_DIR / GLOBAL_TOTAL_RETURN_BENCHMARK.returns_file)
+    months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+    differences = ((1 + frame[months] / 100).prod(axis=1) - 1) * 100 - frame["Return"]
+    assert differences.abs().max() < 0.02
+
+
+def test_buy_and_hold_sleeves_keep_independent_benchmark_returns():
+    for key, benchmark in [("buy_and_hold_global", SP500_TOTAL_RETURN_BENCHMARK), ("buy_and_hold_sp500", GLOBAL_TOTAL_RETURN_BENCHMARK), ("buy_and_hold_global", GLOBAL_TOTAL_RETURN_BENCHMARK)]:
+        spec = DEEP_HISTORY_SPECS[key]
+        model = deep_history_model_input(spec, benchmark)
+        assert model.decisions.iloc[0]["target_weights"] == {spec.holding_asset: 1.0}
+        assert model.monthly_prices.index.min() == pd.Timestamp("1969-12-31")
+        result = run_backtest(model.decisions, model.monthly_prices, 100_000, benchmark_asset=model.benchmark_asset, tax_enabled=True)
+        assert len(result.monthly) == 681
+        expected_benchmark = _read_benchmark_returns(benchmark).loc["1970-01-31":"2026-09-30"]
+        expected_value = 100_000 * (1 + expected_benchmark).prod()
+        assert abs(result.monthly["benchmark_value"].iloc[-1] / expected_value - 1) < 1e-10
+        if spec.holding_asset == benchmark.asset_id:
+            assert result.monthly["pre_tax_value"].equals(result.monthly["benchmark_value"])
+        else:
+            assert not result.monthly["pre_tax_value"].equals(result.monthly["benchmark_value"])
+        assert result.tax_events.empty
+
+
+def test_return_reader_rejects_duplicate_months(tmp_path):
+    path = tmp_path / "duplicate.csv"
+    path.write_text("Year,Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec\n1970,1,,,,,,,,,,,\n1970,2,,,,,,,,,,,\n")
+    try:
+        _read_monthly_returns(path)
+    except ValueError as error:
+        assert "duplicate" in str(error)
+    else:
+        raise AssertionError("Duplicate source months must not be silently discarded")
+
+
+def test_global_sleeve_blends_with_all_other_sleeves_and_tax():
+    models = {key: (0.2, deep_history_model_input(spec, GLOBAL_TOTAL_RETURN_BENCHMARK)) for key, spec in DEEP_HISTORY_SPECS.items()}
+    blend = run_portfolio_backtest(models, 100_000, tax_enabled=True)
+    assert len(blend.sleeve_returns.columns) == 5
+    assert blend.monthly.index.min() == pd.Timestamp("1974-03-31")
+    assert blend.monthly.index.max() == pd.Timestamp("2026-09-30")
+    assert blend.monthly["after_tax_value"].iloc[-1] <= blend.monthly["pre_tax_value"].iloc[-1]
+    assert not blend.tax_events.empty
 
 
 def test_rolling_annualized_returns_compound_exact_monthly_periods():

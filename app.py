@@ -647,14 +647,14 @@ if page == "Backtest":
         else:
             st.subheader("Proxy history sleeves")
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
-            benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option is a long-history FTSE All-World proxy, not actual ACWI or ISAC ETF history.")
+            benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option uses nominal USD ACWI proxy returns from 1970. Early history uses substitute assets; it is not actual ACWI or ISAC ETF history throughout.")
             deep_history_benchmark = DEEP_HISTORY_BENCHMARKS[benchmark_key]
             proxy_options = tuple(DEEP_HISTORY_SPECS)
             proxy_labels = {key: spec.label for key, spec in DEEP_HISTORY_SPECS.items()}
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
             _, add_column, remove_column = st.columns([7, 0.5, 0.5])
             with add_column:
-                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= 4)
+                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= len(proxy_options))
             with remove_column:
                 remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
             updated_proxy_sleeves = []

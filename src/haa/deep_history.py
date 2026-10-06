@@ -27,6 +27,7 @@ class DeepHistorySpec:
     signal_file: str
     returns_file: str
     buy_and_hold: bool = False
+    holding_asset: str = "SP500_TOTAL_RETURN_PROXY"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class DeepHistoryBenchmarkSpec:
 
 DEEP_HISTORY_SPECS = {
     "buy_and_hold_sp500": DeepHistorySpec("buy_and_hold_sp500", "Buy & Hold S&P 500 Total Return", "", "sp500_total_return_proxy_monthly_returns.csv", True),
+    "buy_and_hold_global": DeepHistorySpec("buy_and_hold_global", "Buy & Hold Global All-Country Equity USD Proxy", "", "global_all_country_usd_monthly_returns.csv", True, "GLOBAL_EQUITY_TOTAL_RETURN_PROXY"),
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
     "haa_simple": DeepHistorySpec("haa_simple", "HAA-Simple", "haa_simple_signals.csv", "haa_simple_monthly_returns.csv"),
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
@@ -53,9 +55,9 @@ SP500_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
 
 GLOBAL_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
     asset_id="GLOBAL_EQUITY_TOTAL_RETURN_PROXY",
-    label="Global Equity Total Return Proxy",
-    returns_file="global_equity_total_return_proxy_monthly_returns.csv",
-    caveat="Synthetic FTSE All-World total-return proxy assembled from global index histories. It is not actual ACWI or ISAC, and the proxy begins in 1970; actual all-country ETF histories begin much later.",
+    label="Global All-Country Equity USD Proxy",
+    returns_file="global_all_country_usd_monthly_returns.csv",
+    caveat="Nominal USD monthly returns with dividends reinvested, January 1970–September 2026. User-supplied ACWI export from LazyPortfolioETF; history through December 2008 uses equivalent ETFs/assets. Rounded to 0.01 percentage points. This is not actual ACWI/ISAC history throughout, nor an exact FTSE All-World index series. No inflation adjustment or additional dividend tax is applied.",
 )
 
 DEEP_HISTORY_BENCHMARKS = {
@@ -111,7 +113,7 @@ def _read_monthly_returns(path: Path) -> pd.Series:
                 value = _parse_percent(row[pd.Timestamp(year, month, 1).strftime("%b")])
                 if value is not None:
                     rows.append((pd.Timestamp(year, month, 1) + pd.offsets.MonthEnd(0), value))
-    series = pd.Series(dict(rows), dtype=float).sort_index()
+    series = pd.Series([value for _, value in rows], index=pd.DatetimeIndex([date for date, _ in rows]), dtype=float).sort_index()
     if series.empty or series.index.has_duplicates:
         raise ValueError(f"Monthly return history is empty or has duplicate months: {path.name}")
     return series
@@ -127,7 +129,7 @@ def _read_long_monthly_returns(path: Path) -> pd.Series:
                 pd.Timestamp(int(row["year"]), int(row["month"]), 1) + pd.offsets.MonthEnd(0),
                 float(row["nominalReturn"]),
             ))
-    series = pd.Series(dict(rows), dtype=float).sort_index()
+    series = pd.Series([value for _, value in rows], index=pd.DatetimeIndex([date for date, _ in rows]), dtype=float).sort_index()
     if series.empty or series.index.has_duplicates:
         raise ValueError(f"Monthly return history is empty or has duplicate months: {path.name}")
     return series
@@ -138,6 +140,8 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         fieldnames = set(reader.fieldnames or ())
+        if "Year" in fieldnames:
+            return _read_monthly_returns(path)
         if {"year", "month", "nominalReturn"}.issubset(fieldnames):
             rows = [
                 (pd.Timestamp(int(row["year"]), int(row["month"]), 1) + pd.offsets.MonthEnd(0), float(row["nominalReturn"]))
@@ -150,7 +154,7 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
             ]
         else:
             raise ValueError(f"Unsupported benchmark CSV columns: {path.name}")
-    series = pd.Series(dict(rows), dtype=float).sort_index()
+    series = pd.Series([value for _, value in rows], index=pd.DatetimeIndex([date for date, _ in rows]), dtype=float).sort_index()
     if series.empty or series.index.has_duplicates:
         raise ValueError(f"Benchmark history is empty or has duplicate months: {path.name}")
     return series
@@ -175,18 +179,31 @@ def deep_history_model_input(
     benchmark's usable months; no benchmark pre-history is invented.
     """
     if spec.buy_and_hold:
-        returns = _read_long_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+        path = DEEP_HISTORY_DIR / spec.returns_file
+        returns = (_read_monthly_returns(path) if spec.key == "buy_and_hold_global" else _read_long_monthly_returns(path))
+        benchmark_returns = _read_benchmark_returns(benchmark)
+        common_months = returns.index.intersection(benchmark_returns.index)
+        returns = returns.loc[common_months]
+        if len(returns) < 2:
+            raise ValueError(f"{spec.label} has fewer than two aligned proxy holding periods.")
+        expected = pd.date_range(returns.index.min(), returns.index.max(), freq="ME")
+        if not returns.index.equals(expected):
+            raise ValueError(f"{spec.label} has gaps in aligned proxy holding periods.")
         signal_index = pd.DatetimeIndex(returns.index - pd.offsets.MonthEnd(1))
         levels = [100.0]
         for period_return in returns:
             levels.append(levels[-1] * (1 + float(period_return)))
         terminal_date = returns.index[-1]
         prices = pd.DataFrame(
-            {benchmark.asset_id: levels},
+            {spec.holding_asset: levels},
             index=signal_index.append(pd.DatetimeIndex([terminal_date])),
         )
+        benchmark_levels = [100.0]
+        for period_return in benchmark_returns.loc[common_months]:
+            benchmark_levels.append(benchmark_levels[-1] * (1 + float(period_return)))
+        prices[benchmark.asset_id] = benchmark_levels
         decisions = pd.DataFrame(
-            [{"target_weights": {benchmark.asset_id: 1.0}, "selected_asset": benchmark.asset_id} for _ in signal_index],
+            [{"target_weights": {spec.holding_asset: 1.0}, "selected_asset": spec.holding_asset} for _ in signal_index],
             index=signal_index,
         )
         return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
