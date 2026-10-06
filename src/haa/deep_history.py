@@ -26,6 +26,7 @@ class DeepHistorySpec:
     label: str
     signal_file: str
     returns_file: str
+    buy_and_hold: bool = False
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class DeepHistoryBenchmarkSpec:
 
 
 DEEP_HISTORY_SPECS = {
+    "buy_and_hold_sp500": DeepHistorySpec("buy_and_hold_sp500", "Buy & Hold S&P 500 Total Return", "", "sp500_total_return_proxy_monthly_returns.csv", True),
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
     "haa_simple": DeepHistorySpec("haa_simple", "HAA-Simple", "haa_simple_signals.csv", "haa_simple_monthly_returns.csv"),
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
@@ -141,6 +143,22 @@ def deep_history_model_input(
     security tax lots. The result is restricted to the independently supplied
     benchmark's usable months; no benchmark pre-history is invented.
     """
+    if spec.buy_and_hold:
+        returns = _read_long_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+        signal_index = pd.DatetimeIndex(returns.index - pd.offsets.MonthEnd(1))
+        levels = [100.0]
+        for period_return in returns:
+            levels.append(levels[-1] * (1 + float(period_return)))
+        terminal_date = returns.index[-1]
+        prices = pd.DataFrame(
+            {benchmark.asset_id: levels},
+            index=signal_index.append(pd.DatetimeIndex([terminal_date])),
+        )
+        decisions = pd.DataFrame(
+            [{"target_weights": {benchmark.asset_id: 1.0}, "selected_asset": benchmark.asset_id} for _ in signal_index],
+            index=signal_index,
+        )
+        return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
     signals, returns = load_deep_history(spec)
     rows: list[tuple[pd.Timestamp, dict[str, float], float]] = []
     for signal_date, signal in signals.iterrows():

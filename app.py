@@ -645,7 +645,7 @@ if page == "Backtest":
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
             _, add_column, remove_column = st.columns([7, 0.5, 0.5])
             with add_column:
-                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= len(proxy_options))
+                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= 4)
             with remove_column:
                 remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
             updated_proxy_sleeves = []
