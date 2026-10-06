@@ -500,10 +500,8 @@ for key, value in {
     "backtest_mode": "Single strategy",
     "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "backtest_next_id": 2,
-    "deep_proxy_mode": "Single strategy",
-    "deep_proxy_primary": "century_momentum",
-    "deep_proxy_secondary": "inflation_compass",
-    "deep_proxy_primary_weight": 70.0,
+    "deep_proxy_sleeves": [{"id": 1, "weight": 100.0, "model": "century_momentum"}],
+    "deep_proxy_next_id": 2,
     "research_model_name": DEFAULT_MODEL,
 }.items():
     st.session_state.setdefault(key, value)
@@ -616,23 +614,45 @@ if page == "Backtest":
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
             st.caption("When enabled, tax applies to realized tactical sleeve sales and profitable sleeve reductions during monthly portfolio rebalancing. Unrealized gains are not taxed.")
         else:
-            st.subheader("Proxy history configuration")
+            st.subheader("Proxy history sleeves")
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
-            deep_mode = st.radio("Proxy backtest type", ("Single strategy", "Portfolio blend"), horizontal=True, key="deep_proxy_mode")
             proxy_options = tuple(DEEP_HISTORY_SPECS)
             proxy_labels = {key: spec.label for key, spec in DEEP_HISTORY_SPECS.items()}
-            if deep_mode == "Single strategy":
-                st.selectbox("Proxy strategy", proxy_options, format_func=lambda key: proxy_labels[key], key="deep_proxy_primary")
+            configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+            _, add_column, remove_column = st.columns([7, 0.5, 0.5])
+            with add_column:
+                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve", disabled=len(configured_proxy_sleeves) >= len(proxy_options))
+            with remove_column:
+                remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
+            updated_proxy_sleeves = []
+            for sleeve in configured_proxy_sleeves:
+                sleeve_id = sleeve["id"]
+                model_key = f"deep_proxy_sleeve_{sleeve_id}_model"
+                st.session_state.setdefault(model_key, sleeve["model"])
+                with st.container(key=f"deep-proxy-sleeve-{sleeve_id}"):
+                    strategy_column, weight_column = st.columns((2.7, 0.8))
+                    with strategy_column:
+                        sleeve_model = st.selectbox("Proxy strategy", proxy_options, format_func=lambda key: proxy_labels[key], key=model_key)
+                    with weight_column:
+                        sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"deep_proxy_sleeve_{sleeve_id}_weight")
+                updated_proxy_sleeves.append({"id": sleeve_id, "weight": float(sleeve_weight), "model": sleeve_model})
+            st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves
+            if add_proxy_sleeve:
+                next_id = st.session_state["deep_proxy_next_id"]
+                st.session_state["deep_proxy_next_id"] = next_id + 1
+                st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": proxy_options[0]})
+                st.rerun()
+            if remove_proxy_sleeve:
+                st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves[:-1]
+                st.rerun()
+            proxy_weight_total = total_weight(updated_proxy_sleeves)
+            duplicate_proxy_models = len({sleeve["model"] for sleeve in updated_proxy_sleeves}) != len(updated_proxy_sleeves)
+            if duplicate_proxy_models:
+                st.warning("Choose each proxy strategy at most once.")
+            elif abs(proxy_weight_total - 100.0) > 1e-9:
+                st.warning(f"Sleeve weights total {proxy_weight_total:.2f}%. Set them to exactly 100% to run the proxy backtest.")
             else:
-                first_column, second_column, weight_column = st.columns((1.3, 1.3, 0.8))
-                with first_column:
-                    st.selectbox("First sleeve", proxy_options, format_func=lambda key: proxy_labels[key], key="deep_proxy_primary")
-                with second_column:
-                    st.selectbox("Second sleeve", proxy_options, format_func=lambda key: proxy_labels[key], key="deep_proxy_secondary")
-                with weight_column:
-                    st.number_input("First weight (%)", min_value=0.0, max_value=100.0, step=1.0, key="deep_proxy_primary_weight")
-                first_weight = float(st.session_state["deep_proxy_primary_weight"])
-                st.caption(f"Blend: {first_weight:.0f}% {proxy_labels[st.session_state['deep_proxy_primary']]} / {100 - first_weight:.0f}% {proxy_labels[st.session_state['deep_proxy_secondary']]}.")
+                st.success("Sleeve weights total 100%.")
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
             st.caption("Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation.")
@@ -647,11 +667,16 @@ tax_enabled = st.session_state["tax_enabled"]
 tax_rate = st.session_state["tax_rate"]
 
 if page == "Backtest" and backtest_mode == "Deep History / Proxy":
-    proxy_mode = st.session_state["deep_proxy_mode"]
     proxy_specs = DEEP_HISTORY_SPECS
     try:
-        if proxy_mode == "Single strategy":
-            spec = proxy_specs[st.session_state["deep_proxy_primary"]]
+        proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+        proxy_weight_total = total_weight(proxy_sleeves)
+        if abs(proxy_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in proxy_sleeves):
+            raise ValueError("Set one or more positive proxy sleeve weights totaling exactly 100%.")
+        if len({sleeve["model"] for sleeve in proxy_sleeves}) != len(proxy_sleeves):
+            raise ValueError("Choose each proxy strategy at most once.")
+        if len(proxy_sleeves) == 1:
+            spec = proxy_specs[proxy_sleeves[0]["model"]]
             proxy_input = deep_history_model_input(spec)
             full_result = run_backtest(
                 proxy_input.decisions,
@@ -724,18 +749,14 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 with monthly_tab:
                     st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
         else:
-            first_key = st.session_state["deep_proxy_primary"]
-            second_key = st.session_state["deep_proxy_secondary"]
-            if first_key == second_key:
-                raise ValueError("Choose two different proxy strategies for a blend.")
-            first_weight = float(st.session_state["deep_proxy_primary_weight"]) / 100
-            if not 0 < first_weight < 1:
-                raise ValueError("The first proxy sleeve weight must be between 0% and 100%.")
-            first_spec, second_spec = proxy_specs[first_key], proxy_specs[second_key]
-            portfolio_inputs = {
-                first_spec.label: (first_weight, deep_history_model_input(first_spec)),
-                second_spec.label: (1 - first_weight, deep_history_model_input(second_spec)),
-            }
+            portfolio_inputs = {}
+            selected_sleeves = []
+            for sleeve in proxy_sleeves:
+                spec = proxy_specs[sleeve["model"]]
+                sleeve_key = f"{spec.label} ({sleeve['id']})"
+                weight = float(sleeve["weight"]) / 100
+                portfolio_inputs[sleeve_key] = (weight, deep_history_model_input(spec))
+                selected_sleeves.append(f"{weight:.0%} {spec.label}")
             preliminary = run_portfolio_backtest(portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate)
             proxy_min = preliminary.common_index.min().date()
             proxy_max = preliminary.common_index.max().date()
@@ -760,7 +781,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title("Deep History / Proxy portfolio blend")
             st.warning("Proxy blend: strategy-level returns are combined over their shared history. Tax uses the existing realized-gain portfolio logic, with allocation-change realization treated as a proxy because security-level prices are unavailable.")
-            st.caption(f"{first_weight:.0%} {first_spec.label} / {1 - first_weight:.0%} {second_spec.label}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}.")
+            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}.")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
             summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial)})

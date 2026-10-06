@@ -24,3 +24,10 @@ def test_proxy_tax_path_and_cm_ic_blend_run():
     )
     assert blend.monthly["after_tax_value"].iloc[-1] <= blend.monthly["pre_tax_value"].iloc[-1]
     assert not blend.tax_events.empty
+    three_sleeves = run_portfolio_backtest(
+        {"CM": (0.4, models["century_momentum"]), "HAA": (0.3, models["haa_simple"]), "IC": (0.3, models["inflation_compass"])},
+        100_000,
+        tax_enabled=True,
+    )
+    assert len(three_sleeves.sleeve_returns.columns) == 3
+    assert three_sleeves.monthly["after_tax_value"].iloc[-1] <= three_sleeves.monthly["pre_tax_value"].iloc[-1]
