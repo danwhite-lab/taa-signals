@@ -1,6 +1,6 @@
 # A-RVol Shifter V3 Cash-Only
 
-Status: documented interpretation, not independently matched to BestFolio signals or published performance. Original creator: u/Wongkok. Selected holdings: TQQQ, QLD, BIL; QQQ/SPY/HYG/LQD are signal inputs, not extra holdings. No defensive-sector rotation is part of Cash-Only.
+Status: EXPERIMENTAL documented interpretation, not a verified BestFolio replica. Original creator: u/Wongkok. Selected holdings: TQQQ, QLD, BIL; QQQ/SPY/HYG/LQD are signal inputs, not extra holdings. No defensive-sector rotation is part of Cash-Only.
 
 Sources inspected:
 - V3: https://www.reddit.com/r/TQQQ/comments/1se30ow/update_2_arvol_v3_adding_credit_spreads_and/
@@ -19,7 +19,11 @@ All indicators use the app's adjusted-close series (its provider has a Close fal
 
 ## Execution, reporting and tax
 
-Signals use completed daily closes, considered eligible after 17:00 New York. Same-day/intraday observations before this cutoff are excluded. Live status blocks data more than seven calendar days stale, which is a coarse freshness guard rather than a complete exchange-calendar validation. A Yahoo close is not independently guaranteed final by this timing convention.
+Signals use completed daily closes, considered eligible after 17:00 New York. Same-day/intraday observations before this cutoff are excluded. Live status blocks data more than seven calendar days stale, which is a coarse freshness guard rather than a check that the provider includes the latest expected completed session. A Yahoo close is not independently guaranteed final by this timing convention.
+
+Before computing indicators (including warm-up) or executing a daily backtest, input dates are checked against exchange_calendars 4.13's XNYS session calendar, also used by its NASDAQ alias. Missing whole sessions and wholly empty internal session rows are rejected, not filled or bridged. Weekends, exchange holidays, special closures and early-close sessions follow that calendar rather than generic weekdays. Calendar failure blocks calculation; no weekday fallback is used. Completeness covers the first through last supplied quote date, not invented prehistory or an independent guarantee of provider freshness. The versioned calendar must be updated if future exchange closures change.
+
+Signal index/signal_date and the explicit decision_date remain the original decision day. scheduled_execution_date identifies the next exchange-session close, including when it is beyond available prices; it is a schedule, not a confirmed fill. Backtest downloads separately record actual model execution_date on an observed close and never fabricate a future fill. Unchanged allocations require no trade. defensive_age resets to zero on leaving BIL; the locked timeout still increments before evaluation and fires at 20 subsequent sessions. Recovery and timeout rules are unchanged.
 
 Execution is the next observed trading-session CLOSE. This is intentionally different from the creator's stated next-open convention because the app currently loads adjusted closes, not opening prices. It also differs from the BestFolio same-signal-close assumption. No signal earns the return before its execution: the old asset carries to the execution close, then a switch occurs. The last close can execute the prior signal; the last signal has no invented future fill. Benchmark is frictionless SPY over those exact execution-close dates.
 

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from haa.engine import run_backtest
 from haa.model_catalog import resolve
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import latest_actionable_signal
+from haa.market_sessions import scheduled_execution_dates, us_equity_sessions, validate_us_equity_sessions
 from haa.strategies.rvol_shifter import RVolShifterCashOnly, completed_daily_cutoff
 
 
@@ -41,7 +43,7 @@ class RVolShifterTests(unittest.TestCase):
         self.assertEqual(self.transition("BIL", donchian_lock=True, recovery=.03)[:2], ("QLD", False))
 
     def prices(self):
-        dates = pd.bdate_range("2020-01-01", periods=650)
+        dates = us_equity_sessions("2020-01-02", "2023-01-01")[:650]
         x = np.arange(len(dates))
         qqq = 100 * np.exp(np.cumsum(.0007 + .006 * np.sin(x)))
         return pd.DataFrame({"QQQ": qqq, "SPY": qqq, "HYG": 100 + x / 100,
@@ -60,6 +62,8 @@ class RVolShifterTests(unittest.TestCase):
         decisions = model.decisions(prices, as_of=as_of)
         self.assertEqual(decisions.index.min(), prices.index[266])
         self.assertEqual(decisions.attrs["execution_frequency"], "daily")
+        pd.testing.assert_index_equal(pd.DatetimeIndex(decisions.decision_date), decisions.index, check_names=False)
+        self.assertTrue((decisions.scheduled_execution_date > decisions.decision_date).all())
         changed = prices.copy()
         changed.loc[prices.index[500]:, "QQQ"] *= 1.5
         other = model.decisions(changed, as_of=as_of)
@@ -71,6 +75,55 @@ class RVolShifterTests(unittest.TestCase):
         prices.iloc[400, prices.columns.get_loc("HYG")] = np.nan
         with self.assertRaisesRegex(ValueError, "Missing/invalid daily data"):
             RVolShifterCashOnly().decisions(prices, as_of=pd.Timestamp("2025-01-01", tz="UTC"))
+
+    def test_whole_missing_sessions_rejected_before_indicator_calculation(self):
+        for position in (50, 400):  # warm-up and active strategy history
+            for blank_row in (False, True):
+                prices = self.prices()
+                date = prices.index[position]
+                if blank_row:
+                    prices.loc[date] = np.nan
+                else:
+                    prices = prices.drop(index=date)
+                with patch.object(RVolShifterCashOnly, "indicators") as indicators:
+                    with self.assertRaisesRegex(ValueError, f"Missing US equity trading sessions.*{date.date()}"):
+                        RVolShifterCashOnly().decisions(prices, as_of=pd.Timestamp("2025-01-01", tz="UTC"))
+                    indicators.assert_not_called()
+
+    def test_calendar_holidays_early_closes_special_closures_and_fail_closed(self):
+        for dates in (("2024-03-28", "2024-04-01"),
+                      ("2024-11-27", "2024-11-29", "2024-12-02"),
+                      ("2012-10-26", "2012-10-31"),
+                      ("2025-01-08", "2025-01-10")):
+            frame = pd.DataFrame({"QQQ": 100.0}, index=pd.to_datetime(list(dates)))
+            validate_us_equity_sessions(frame)
+            self.assertEqual(scheduled_execution_dates(frame.index[:1])[0], frame.index[1])
+        with self.assertRaisesRegex(ValueError, "non-trading"):
+            validate_us_equity_sessions(pd.DataFrame({"QQQ": 100.0}, index=pd.to_datetime(["2024-03-28", "2024-03-29", "2024-04-01"])))
+        us_equity_sessions.cache_clear()
+        with patch("exchange_calendars.get_calendar", side_effect=RuntimeError("unavailable")):
+            with self.assertRaisesRegex(ValueError, "calendar unavailable"):
+                us_equity_sessions("2024-03-28", "2024-04-01")
+
+    def test_defensive_age_resets_after_recovery_without_changing_timeout(self):
+        prices = self.prices().iloc[:25]
+        indicators = pd.DataFrame({"rvol": .16, "vr": 1., "trend": .0,
+            "credit": 0., "donchian": False, "recovery": 0.}, index=prices.index)
+        indicators.loc[prices.index[1], ["rvol", "donchian"]] = [.20, True]
+        # Stressed conditions must not gate price recovery or the timeout.
+        indicators.loc[prices.index[2]:, ["rvol", "vr", "trend"]] = [.60, 2., -.10]
+        with patch.object(RVolShifterCashOnly, "indicators", return_value=indicators):
+            decisions = RVolShifterCashOnly().decisions(prices, as_of=pd.Timestamp("2025-01-01", tz="UTC"))
+        self.assertEqual(decisions.iloc[20].selected_asset, "BIL")
+        self.assertEqual(decisions.iloc[20].defensive_age, 19)
+        self.assertEqual(decisions.iloc[21].selected_asset, "QLD")
+        self.assertEqual(decisions.iloc[21].defensive_age, 0)
+        indicators.loc[prices.index[3], "recovery"] = .03
+        with patch.object(RVolShifterCashOnly, "indicators", return_value=indicators):
+            decisions = RVolShifterCashOnly().decisions(prices, as_of=pd.Timestamp("2025-01-01", tz="UTC"))
+        self.assertEqual(decisions.iloc[3].selected_asset, "QLD")
+        self.assertEqual(decisions.iloc[3].defensive_age, 0)
+        self.assertFalse(decisions.iloc[3].donchian_lock)
 
     def test_live_cutoff_and_daily_status(self):
         self.assertEqual(completed_daily_cutoff(pd.Timestamp("2024-01-05 16:30", tz="America/New_York")), pd.Timestamp("2024-01-04"))
@@ -102,6 +155,7 @@ class DailyEngineTests(unittest.TestCase):
         result = self.run_model(tax_enabled=True)
         self.assertEqual(len(result.daily), 4)
         self.assertTrue((result.audit.execution_date > result.audit.index).all())
+        self.assertTrue((result.audit.decision_date == result.audit.index).all())
         self.assertEqual(result.daily.iloc[0].pre_tax_value, 1000)
         self.assertAlmostEqual(result.daily.iloc[-1].pre_tax_value, 1452)
         self.assertAlmostEqual(result.daily.iloc[-1].after_tax_value, (1210 - 210 * .25) * 1.2)
@@ -145,6 +199,12 @@ class DailyEngineTests(unittest.TestCase):
             compare_models({"Daily": model, "Other": model}, 1000)
         prices.iloc[3, 0] = np.nan
         with self.assertRaisesRegex(ValueError, "Missing or invalid"):
+            run_backtest(decisions, prices, 1000, daily_prices=prices)
+
+    def test_execution_engine_rejects_entire_missing_session(self):
+        decisions, prices = self.fixture()
+        prices = prices.drop(index=prices.index[2])
+        with self.assertRaisesRegex(ValueError, "Missing US equity trading sessions"):
             run_backtest(decisions, prices, 1000, daily_prices=prices)
 
 

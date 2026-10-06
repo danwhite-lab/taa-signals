@@ -11,6 +11,7 @@ import pandas as pd
 from .engine import BacktestResult
 from .metrics import performance_metrics
 from .tax import IsraeliTaxState
+from .market_sessions import validate_us_equity_sessions
 
 
 def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost=0.0,
@@ -36,6 +37,7 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
     completed_through = decisions.attrs.get("completed_through")
     if completed_through is not None:
         prices = prices.loc[:completed_through]
+    validate_us_equity_sessions(prices)
     # Signals must refer to observed sessions; never silently align to a
     # later usable date when a required price is missing.
     positions = prices.index.get_indexer(decisions.index)
@@ -97,7 +99,7 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                 # convention; sale fee reduces realized proceeds.
                 tax.buy(target, after + buy_after)
         holding = target
-        audit_row = {**decision.to_dict(), "signal_date": signal_date, "execution_date": date,
+        audit_row = {**decision.to_dict(), "signal_date": signal_date, "decision_date": signal_date, "execution_date": date,
                      "holding_end": date, "selected_asset": target, "allocation_change": changing,
                      "turnover": float(entering), "pre_tax_fee": fee_pre, "after_tax_fee": fee_after}
         audit.append(audit_row)

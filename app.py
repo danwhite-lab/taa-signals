@@ -2208,19 +2208,22 @@ if page == "Signals":
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if is_daily_execution:
         title_column.title(signal_model_name)
-        title_column.caption("Completed daily signal · execute at the next session close · not a month-end signal")
+        title_column.caption("EXPERIMENTAL · not a verified BestFolio replica · completed daily decision · next-session-close execution")
         st.warning(signal_strategy.risk_warning)
         if signal_status.decision is None:
             st.error(signal_status.reason)
         else:
             signal = signal_status.decision
-            st.dataframe(pd.DataFrame([{"Signal date": signal.name.date(), "Target": signal.selected_asset,
+            st.dataframe(pd.DataFrame([{"Decision date": signal.decision_date.date(),
+                "Execution date (scheduled)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
                 "State transition": signal.transition_reason, "RVol": signal.rvol,
                 "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
                 "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
-            st.caption("Targets reflect a model state replay from the start of available history, not your broker's current holding. Check your actual position before acting. Today's close is considered complete only after 17:00 New York time.")
+            st.caption("Decision date is the unchanged indicator/decision day. Scheduled execution is the next exchange-session CLOSE, not a confirmed broker fill; an unchanged target requires no trade. Targets reflect replayed model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
         with st.expander("Daily signal history"):
-            st.dataframe(signal_decisions.sort_index(ascending=False), use_container_width=True)
+            date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]
+            history_columns = date_columns + [column for column in signal_decisions.columns if column not in date_columns]
+            st.dataframe(signal_decisions.loc[:, history_columns].sort_index(ascending=False), use_container_width=True)
             st.download_button("Download daily signal history CSV", signal_decisions.to_csv().encode("utf-8"), "rvol_shifter_daily_signals.csv", "text/csv")
         st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
         st.stop()

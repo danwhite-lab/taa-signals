@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..market_sessions import scheduled_execution_dates, validate_us_equity_sessions
+
 
 def completed_daily_cutoff(as_of: pd.Timestamp | None = None) -> pd.Timestamp:
     """Conservatively wait until 17:00 New York before using today's close."""
@@ -24,7 +26,7 @@ class RVolShifterCashOnly:
     is_multi_asset = True
     backtest_available = True
     risk_warning = (
-        "Daily leveraged Nasdaq strategy: losses can be severe. This is a documented interpretation, "
+        "EXPERIMENTAL daily leveraged Nasdaq strategy: losses can be severe. This is a documented interpretation, "
         "not a verified BestFolio replica. Assumptions: adjusted closes for all signals; VR = 15-session "
         "annualized log-return sample volatility / its trailing 252-session mean (including today); "
         "close-based 40/5-session lows including today; 20 trading-session timeout; start defensive; "
@@ -57,6 +59,7 @@ class RVolShifterCashOnly:
 
     def indicators(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
         market = daily_prices.loc[:, self.signal_assets].sort_index()
+        validate_us_equity_sessions(market)
         # Do not bridge missing observed sessions with filled or dropped rows.
         rvol = np.log(market.QQQ / market.QQQ.shift(1)).rolling(15, min_periods=15).std(ddof=1) * np.sqrt(252)
         credit_ratio = market.HYG / market.LQD
@@ -80,6 +83,7 @@ class RVolShifterCashOnly:
         prices = prices.loc[prices.index <= completed_daily_cutoff(as_of)]
         if ((prices <= 0) & prices.notna()).any().any():
             raise ValueError("Daily prices must be positive.")
+        validate_us_equity_sessions(prices)
         indicators = self.indicators(prices)
         indicator_valid = np.isfinite(indicators.to_numpy(dtype=float)).all(axis=1)
         price_valid = np.isfinite(prices.to_numpy(dtype=float)).all(axis=1)
@@ -98,7 +102,7 @@ class RVolShifterCashOnly:
                 age += 1
             state, lock, reason = self.transition(state, float(values.rvol), float(values.vr),
                 float(values.trend), float(values.credit), bool(values.donchian), float(values.recovery), age, lock)
-            if state == "BIL" and previous != "BIL":
+            if state != "BIL" or previous != "BIL":
                 age = 0
             rows.append({"signal_date": date, **values.to_dict(), "selected_asset": state,
                 "target_weights": {state: 1.0}, "previous_asset": previous,
@@ -106,5 +110,8 @@ class RVolShifterCashOnly:
                 "regime": "defensive" if state == "BIL" else "risk-on",
                 "transition_reason": reason, "donchian_lock": lock, "defensive_age": age})
         result = pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+        if not result.empty:
+            result["decision_date"] = result.index
+            result["scheduled_execution_date"] = scheduled_execution_dates(result.index)
         result.attrs.update(execution_frequency="daily", completed_through=prices.index.max() if len(prices) else None)
         return result
