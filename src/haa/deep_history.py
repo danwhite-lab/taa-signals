@@ -42,11 +42,11 @@ DEEP_HISTORY_SPECS = {
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
 }
 
-US_TOTAL_MARKET_BENCHMARK = DeepHistoryBenchmarkSpec(
-    asset_id="US_TOTAL_MARKET_VTI_PROXY",
-    label="US Total Market VTI Proxy",
-    returns_file="us_total_market_vti_proxy_monthly_returns.csv",
-    caveat="Before May 2001, this series uses stand-in funds (VTSMX and VFINX). It is a simulated total-U.S.-market proxy, not actual pre-inception VTI or S&P 500/SPY history.",
+SP500_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
+    asset_id="SP500_TOTAL_RETURN_PROXY",
+    label="S&P 500 Total Return Proxy",
+    returns_file="sp500_total_return_proxy_monthly_returns.csv",
+    caveat="Long monthly S&P Composite total-return proxy with dividends reinvested. It is not actual SPY, and its pre-1957 history is a reconstructed historical composite rather than the modern S&P 500.",
 )
 
 
@@ -103,6 +103,26 @@ def _read_monthly_returns(path: Path) -> pd.Series:
     return series
 
 
+def _read_long_monthly_returns(path: Path) -> pd.Series:
+    """Read a tidy year/month nominal-return series without changing its precision."""
+    rows: list[tuple[pd.Timestamp, float]] = []
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            rows.append((
+                pd.Timestamp(int(row["year"]), int(row["month"]), 1) + pd.offsets.MonthEnd(0),
+                float(row["nominalReturn"]),
+            ))
+    series = pd.Series(dict(rows), dtype=float).sort_index()
+    if series.empty or series.index.has_duplicates:
+        raise ValueError(f"Monthly return history is empty or has duplicate months: {path.name}")
+    return series
+
+
+def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
+    return _read_long_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+
+
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
     signals = _read_signals(DEEP_HISTORY_DIR / spec.signal_file)
     returns = _read_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
@@ -111,7 +131,7 @@ def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
 
 def deep_history_model_input(
     spec: DeepHistorySpec,
-    benchmark: DeepHistoryBenchmarkSpec = US_TOTAL_MARKET_BENCHMARK,
+    benchmark: DeepHistoryBenchmarkSpec = SP500_TOTAL_RETURN_BENCHMARK,
 ) -> ModelInput:
     """Create synthetic monthly prices from the supplied strategy NAV returns.
 
@@ -129,7 +149,7 @@ def deep_history_model_input(
         holding_month = signal_date + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)
         if holding_month in returns.index:
             rows.append((signal_date, signal["target_weights"], float(returns.loc[holding_month])))
-    benchmark_returns = _read_monthly_returns(DEEP_HISTORY_DIR / benchmark.returns_file)
+    benchmark_returns = _read_benchmark_returns(benchmark)
     rows = [
         row for row in rows
         if row[0] + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1) in benchmark_returns.index

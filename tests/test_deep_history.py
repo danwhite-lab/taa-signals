@@ -1,6 +1,6 @@
 import pandas as pd
 
-from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, _read_monthly_returns, deep_history_model_input, load_deep_history
+from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, _read_benchmark_returns, deep_history_model_input, load_deep_history
 from haa.engine import run_backtest
 from haa.metrics import rolling_annualized_returns
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -14,15 +14,15 @@ def test_bundled_proxy_histories_align_without_invented_months():
         assert (signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)).isin(returns.index).all()
 
 
-def test_deep_history_uses_the_total_market_vti_proxy_only_over_shared_months():
-    benchmark_returns = _read_monthly_returns(DEEP_HISTORY_DIR / US_TOTAL_MARKET_BENCHMARK.returns_file)
-    assert benchmark_returns.index.min() == pd.Timestamp("1988-01-31")
-    assert benchmark_returns.index.max() == pd.Timestamp("2026-10-31")
+def test_deep_history_uses_the_long_sp500_total_return_proxy():
+    benchmark_returns = _read_benchmark_returns(SP500_TOTAL_RETURN_BENCHMARK)
+    assert benchmark_returns.index.min() == pd.Timestamp("1871-02-28")
+    assert benchmark_returns.index.max() == pd.Timestamp("2026-09-30")
     model = deep_history_model_input(DEEP_HISTORY_SPECS["century_momentum"])
-    assert model.benchmark_asset == US_TOTAL_MARKET_BENCHMARK.asset_id
-    assert model.monthly_prices.index.min() == pd.Timestamp("1987-12-31")
+    assert model.benchmark_asset == SP500_TOTAL_RETURN_BENCHMARK.asset_id
+    assert model.monthly_prices.index.min() == pd.Timestamp("1928-03-31")
     assert model.monthly_prices.index.max() == pd.Timestamp("2026-09-30")
-    assert model.monthly_prices[US_TOTAL_MARKET_BENCHMARK.asset_id].notna().all()
+    assert model.monthly_prices[SP500_TOTAL_RETURN_BENCHMARK.asset_id].notna().all()
 
 
 def test_rolling_annualized_returns_compound_exact_monthly_periods():
@@ -61,5 +61,5 @@ def test_proxy_blend_aligns_last_trading_days_to_every_calendar_month():
     )
     expected = pd.date_range(blend.monthly.index.min(), blend.monthly.index.max(), freq="ME")
     assert blend.monthly.index.equals(expected)
-    assert blend.monthly.index.min() == pd.Timestamp("1988-01-31")
+    assert blend.monthly.index.min() == pd.Timestamp("1951-03-31")
     assert blend.monthly.index.max() == pd.Timestamp("2026-09-30")

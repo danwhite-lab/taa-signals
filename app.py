@@ -15,7 +15,7 @@ from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_A
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
-from haa.deep_history import DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, deep_history_model_input
+from haa.deep_history import DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, deep_history_model_input
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -679,7 +679,7 @@ if page == "Backtest":
                 st.success("Sleeve weights total 100%.")
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
-            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}.")
+            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -736,10 +736,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title(f"{spec.label} — Deep History / Proxy")
             st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
-            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}. {US_TOTAL_MARKET_BENCHMARK.caveat}")
+            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}. {SP500_TOTAL_RETURN_BENCHMARK.caveat}")
             proxy_label = f"{spec.label} proxy pre-tax"
             proxy_after_label = f"{spec.label} proxy after-tax"
-            benchmark_label = US_TOTAL_MARKET_BENCHMARK.label
+            benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
             summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[proxy_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
@@ -809,10 +809,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title("Deep History / Proxy portfolio blend")
             st.warning("Proxy blend: strategy-level returns are combined over their shared history. Tax uses the existing realized-gain portfolio logic, with allocation-change realization treated as a proxy because security-level prices are unavailable.")
-            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}. {US_TOTAL_MARKET_BENCHMARK.caveat}")
+            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}. {SP500_TOTAL_RETURN_BENCHMARK.caveat}")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
-            benchmark_label = US_TOTAL_MARKET_BENCHMARK.label
+            benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
             summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial), benchmark_label: performance_metrics(result.monthly["benchmark_value"], initial)})
             if tax_enabled:
                 summary[blend_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
