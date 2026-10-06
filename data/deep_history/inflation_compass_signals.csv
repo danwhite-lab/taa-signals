@@ -1,0 +1,908 @@
+Signal date,Regime,Allocations,
+▸,2026-08-31→ September 2026,Risk-On,XLE 100%
+▸,2026-07-31→ August 2026,Risk-On,XLK 100%
+▸,2026-06-30→ July 2026,Risk-On,XLK 100%
+▸,2026-05-29→ June 2026,Risk-On,XLE 100%
+▸,2026-04-30→ May 2026,Risk-On,XLE 100%
+▸,2026-03-31→ April 2026,Risk-Off,XLU 100%
+▸,2026-02-27→ March 2026,Risk-On,XLE 100%
+▸,2026-01-30→ February 2026,Risk-On,XLE 100%
+▸,2025-12-31→ January 2026,Risk-On,XLE 100%
+▸,2025-11-28→ December 2025,Risk-On,XLK 100%
+▸,2025-10-31→ November 2025,Risk-On,XLK 100%
+▸,2025-09-30→ October 2025,Risk-On,XLE 100%
+▸,2025-08-29→ September 2025,Risk-On,XLE 100%
+▸,2025-07-31→ August 2025,Risk-On,XLE 100%
+▸,2025-06-30→ July 2025,Risk-On,XLE 100%
+▸,2025-05-30→ June 2025,Risk-On,XLK 100%
+▸,2025-04-30→ May 2025,Risk-Off,"XLP 50%, IEF 50%"
+▸,2025-03-31→ April 2025,Risk-Off,XLU 100%
+▸,2025-02-28→ March 2025,Risk-On,XLE 100%
+▸,2025-01-31→ February 2025,Risk-On,XLE 100%
+▸,2024-12-31→ January 2025,Risk-On,XLE 100%
+▸,2024-11-29→ December 2024,Risk-On,XLE 100%
+▸,2024-10-31→ November 2024,Risk-On,XLE 100%
+▸,2024-09-30→ October 2024,Risk-On,XLK 100%
+▸,2024-08-30→ September 2024,Risk-On,XLK 100%
+▸,2024-07-31→ August 2024,Risk-On,XLK 100%
+▸,2024-06-28→ July 2024,Risk-On,XLK 100%
+▸,2024-05-31→ June 2024,Risk-On,XLK 100%
+▸,2024-04-30→ May 2024,Risk-On,XLE 100%
+▸,2024-03-28→ April 2024,Risk-On,XLE 100%
+▸,2024-02-29→ March 2024,Risk-On,XLE 100%
+▸,2024-01-31→ February 2024,Risk-On,XLK 100%
+▸,2023-12-29→ January 2024,Risk-On,XLK 100%
+▸,2023-11-30→ December 2023,Risk-On,XLK 100%
+▸,2023-10-31→ November 2023,Risk-Off,XLU 100%
+▸,2023-09-29→ October 2023,Risk-On,XLE 100%
+▸,2023-08-31→ September 2023,Risk-On,XLE 100%
+▸,2023-07-31→ August 2023,Risk-On,XLE 100%
+▸,2023-06-30→ July 2023,Risk-On,XLE 100%
+▸,2023-05-31→ June 2023,Risk-On,XLK 100%
+▸,2023-04-28→ May 2023,Risk-On,XLK 100%
+▸,2023-03-31→ April 2023,Risk-On,XLE 100%
+▸,2023-02-28→ March 2023,Risk-On,XLE 100%
+▸,2023-01-31→ February 2023,Risk-On,XLK 100%
+▸,2022-12-30→ January 2023,Risk-Off,XLU 100%
+▸,2022-11-30→ December 2022,Risk-On,XLE 100%
+▸,2022-10-31→ November 2022,Risk-Off,XLU 100%
+▸,2022-09-30→ October 2022,Risk-Off,XLU 100%
+▸,2022-08-31→ September 2022,Risk-Off,"XLP 50%, IEF 50%"
+▸,2022-07-29→ August 2022,Risk-Off,"XLP 50%, IEF 50%"
+▸,2022-06-30→ July 2022,Risk-Off,XLU 100%
+▸,2022-05-31→ June 2022,Risk-Off,XLU 100%
+▸,2022-04-29→ May 2022,Risk-Off,XLU 100%
+▸,2022-03-31→ April 2022,Risk-On,XLE 100%
+▸,2022-02-28→ March 2022,Risk-Off,XLU 100%
+▸,2022-01-31→ February 2022,Risk-On,XLE 100%
+▸,2021-12-31→ January 2022,Risk-On,XLE 100%
+▸,2021-11-30→ December 2021,Risk-On,XLE 100%
+▸,2021-10-29→ November 2021,Risk-On,XLE 100%
+▸,2021-09-30→ October 2021,Risk-On,XLE 100%
+▸,2021-08-31→ September 2021,Risk-On,XLK 100%
+▸,2021-07-30→ August 2021,Risk-On,XLK 100%
+▸,2021-06-30→ July 2021,Risk-On,XLE 100%
+▸,2021-05-28→ June 2021,Risk-On,XLE 100%
+▸,2021-04-30→ May 2021,Risk-On,XLE 100%
+▸,2021-03-31→ April 2021,Risk-On,XLE 100%
+▸,2021-02-26→ March 2021,Risk-On,XLE 100%
+▸,2021-01-29→ February 2021,Risk-On,XLE 100%
+▸,2020-12-31→ January 2021,Risk-On,XLK 100%
+▸,2020-11-30→ December 2020,Risk-On,XLK 100%
+▸,2020-10-30→ November 2020,Risk-On,XLK 100%
+▸,2020-09-30→ October 2020,Risk-On,XLK 100%
+▸,2020-08-31→ September 2020,Risk-On,XLK 100%
+▸,2020-07-31→ August 2020,Risk-On,XLK 100%
+▸,2020-06-30→ July 2020,Risk-On,XLK 100%
+▸,2020-05-29→ June 2020,Risk-On,XLK 100%
+▸,2020-04-30→ May 2020,Risk-Off,"XLP 50%, IEF 50%"
+▸,2020-03-31→ April 2020,Risk-Off,"XLP 50%, IEF 50%"
+▸,2020-02-28→ March 2020,Risk-Off,"XLP 50%, IEF 50%"
+▸,2020-01-31→ February 2020,Risk-On,XLK 100%
+▸,2019-12-31→ January 2020,Risk-On,XLK 100%
+▸,2019-11-29→ December 2019,Risk-On,XLK 100%
+▸,2019-10-31→ November 2019,Risk-On,XLK 100%
+▸,2019-09-30→ October 2019,Risk-On,XLK 100%
+▸,2019-08-30→ September 2019,Risk-On,XLK 100%
+▸,2019-07-31→ August 2019,Risk-On,XLK 100%
+▸,2019-06-28→ July 2019,Risk-On,XLK 100%
+▸,2019-05-31→ June 2019,Risk-Off,"XLP 50%, IEF 50%"
+▸,2019-04-30→ May 2019,Risk-On,XLK 100%
+▸,2019-03-29→ April 2019,Risk-On,XLK 100%
+▸,2019-02-28→ March 2019,Risk-On,XLK 100%
+▸,2019-01-31→ February 2019,Risk-Off,"XLP 50%, IEF 50%"
+▸,2018-12-31→ January 2019,Risk-Off,"XLP 50%, IEF 50%"
+▸,2018-11-30→ December 2018,Risk-On,XLK 100%
+▸,2018-10-31→ November 2018,Risk-Off,"XLP 50%, IEF 50%"
+▸,2018-09-28→ October 2018,Risk-On,XLK 100%
+▸,2018-08-31→ September 2018,Risk-On,XLK 100%
+▸,2018-07-31→ August 2018,Risk-On,XLK 100%
+▸,2018-06-29→ July 2018,Risk-On,XLE 100%
+▸,2018-05-31→ June 2018,Risk-On,XLK 100%
+▸,2018-04-30→ May 2018,Risk-On,XLE 100%
+▸,2018-03-29→ April 2018,Risk-On,XLK 100%
+▸,2018-02-28→ March 2018,Risk-On,XLE 100%
+▸,2018-01-31→ February 2018,Risk-On,XLK 100%
+▸,2017-12-29→ January 2018,Risk-On,XLK 100%
+▸,2017-11-30→ December 2017,Risk-On,XLK 100%
+▸,2017-10-31→ November 2017,Risk-On,XLK 100%
+▸,2017-09-29→ October 2017,Risk-On,XLK 100%
+▸,2017-08-31→ September 2017,Risk-On,XLK 100%
+▸,2017-07-31→ August 2017,Risk-On,XLK 100%
+▸,2017-06-30→ July 2017,Risk-On,XLK 100%
+▸,2017-05-31→ June 2017,Risk-On,XLK 100%
+▸,2017-04-28→ May 2017,Risk-On,XLK 100%
+▸,2017-03-31→ April 2017,Risk-On,XLK 100%
+▸,2017-02-28→ March 2017,Risk-On,XLK 100%
+▸,2017-01-31→ February 2017,Risk-On,XLK 100%
+▸,2016-12-30→ January 2017,Risk-On,XLK 100%
+▸,2016-11-30→ December 2016,Risk-On,XLK 100%
+▸,2016-10-31→ November 2016,Risk-On,XLK 100%
+▸,2016-09-30→ October 2016,Risk-On,XLK 100%
+▸,2016-08-31→ September 2016,Risk-On,XLK 100%
+▸,2016-07-29→ August 2016,Risk-On,XLK 100%
+▸,2016-06-30→ July 2016,Risk-On,XLK 100%
+▸,2016-05-31→ June 2016,Risk-On,XLK 100%
+▸,2016-04-29→ May 2016,Risk-On,XLK 100%
+▸,2016-03-31→ April 2016,Risk-On,XLK 100%
+▸,2016-02-29→ March 2016,Risk-Off,"XLP 50%, IEF 50%"
+▸,2016-01-29→ February 2016,Risk-Off,"XLP 50%, IEF 50%"
+▸,2015-12-31→ January 2016,Risk-Off,"XLP 50%, IEF 50%"
+▸,2015-11-30→ December 2015,Risk-On,XLK 100%
+▸,2015-10-30→ November 2015,Risk-On,XLK 100%
+▸,2015-09-30→ October 2015,Risk-Off,"XLP 50%, IEF 50%"
+▸,2015-08-31→ September 2015,Risk-Off,"XLP 50%, IEF 50%"
+▸,2015-07-31→ August 2015,Risk-On,XLK 100%
+▸,2015-06-30→ July 2015,Risk-On,XLK 100%
+▸,2015-05-29→ June 2015,Risk-On,XLK 100%
+▸,2015-04-30→ May 2015,Risk-On,XLK 100%
+▸,2015-03-31→ April 2015,Risk-On,XLK 100%
+▸,2015-02-27→ March 2015,Risk-On,XLK 100%
+▸,2015-01-30→ February 2015,Risk-On,XLK 100%
+▸,2014-12-31→ January 2015,Risk-On,XLK 100%
+▸,2014-11-28→ December 2014,Risk-On,XLK 100%
+▸,2014-10-31→ November 2014,Risk-On,XLK 100%
+▸,2014-09-30→ October 2014,Risk-On,XLK 100%
+▸,2014-08-29→ September 2014,Risk-On,XLK 100%
+▸,2014-07-31→ August 2014,Risk-On,XLK 100%
+▸,2014-06-30→ July 2014,Risk-On,XLE 100%
+▸,2014-05-30→ June 2014,Risk-On,XLK 100%
+▸,2014-04-30→ May 2014,Risk-On,XLK 100%
+▸,2014-03-31→ April 2014,Risk-On,XLK 100%
+▸,2014-02-28→ March 2014,Risk-On,XLK 100%
+▸,2014-01-31→ February 2014,Risk-On,XLK 100%
+▸,2013-12-31→ January 2014,Risk-On,XLK 100%
+▸,2013-11-29→ December 2013,Risk-On,XLK 100%
+▸,2013-10-31→ November 2013,Risk-On,XLK 100%
+▸,2013-09-30→ October 2013,Risk-On,XLK 100%
+▸,2013-08-30→ September 2013,Risk-On,XLK 100%
+▸,2013-07-31→ August 2013,Risk-On,XLK 100%
+▸,2013-06-28→ July 2013,Risk-On,XLK 100%
+▸,2013-05-31→ June 2013,Risk-On,XLK 100%
+▸,2013-04-30→ May 2013,Risk-On,XLK 100%
+▸,2013-03-28→ April 2013,Risk-On,XLE 100%
+▸,2013-02-28→ March 2013,Risk-On,XLE 100%
+▸,2013-01-31→ February 2013,Risk-On,XLE 100%
+▸,2012-12-31→ January 2013,Risk-On,XLE 100%
+▸,2012-11-30→ December 2012,Risk-On,XLK 100%
+▸,2012-10-31→ November 2012,Risk-On,XLE 100%
+▸,2012-09-28→ October 2012,Risk-On,XLE 100%
+▸,2012-08-31→ September 2012,Risk-On,XLK 100%
+▸,2012-07-31→ August 2012,Risk-On,XLK 100%
+▸,2012-06-29→ July 2012,Risk-On,XLK 100%
+▸,2012-05-31→ June 2012,Risk-On,XLK 100%
+▸,2012-04-30→ May 2012,Risk-On,XLE 100%
+▸,2012-03-30→ April 2012,Risk-On,XLK 100%
+▸,2012-02-29→ March 2012,Risk-On,XLK 100%
+▸,2012-01-31→ February 2012,Risk-On,XLK 100%
+▸,2011-12-30→ January 2012,Risk-On,XLK 100%
+▸,2011-11-30→ December 2011,Risk-Off,"XLP 50%, IEF 50%"
+▸,2011-10-31→ November 2011,Risk-Off,"XLP 50%, IEF 50%"
+▸,2011-09-30→ October 2011,Risk-Off,"XLP 50%, IEF 50%"
+▸,2011-08-31→ September 2011,Risk-Off,"XLP 50%, IEF 50%"
+▸,2011-07-29→ August 2011,Risk-On,XLE 100%
+▸,2011-06-30→ July 2011,Risk-On,XLK 100%
+▸,2011-05-31→ June 2011,Risk-On,XLK 100%
+▸,2011-04-29→ May 2011,Risk-On,XLE 100%
+▸,2011-03-31→ April 2011,Risk-On,XLE 100%
+▸,2011-02-28→ March 2011,Risk-On,XLE 100%
+▸,2011-01-31→ February 2011,Risk-On,XLK 100%
+▸,2010-12-31→ January 2011,Risk-On,XLK 100%
+▸,2010-11-30→ December 2010,Risk-On,XLK 100%
+▸,2010-10-29→ November 2010,Risk-On,XLK 100%
+▸,2010-09-30→ October 2010,Risk-On,XLK 100%
+▸,2010-08-31→ September 2010,Risk-Off,"XLP 50%, IEF 50%"
+▸,2010-07-30→ August 2010,Risk-Off,"XLP 50%, IEF 50%"
+▸,2010-06-30→ July 2010,Risk-Off,"XLP 50%, IEF 50%"
+▸,2010-05-28→ June 2010,Risk-Off,"XLP 50%, IEF 50%"
+▸,2010-04-30→ May 2010,Risk-On,XLE 100%
+▸,2010-03-31→ April 2010,Risk-On,XLK 100%
+▸,2010-02-26→ March 2010,Risk-On,XLK 100%
+▸,2010-01-29→ February 2010,Risk-On,XLK 100%
+▸,2009-12-31→ January 2010,Risk-On,XLE 100%
+▸,2009-11-30→ December 2009,Risk-On,XLK 100%
+▸,2009-10-30→ November 2009,Risk-On,XLK 100%
+▸,2009-09-30→ October 2009,Risk-On,XLK 100%
+▸,2009-08-31→ September 2009,Risk-On,XLK 100%
+▸,2009-07-31→ August 2009,Risk-On,XLK 100%
+▸,2009-06-30→ July 2009,Risk-On,XLK 100%
+▸,2009-05-29→ June 2009,Risk-On,XLK 100%
+▸,2009-04-30→ May 2009,Risk-Off,"XLP 50%, IEF 50%"
+▸,2009-03-31→ April 2009,Risk-Off,"XLP 50%, IEF 50%"
+▸,2009-02-27→ March 2009,Risk-Off,"XLP 50%, IEF 50%"
+▸,2009-01-30→ February 2009,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-12-31→ January 2009,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-11-28→ December 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-10-31→ November 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-09-30→ October 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-08-29→ September 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-07-31→ August 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2008-06-30→ July 2008,Risk-Off,XLU 100%
+▸,2008-05-30→ June 2008,Risk-Off,XLU 100%
+▸,2008-04-30→ May 2008,Risk-Off,XLU 100%
+▸,2008-03-31→ April 2008,Risk-Off,XLU 100%
+▸,2008-02-29→ March 2008,Risk-Off,XLU 100%
+▸,2008-01-31→ February 2008,Risk-Off,"XLP 50%, IEF 50%"
+▸,2007-12-31→ January 2008,Risk-Off,XLU 100%
+▸,2007-11-30→ December 2007,Risk-On,XLE 100%
+▸,2007-10-31→ November 2007,Risk-On,XLE 100%
+▸,2007-09-28→ October 2007,Risk-On,XLK 100%
+▸,2007-08-31→ September 2007,Risk-On,XLK 100%
+▸,2007-07-31→ August 2007,Risk-On,XLE 100%
+▸,2007-06-29→ July 2007,Risk-On,XLE 100%
+▸,2007-05-31→ June 2007,Risk-On,XLE 100%
+▸,2007-04-30→ May 2007,Risk-On,XLE 100%
+▸,2007-03-30→ April 2007,Risk-On,XLE 100%
+▸,2007-02-28→ March 2007,Risk-On,XLE 100%
+▸,2007-01-31→ February 2007,Risk-On,XLE 100%
+▸,2006-12-29→ January 2007,Risk-On,XLE 100%
+▸,2006-11-30→ December 2006,Risk-On,XLE 100%
+▸,2006-10-31→ November 2006,Risk-On,XLK 100%
+▸,2006-09-29→ October 2006,Risk-On,XLK 100%
+▸,2006-08-31→ September 2006,Risk-On,XLK 100%
+▸,2006-07-31→ August 2006,Risk-On,XLK 100%
+▸,2006-06-30→ July 2006,Risk-On,XLE 100%
+▸,2006-05-31→ June 2006,Risk-On,XLE 100%
+▸,2006-04-28→ May 2006,Risk-On,XLE 100%
+▸,2006-03-31→ April 2006,Risk-On,XLE 100%
+▸,2006-02-28→ March 2006,Risk-On,XLE 100%
+▸,2006-01-31→ February 2006,Risk-On,XLE 100%
+▸,2005-12-30→ January 2006,Risk-On,XLE 100%
+▸,2005-11-30→ December 2005,Risk-On,XLE 100%
+▸,2005-10-31→ November 2005,Risk-On,XLE 100%
+▸,2005-09-30→ October 2005,Risk-On,XLE 100%
+▸,2005-08-31→ September 2005,Risk-On,XLE 100%
+▸,2005-07-29→ August 2005,Risk-On,XLE 100%
+▸,2005-06-30→ July 2005,Risk-On,XLE 100%
+▸,2005-05-31→ June 2005,Risk-On,XLK 100%
+▸,2005-04-29→ May 2005,Risk-On,XLE 100%
+▸,2005-03-31→ April 2005,Risk-On,XLE 100%
+▸,2005-02-28→ March 2005,Risk-On,XLE 100%
+▸,2005-01-31→ February 2005,Risk-On,XLE 100%
+▸,2004-12-31→ January 2005,Risk-On,XLE 100%
+▸,2004-11-30→ December 2004,Risk-On,XLE 100%
+▸,2004-10-29→ November 2004,Risk-On,XLE 100%
+▸,2004-09-30→ October 2004,Risk-On,XLE 100%
+▸,2004-08-31→ September 2004,Risk-On,XLE 100%
+▸,2004-07-30→ August 2004,Risk-On,XLE 100%
+▸,2004-06-30→ July 2004,Risk-On,XLE 100%
+▸,2004-05-28→ June 2004,Risk-On,XLE 100%
+▸,2004-04-30→ May 2004,Risk-On,XLE 100%
+▸,2004-03-31→ April 2004,Risk-On,XLE 100%
+▸,2004-02-27→ March 2004,Risk-On,XLE 100%
+▸,2004-01-30→ February 2004,Risk-On,XLE 100%
+▸,2003-12-31→ January 2004,Risk-On,XLE 100%
+▸,2003-11-28→ December 2003,Risk-On,XLE 100%
+▸,2003-10-31→ November 2003,Risk-On,XLE 100%
+▸,2003-09-30→ October 2003,Risk-On,XLK 100%
+▸,2003-08-29→ September 2003,Risk-On,XLK 100%
+▸,2003-07-31→ August 2003,Risk-On,XLK 100%
+▸,2003-06-30→ July 2003,Risk-On,XLK 100%
+▸,2003-05-30→ June 2003,Risk-On,XLK 100%
+▸,2003-04-30→ May 2003,Risk-On,XLK 100%
+▸,2003-03-31→ April 2003,Risk-Off,XLU 100%
+▸,2003-02-28→ March 2003,Risk-Off,XLU 100%
+▸,2003-01-31→ February 2003,Risk-Off,XLU 100%
+▸,2002-12-31→ January 2003,Risk-Off,XLU 100%
+▸,2002-11-29→ December 2002,Risk-Off,XLU 100%
+▸,2002-10-31→ November 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-09-30→ October 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-08-30→ September 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-07-31→ August 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-06-28→ July 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-05-31→ June 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-04-30→ May 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-03-28→ April 2002,Risk-On,XLK 100%
+▸,2002-02-28→ March 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2002-01-31→ February 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2001-12-31→ January 2002,Risk-Off,"XLP 50%, IEF 50%"
+▸,2001-11-30→ December 2001,Risk-Off,XLU 100%
+▸,2001-10-31→ November 2001,Risk-Off,"XLP 50%, IEF 50%"
+▸,2001-09-28→ October 2001,Risk-Off,"XLP 50%, IEF 50%"
+▸,2001-08-31→ September 2001,Risk-Off,"XLP 50%, IEF 50%"
+▸,2001-07-31→ August 2001,Risk-Off,XLU 100%
+▸,2001-06-29→ July 2001,Risk-Off,XLU 100%
+▸,2001-05-31→ June 2001,Risk-Off,XLU 100%
+▸,2001-04-30→ May 2001,Risk-Off,XLU 100%
+▸,2001-03-30→ April 2001,Risk-Off,XLU 100%
+▸,2001-02-28→ March 2001,Risk-Off,XLU 100%
+▸,2001-01-31→ February 2001,Risk-Off,XLU 100%
+▸,2000-12-29→ January 2001,Risk-Off,XLU 100%
+▸,2000-11-30→ December 2000,Risk-Off,"XLP 50%, IEF 50%"
+▸,2000-10-31→ November 2000,Risk-Off,"XLP 50%, IEF 50%"
+▸,2000-09-29→ October 2000,Risk-Off,XLU 100%
+▸,2000-08-31→ September 2000,Risk-On,XLE 100%
+▸,2000-07-31→ August 2000,Risk-On,XLK 100%
+▸,2000-06-30→ July 2000,Risk-On,XLK 100%
+▸,2000-05-31→ June 2000,Risk-On,XLE 100%
+▸,2000-04-28→ May 2000,Risk-On,XLE 100%
+▸,2000-03-31→ April 2000,Risk-On,XLE 100%
+▸,2000-02-29→ March 2000,Risk-On,XLE 100%
+▸,2000-01-31→ February 2000,Risk-On,XLE 100%
+▸,1999-12-31→ January 2000,Risk-On,XLE 100%
+▸,1999-11-30→ December 1999,Risk-On,XLE 100%
+▸,1999-10-29→ November 1999,Risk-On,XLE 100%
+▸,1999-09-30→ October 1999,Risk-Off,XLU 100%
+▸,1999-08-31→ September 1999,Risk-On,XLE 100%
+▸,1999-07-30→ August 1999,Risk-On,XLK 100%
+▸,1999-06-30→ July 1999,Risk-On,XLE 100%
+▸,1999-05-28→ June 1999,Risk-On,XLE 100%
+▸,1999-04-30→ May 1999,Risk-On,XLK 100%
+▸,1999-03-31→ April 1999,Risk-On,XLK 100%
+▸,1999-02-26→ March 1999,Risk-On,XLK 100%
+▸,1999-01-29→ February 1999,Risk-On,XLK 100%
+▸,1998-12-31→ January 1999,Risk-On,XLK 100%
+▸,1998-11-30→ December 1998,Risk-On,XLK 100%
+▸,1998-10-30→ November 1998,Risk-On,XLK 100%
+▸,1998-09-30→ October 1998,Risk-Off,"XLP 50%, IEF 50%"
+▸,1998-08-31→ September 1998,Risk-Off,"XLP 50%, IEF 50%"
+▸,1998-07-31→ August 1998,Risk-On,XLK 100%
+▸,1998-06-30→ July 1998,Risk-On,XLK 100%
+▸,1998-05-29→ June 1998,Risk-On,XLK 100%
+▸,1998-04-30→ May 1998,Risk-On,XLK 100%
+▸,1998-03-31→ April 1998,Risk-On,XLK 100%
+▸,1998-02-27→ March 1998,Risk-On,XLK 100%
+▸,1998-01-30→ February 1998,Risk-On,XLK 100%
+▸,1997-12-31→ January 1998,Risk-On,XLK 100%
+▸,1997-11-28→ December 1997,Risk-On,XLK 100%
+▸,1997-10-31→ November 1997,Risk-On,XLK 100%
+▸,1997-09-30→ October 1997,Risk-On,XLE 100%
+▸,1997-08-29→ September 1997,Risk-On,XLE 100%
+▸,1997-07-31→ August 1997,Risk-On,XLK 100%
+▸,1997-06-30→ July 1997,Risk-On,XLK 100%
+▸,1997-05-30→ June 1997,Risk-On,XLE 100%
+▸,1997-04-30→ May 1997,Risk-On,XLK 100%
+▸,1997-03-31→ April 1997,Risk-On,XLK 100%
+▸,1997-02-28→ March 1997,Risk-On,XLE 100%
+▸,1997-01-31→ February 1997,Risk-On,XLE 100%
+▸,1996-12-31→ January 1997,Risk-On,XLE 100%
+▸,1996-11-29→ December 1996,Risk-On,XLE 100%
+▸,1996-10-31→ November 1996,Risk-On,XLE 100%
+▸,1996-09-30→ October 1996,Risk-On,XLE 100%
+▸,1996-08-30→ September 1996,Risk-On,XLE 100%
+▸,1996-07-31→ August 1996,Risk-On,XLK 100%
+▸,1996-06-28→ July 1996,Risk-On,XLE 100%
+▸,1996-05-31→ June 1996,Risk-On,XLE 100%
+▸,1996-04-30→ May 1996,Risk-On,XLE 100%
+▸,1996-03-29→ April 1996,Risk-On,XLE 100%
+▸,1996-02-29→ March 1996,Risk-On,XLK 100%
+▸,1996-01-31→ February 1996,Risk-On,XLK 100%
+▸,1995-12-29→ January 1996,Risk-On,XLE 100%
+▸,1995-11-30→ December 1995,Risk-On,XLE 100%
+▸,1995-10-31→ November 1995,Risk-On,XLK 100%
+▸,1995-09-29→ October 1995,Risk-On,XLK 100%
+▸,1995-08-31→ September 1995,Risk-On,XLK 100%
+▸,1995-07-31→ August 1995,Risk-On,XLE 100%
+▸,1995-06-30→ July 1995,Risk-On,XLE 100%
+▸,1995-05-31→ June 1995,Risk-On,XLE 100%
+▸,1995-04-28→ May 1995,Risk-On,XLE 100%
+▸,1995-03-31→ April 1995,Risk-On,XLE 100%
+▸,1995-02-28→ March 1995,Risk-On,XLE 100%
+▸,1995-01-31→ February 1995,Risk-On,XLK 100%
+▸,1994-12-30→ January 1995,Risk-On,XLK 100%
+▸,1994-11-30→ December 1994,Risk-Off,"XLP 50%, IEF 50%"
+▸,1994-10-31→ November 1994,Risk-On,XLE 100%
+▸,1994-09-30→ October 1994,Risk-On,XLE 100%
+▸,1994-08-31→ September 1994,Risk-On,XLE 100%
+▸,1994-07-29→ August 1994,Risk-On,XLK 100%
+▸,1994-06-30→ July 1994,Risk-Off,XLU 100%
+▸,1994-05-31→ June 1994,Risk-Off,XLU 100%
+▸,1994-04-29→ May 1994,Risk-Off,XLU 100%
+▸,1994-03-31→ April 1994,Risk-Off,XLU 100%
+▸,1994-02-28→ March 1994,Risk-On,XLE 100%
+▸,1994-01-31→ February 1994,Risk-On,XLE 100%
+▸,1993-12-31→ January 1994,Risk-On,XLK 100%
+▸,1993-11-30→ December 1993,Risk-On,XLK 100%
+▸,1993-10-29→ November 1993,Risk-On,XLK 100%
+▸,1993-09-30→ October 1993,Risk-On,XLE 100%
+▸,1993-08-31→ September 1993,Risk-On,XLE 100%
+▸,1993-07-30→ August 1993,Risk-On,XLE 100%
+▸,1993-06-30→ July 1993,Risk-On,XLK 100%
+▸,1993-05-31→ June 1993,Risk-On,XLE 100%
+▸,1993-04-30→ May 1993,Risk-On,XLE 100%
+▸,1993-03-31→ April 1993,Risk-On,XLE 100%
+▸,1993-02-26→ March 1993,Risk-On,XLE 100%
+▸,1993-01-29→ February 1993,Risk-On,XLE 100%
+▸,1992-12-31→ January 1993,Risk-On,XLK 100%
+▸,1992-11-30→ December 1992,Risk-On,XLE 100%
+▸,1992-10-30→ November 1992,Risk-On,XLE 100%
+▸,1992-09-30→ October 1992,Risk-On,XLE 100%
+▸,1992-08-31→ September 1992,Risk-On,XLK 100%
+▸,1992-07-31→ August 1992,Risk-On,XLK 100%
+▸,1992-06-30→ July 1992,Risk-On,XLE 100%
+▸,1992-05-29→ June 1992,Risk-On,XLE 100%
+▸,1992-04-30→ May 1992,Risk-On,XLE 100%
+▸,1992-03-31→ April 1992,Risk-On,XLE 100%
+▸,1992-02-28→ March 1992,Risk-On,XLE 100%
+▸,1992-01-31→ February 1992,Risk-On,XLK 100%
+▸,1991-12-31→ January 1992,Risk-On,XLK 100%
+▸,1991-11-29→ December 1991,Risk-Off,"XLP 50%, IEF 50%"
+▸,1991-10-31→ November 1991,Risk-On,XLK 100%
+▸,1991-09-30→ October 1991,Risk-On,XLK 100%
+▸,1991-08-30→ September 1991,Risk-On,XLK 100%
+▸,1991-07-31→ August 1991,Risk-On,XLK 100%
+▸,1991-06-28→ July 1991,Risk-On,XLE 100%
+▸,1991-05-31→ June 1991,Risk-On,XLE 100%
+▸,1991-04-30→ May 1991,Risk-On,XLK 100%
+▸,1991-03-29→ April 1991,Risk-On,XLK 100%
+▸,1991-02-28→ March 1991,Risk-On,XLK 100%
+▸,1991-01-31→ February 1991,Risk-On,XLK 100%
+▸,1990-12-31→ January 1991,Risk-On,XLE 100%
+▸,1990-11-30→ December 1990,Risk-Off,XLU 100%
+▸,1990-10-31→ November 1990,Risk-Off,XLU 100%
+▸,1990-09-28→ October 1990,Risk-Off,XLU 100%
+▸,1990-08-31→ September 1990,Risk-Off,XLU 100%
+▸,1990-07-31→ August 1990,Risk-On,XLK 100%
+▸,1990-06-29→ July 1990,Risk-On,XLK 100%
+▸,1990-05-31→ June 1990,Risk-On,XLK 100%
+▸,1990-04-30→ May 1990,Risk-Off,XLU 100%
+▸,1990-03-30→ April 1990,Risk-On,XLE 100%
+▸,1990-02-28→ March 1990,Risk-Off,XLU 100%
+▸,1990-01-31→ February 1990,Risk-Off,XLU 100%
+▸,1989-12-29→ January 1990,Risk-On,XLK 100%
+▸,1989-11-30→ December 1989,Risk-On,XLK 100%
+▸,1989-10-31→ November 1989,Risk-On,XLK 100%
+▸,1989-09-29→ October 1989,Risk-On,XLE 100%
+▸,1989-08-31→ September 1989,Risk-On,XLK 100%
+▸,1989-07-31→ August 1989,Risk-On,XLE 100%
+▸,1989-06-30→ July 1989,Risk-On,XLE 100%
+▸,1989-05-31→ June 1989,Risk-On,XLE 100%
+▸,1989-04-28→ May 1989,Risk-On,XLE 100%
+▸,1989-03-31→ April 1989,Risk-On,XLE 100%
+▸,1989-02-28→ March 1989,Risk-On,XLE 100%
+▸,1989-01-31→ February 1989,Risk-On,XLE 100%
+▸,1988-12-30→ January 1989,Risk-On,XLE 100%
+▸,1988-11-30→ December 1988,Risk-On,XLE 100%
+▸,1988-10-31→ November 1988,Risk-On,XLE 100%
+▸,1988-09-30→ October 1988,Risk-On,XLE 100%
+▸,1988-08-31→ September 1988,Risk-On,XLE 100%
+▸,1988-07-29→ August 1988,Risk-On,XLE 100%
+▸,1988-06-30→ July 1988,Risk-On,XLK 100%
+▸,1988-05-31→ June 1988,Risk-Off,XLU 100%
+▸,1988-04-29→ May 1988,Risk-Off,XLU 100%
+▸,1988-03-31→ April 1988,Risk-Off,XLU 100%
+▸,1988-02-29→ March 1988,Risk-Off,"XLP 50%, IEF 50%"
+▸,1988-01-29→ February 1988,Risk-Off,XLU 100%
+▸,1987-12-31→ January 1988,Risk-Off,XLU 100%
+▸,1987-11-30→ December 1987,Risk-Off,XLU 100%
+▸,1987-10-30→ November 1987,Risk-Off,XLU 100%
+▸,1987-09-30→ October 1987,Risk-On,XLE 100%
+▸,1987-08-31→ September 1987,Risk-On,XLE 100%
+▸,1987-07-31→ August 1987,Risk-On,XLE 100%
+▸,1987-06-30→ July 1987,Risk-On,XLE 100%
+▸,1987-05-29→ June 1987,Risk-On,XLE 100%
+▸,1987-04-30→ May 1987,Risk-On,XLE 100%
+▸,1987-03-31→ April 1987,Risk-On,XLE 100%
+▸,1987-02-27→ March 1987,Risk-On,XLK 100%
+▸,1987-01-30→ February 1987,Risk-On,XLK 100%
+▸,1986-12-31→ January 1987,Risk-On,XLK 100%
+▸,1986-11-28→ December 1986,Risk-On,XLK 100%
+▸,1986-10-31→ November 1986,Risk-On,XLK 100%
+▸,1986-09-30→ October 1986,Risk-On,XLK 100%
+▸,1986-08-29→ September 1986,Risk-On,XLK 100%
+▸,1986-07-31→ August 1986,Risk-On,XLK 100%
+▸,1986-06-30→ July 1986,Risk-On,XLK 100%
+▸,1986-05-30→ June 1986,Risk-On,XLK 100%
+▸,1986-04-30→ May 1986,Risk-On,XLK 100%
+▸,1986-03-31→ April 1986,Risk-On,XLK 100%
+▸,1986-02-28→ March 1986,Risk-On,XLE 100%
+▸,1986-01-31→ February 1986,Risk-On,XLE 100%
+▸,1985-12-31→ January 1986,Risk-On,XLE 100%
+▸,1985-11-29→ December 1985,Risk-On,XLK 100%
+▸,1985-10-31→ November 1985,Risk-On,XLE 100%
+▸,1985-09-30→ October 1985,Risk-On,XLE 100%
+▸,1985-08-30→ September 1985,Risk-On,XLE 100%
+▸,1985-07-31→ August 1985,Risk-On,XLE 100%
+▸,1985-06-28→ July 1985,Risk-On,XLE 100%
+▸,1985-05-31→ June 1985,Risk-On,XLE 100%
+▸,1985-04-30→ May 1985,Risk-On,XLK 100%
+▸,1985-03-29→ April 1985,Risk-On,XLK 100%
+▸,1985-02-28→ March 1985,Risk-On,XLK 100%
+▸,1985-01-31→ February 1985,Risk-On,XLK 100%
+▸,1984-12-31→ January 1985,Risk-On,XLK 100%
+▸,1984-11-30→ December 1984,Risk-On,XLE 100%
+▸,1984-10-31→ November 1984,Risk-On,XLE 100%
+▸,1984-09-28→ October 1984,Risk-On,XLE 100%
+▸,1984-08-31→ September 1984,Risk-On,XLK 100%
+▸,1984-07-31→ August 1984,Risk-Off,"XLP 50%, IEF 50%"
+▸,1984-06-29→ July 1984,Risk-Off,"XLP 50%, IEF 50%"
+▸,1984-05-31→ June 1984,Risk-Off,XLU 100%
+▸,1984-04-30→ May 1984,Risk-Off,XLU 100%
+▸,1984-03-30→ April 1984,Risk-Off,XLU 100%
+▸,1984-02-29→ March 1984,Risk-Off,XLU 100%
+▸,1984-01-31→ February 1984,Risk-On,XLE 100%
+▸,1983-12-30→ January 1984,Risk-On,XLE 100%
+▸,1983-11-30→ December 1983,Risk-On,XLE 100%
+▸,1983-10-31→ November 1983,Risk-On,XLE 100%
+▸,1983-09-30→ October 1983,Risk-On,XLE 100%
+▸,1983-08-31→ September 1983,Risk-On,XLE 100%
+▸,1983-07-29→ August 1983,Risk-On,XLE 100%
+▸,1983-06-30→ July 1983,Risk-On,XLE 100%
+▸,1983-05-31→ June 1983,Risk-On,XLE 100%
+▸,1983-04-29→ May 1983,Risk-On,XLK 100%
+▸,1983-03-31→ April 1983,Risk-On,XLK 100%
+▸,1983-02-28→ March 1983,Risk-On,XLK 100%
+▸,1983-01-31→ February 1983,Risk-On,XLK 100%
+▸,1982-12-31→ January 1983,Risk-On,XLK 100%
+▸,1982-11-30→ December 1982,Risk-On,XLK 100%
+▸,1982-10-29→ November 1982,Risk-On,XLK 100%
+▸,1982-09-30→ October 1982,Risk-On,XLK 100%
+▸,1982-08-31→ September 1982,Risk-On,XLK 100%
+▸,1982-07-30→ August 1982,Risk-Off,XLU 100%
+▸,1982-06-30→ July 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1982-05-31→ June 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1982-04-30→ May 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1982-03-31→ April 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1982-02-26→ March 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1982-01-29→ February 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1981-12-31→ January 1982,Risk-Off,"XLP 50%, IEF 50%"
+▸,1981-11-30→ December 1981,Risk-On,XLK 100%
+▸,1981-10-30→ November 1981,Risk-Off,XLU 100%
+▸,1981-09-30→ October 1981,Risk-Off,XLU 100%
+▸,1981-08-31→ September 1981,Risk-Off,XLU 100%
+▸,1981-07-31→ August 1981,Risk-On,XLE 100%
+▸,1981-06-30→ July 1981,Risk-On,XLK 100%
+▸,1981-05-29→ June 1981,Risk-On,XLK 100%
+▸,1981-04-30→ May 1981,Risk-On,XLK 100%
+▸,1981-03-31→ April 1981,Risk-On,XLK 100%
+▸,1981-02-27→ March 1981,Risk-On,XLK 100%
+▸,1981-01-30→ February 1981,Risk-On,XLK 100%
+▸,1980-12-31→ January 1981,Risk-On,XLE 100%
+▸,1980-11-28→ December 1980,Risk-On,XLE 100%
+▸,1980-10-31→ November 1980,Risk-On,XLE 100%
+▸,1980-09-30→ October 1980,Risk-On,XLE 100%
+▸,1980-08-29→ September 1980,Risk-On,XLE 100%
+▸,1980-07-31→ August 1980,Risk-On,XLE 100%
+▸,1980-06-30→ July 1980,Risk-On,XLE 100%
+▸,1980-05-30→ June 1980,Risk-On,XLE 100%
+▸,1980-04-30→ May 1980,Risk-On,XLE 100%
+▸,1980-03-31→ April 1980,Risk-Off,XLU 100%
+▸,1980-02-29→ March 1980,Risk-On,XLE 100%
+▸,1980-01-31→ February 1980,Risk-On,XLE 100%
+▸,1979-12-31→ January 1980,Risk-On,XLE 100%
+▸,1979-11-30→ December 1979,Risk-On,XLE 100%
+▸,1979-10-31→ November 1979,Risk-On,XLE 100%
+▸,1979-09-28→ October 1979,Risk-On,XLE 100%
+▸,1979-08-31→ September 1979,Risk-On,XLE 100%
+▸,1979-07-31→ August 1979,Risk-On,XLE 100%
+▸,1979-06-29→ July 1979,Risk-On,XLE 100%
+▸,1979-05-31→ June 1979,Risk-On,XLE 100%
+▸,1979-04-30→ May 1979,Risk-On,XLE 100%
+▸,1979-03-30→ April 1979,Risk-On,XLE 100%
+▸,1979-02-28→ March 1979,Risk-Off,XLU 100%
+▸,1979-01-31→ February 1979,Risk-On,XLE 100%
+▸,1978-12-29→ January 1979,Risk-Off,XLU 100%
+▸,1978-11-30→ December 1978,Risk-Off,XLU 100%
+▸,1978-10-31→ November 1978,Risk-Off,XLU 100%
+▸,1978-09-29→ October 1978,Risk-On,XLE 100%
+▸,1978-08-31→ September 1978,Risk-On,XLE 100%
+▸,1978-07-31→ August 1978,Risk-On,XLE 100%
+▸,1978-06-30→ July 1978,Risk-On,XLE 100%
+▸,1978-05-31→ June 1978,Risk-On,XLE 100%
+▸,1978-04-28→ May 1978,Risk-On,XLE 100%
+▸,1978-03-31→ April 1978,Risk-Off,"XLP 50%, IEF 50%"
+▸,1978-02-28→ March 1978,Risk-Off,XLU 100%
+▸,1978-01-31→ February 1978,Risk-Off,XLU 100%
+▸,1977-12-30→ January 1978,Risk-Off,XLU 100%
+▸,1977-11-30→ December 1977,Risk-Off,"XLP 50%, IEF 50%"
+▸,1977-10-31→ November 1977,Risk-Off,"XLP 50%, IEF 50%"
+▸,1977-09-30→ October 1977,Risk-Off,"XLP 50%, IEF 50%"
+▸,1977-08-31→ September 1977,Risk-Off,"XLP 50%, IEF 50%"
+▸,1977-07-29→ August 1977,Risk-Off,XLU 100%
+▸,1977-06-30→ July 1977,Risk-On,XLE 100%
+▸,1977-05-31→ June 1977,Risk-Off,XLU 100%
+▸,1977-04-29→ May 1977,Risk-Off,XLU 100%
+▸,1977-03-31→ April 1977,Risk-Off,XLU 100%
+▸,1977-02-28→ March 1977,Risk-Off,XLU 100%
+▸,1977-01-31→ February 1977,Risk-On,XLE 100%
+▸,1976-12-31→ January 1977,Risk-On,XLE 100%
+▸,1976-11-30→ December 1976,Risk-On,XLE 100%
+▸,1976-10-29→ November 1976,Risk-On,XLE 100%
+▸,1976-09-30→ October 1976,Risk-On,XLK 100%
+▸,1976-08-31→ September 1976,Risk-On,XLK 100%
+▸,1976-07-30→ August 1976,Risk-On,XLE 100%
+▸,1976-06-30→ July 1976,Risk-On,XLE 100%
+▸,1976-05-31→ June 1976,Risk-On,XLE 100%
+▸,1976-04-30→ May 1976,Risk-On,XLE 100%
+▸,1976-03-31→ April 1976,Risk-On,XLE 100%
+▸,1976-02-27→ March 1976,Risk-On,XLE 100%
+▸,1976-01-30→ February 1976,Risk-On,XLE 100%
+▸,1975-12-31→ January 1976,Risk-On,XLK 100%
+▸,1975-11-28→ December 1975,Risk-On,XLK 100%
+▸,1975-10-31→ November 1975,Risk-On,XLK 100%
+▸,1975-09-30→ October 1975,Risk-On,XLE 100%
+▸,1975-08-29→ September 1975,Risk-On,XLE 100%
+▸,1975-07-31→ August 1975,Risk-On,XLE 100%
+▸,1975-06-30→ July 1975,Risk-On,XLE 100%
+▸,1975-05-30→ June 1975,Risk-On,XLE 100%
+▸,1975-04-30→ May 1975,Risk-On,XLE 100%
+▸,1975-03-31→ April 1975,Risk-On,XLK 100%
+▸,1975-02-28→ March 1975,Risk-On,XLK 100%
+▸,1975-01-31→ February 1975,Risk-On,XLE 100%
+▸,1974-12-31→ January 1975,Risk-Off,XLU 100%
+▸,1974-11-29→ December 1974,Risk-Off,XLU 100%
+▸,1974-10-31→ November 1974,Risk-Off,XLU 100%
+▸,1974-09-30→ October 1974,Risk-Off,XLU 100%
+▸,1974-08-30→ September 1974,Risk-Off,XLU 100%
+▸,1974-07-31→ August 1974,Risk-Off,XLU 100%
+▸,1974-06-28→ July 1974,Risk-Off,XLU 100%
+▸,1974-05-31→ June 1974,Risk-Off,XLU 100%
+▸,1974-04-30→ May 1974,Risk-Off,XLU 100%
+▸,1974-03-29→ April 1974,Risk-Off,XLU 100%
+▸,1974-02-28→ March 1974,Risk-Off,XLU 100%
+▸,1974-01-31→ February 1974,Risk-Off,XLU 100%
+▸,1973-12-31→ January 1974,Risk-Off,XLU 100%
+▸,1973-11-30→ December 1973,Risk-Off,XLU 100%
+▸,1973-10-31→ November 1973,Risk-On,XLE 100%
+▸,1973-09-28→ October 1973,Risk-On,XLE 100%
+▸,1973-08-31→ September 1973,Risk-Off,XLU 100%
+▸,1973-07-31→ August 1973,Risk-Off,XLU 100%
+▸,1973-06-29→ July 1973,Risk-Off,XLU 100%
+▸,1973-05-31→ June 1973,Risk-Off,XLU 100%
+▸,1973-04-30→ May 1973,Risk-Off,XLU 100%
+▸,1973-03-30→ April 1973,Risk-On,XLE 100%
+▸,1973-02-28→ March 1973,Risk-On,XLE 100%
+▸,1973-01-31→ February 1973,Risk-On,XLE 100%
+▸,1972-12-29→ January 1973,Risk-On,XLE 100%
+▸,1972-11-30→ December 1972,Risk-On,XLE 100%
+▸,1972-10-31→ November 1972,Risk-On,XLE 100%
+▸,1972-09-29→ October 1972,Risk-On,XLE 100%
+▸,1972-08-31→ September 1972,Risk-On,XLE 100%
+▸,1972-07-31→ August 1972,Risk-On,XLK 100%
+▸,1972-06-30→ July 1972,Risk-On,XLE 100%
+▸,1972-05-31→ June 1972,Risk-On,XLE 100%
+▸,1972-04-28→ May 1972,Risk-On,XLE 100%
+▸,1972-03-31→ April 1972,Risk-On,XLE 100%
+▸,1972-02-29→ March 1972,Risk-On,XLK 100%
+▸,1972-01-31→ February 1972,Risk-On,XLK 100%
+▸,1971-12-31→ January 1972,Risk-On,XLK 100%
+▸,1971-11-30→ December 1971,Risk-Off,"XLP 50%, IEF 50%"
+▸,1971-10-29→ November 1971,Risk-Off,"XLP 50%, IEF 50%"
+▸,1971-09-30→ October 1971,Risk-On,XLE 100%
+▸,1971-08-31→ September 1971,Risk-On,XLE 100%
+▸,1971-07-30→ August 1971,Risk-On,XLK 100%
+▸,1971-06-30→ July 1971,Risk-On,XLK 100%
+▸,1971-05-31→ June 1971,Risk-On,XLE 100%
+▸,1971-04-30→ May 1971,Risk-On,XLE 100%
+▸,1971-03-31→ April 1971,Risk-On,XLE 100%
+▸,1971-02-26→ March 1971,Risk-On,XLK 100%
+▸,1971-01-29→ February 1971,Risk-On,XLK 100%
+▸,1970-12-31→ January 1971,Risk-On,XLE 100%
+▸,1970-11-30→ December 1970,Risk-On,XLE 100%
+▸,1970-10-30→ November 1970,Risk-On,XLE 100%
+▸,1970-09-30→ October 1970,Risk-On,XLE 100%
+▸,1970-08-31→ September 1970,Risk-Off,XLU 100%
+▸,1970-07-31→ August 1970,Risk-Off,XLU 100%
+▸,1970-06-30→ July 1970,Risk-Off,XLU 100%
+▸,1970-05-29→ June 1970,Risk-Off,XLU 100%
+▸,1970-04-30→ May 1970,Risk-Off,XLU 100%
+▸,1970-03-31→ April 1970,Risk-Off,XLU 100%
+▸,1970-02-27→ March 1970,Risk-Off,XLU 100%
+▸,1970-01-30→ February 1970,Risk-Off,XLU 100%
+▸,1969-12-31→ January 1970,Risk-Off,XLU 100%
+▸,1969-11-28→ December 1969,Risk-Off,XLU 100%
+▸,1969-10-31→ November 1969,Risk-Off,XLU 100%
+▸,1969-09-30→ October 1969,Risk-Off,XLU 100%
+▸,1969-08-29→ September 1969,Risk-Off,"XLP 50%, IEF 50%"
+▸,1969-07-31→ August 1969,Risk-Off,XLU 100%
+▸,1969-06-30→ July 1969,Risk-Off,XLU 100%
+▸,1969-05-30→ June 1969,Risk-On,XLE 100%
+▸,1969-04-30→ May 1969,Risk-On,XLE 100%
+▸,1969-03-31→ April 1969,Risk-On,XLE 100%
+▸,1969-02-28→ March 1969,Risk-Off,"XLP 50%, IEF 50%"
+▸,1969-01-31→ February 1969,Risk-On,XLE 100%
+▸,1968-12-31→ January 1969,Risk-On,XLE 100%
+▸,1968-11-29→ December 1968,Risk-On,XLE 100%
+▸,1968-10-31→ November 1968,Risk-On,XLE 100%
+▸,1968-09-30→ October 1968,Risk-On,XLE 100%
+▸,1968-08-30→ September 1968,Risk-On,XLE 100%
+▸,1968-07-31→ August 1968,Risk-On,XLE 100%
+▸,1968-06-28→ July 1968,Risk-On,XLK 100%
+▸,1968-05-31→ June 1968,Risk-On,XLE 100%
+▸,1968-04-30→ May 1968,Risk-On,XLE 100%
+▸,1968-03-29→ April 1968,Risk-Off,XLU 100%
+▸,1968-02-29→ March 1968,Risk-Off,XLU 100%
+▸,1968-01-31→ February 1968,Risk-Off,XLU 100%
+▸,1967-12-29→ January 1968,Risk-On,XLE 100%
+▸,1967-11-30→ December 1967,Risk-On,XLE 100%
+▸,1967-10-31→ November 1967,Risk-On,XLE 100%
+▸,1967-09-29→ October 1967,Risk-On,XLE 100%
+▸,1967-08-31→ September 1967,Risk-On,XLE 100%
+▸,1967-07-31→ August 1967,Risk-On,XLE 100%
+▸,1967-06-30→ July 1967,Risk-On,XLE 100%
+▸,1967-05-31→ June 1967,Risk-On,XLK 100%
+▸,1967-04-28→ May 1967,Risk-On,XLK 100%
+▸,1967-03-31→ April 1967,Risk-On,XLK 100%
+▸,1967-02-28→ March 1967,Risk-On,XLK 100%
+▸,1967-01-31→ February 1967,Risk-On,XLK 100%
+▸,1966-12-30→ January 1967,Risk-Off,XLU 100%
+▸,1966-11-30→ December 1966,Risk-Off,XLU 100%
+▸,1966-10-31→ November 1966,Risk-Off,XLU 100%
+▸,1966-09-30→ October 1966,Risk-Off,XLU 100%
+▸,1966-08-31→ September 1966,Risk-Off,XLU 100%
+▸,1966-07-29→ August 1966,Risk-Off,"XLP 50%, IEF 50%"
+▸,1966-06-30→ July 1966,Risk-Off,XLU 100%
+▸,1966-05-31→ June 1966,Risk-Off,XLU 100%
+▸,1966-04-29→ May 1966,Risk-On,XLE 100%
+▸,1966-03-31→ April 1966,Risk-On,XLE 100%
+▸,1966-02-28→ March 1966,Risk-On,XLK 100%
+▸,1966-01-31→ February 1966,Risk-On,XLK 100%
+▸,1965-12-31→ January 1966,Risk-On,XLK 100%
+▸,1965-11-30→ December 1965,Risk-On,XLK 100%
+▸,1965-10-29→ November 1965,Risk-On,XLK 100%
+▸,1965-09-30→ October 1965,Risk-On,XLK 100%
+▸,1965-08-31→ September 1965,Risk-On,XLK 100%
+▸,1965-07-30→ August 1965,Risk-Off,"XLP 50%, IEF 50%"
+▸,1965-06-30→ July 1965,Risk-Off,"XLP 50%, IEF 50%"
+▸,1965-05-31→ June 1965,Risk-On,XLK 100%
+▸,1965-04-30→ May 1965,Risk-On,XLK 100%
+▸,1965-03-31→ April 1965,Risk-On,XLK 100%
+▸,1965-02-26→ March 1965,Risk-On,XLK 100%
+▸,1965-01-29→ February 1965,Risk-On,XLK 100%
+▸,1964-12-31→ January 1965,Risk-On,XLK 100%
+▸,1964-11-30→ December 1964,Risk-On,XLK 100%
+▸,1964-10-30→ November 1964,Risk-On,XLK 100%
+▸,1964-09-30→ October 1964,Risk-On,XLK 100%
+▸,1964-08-31→ September 1964,Risk-On,XLK 100%
+▸,1964-07-31→ August 1964,Risk-On,XLK 100%
+▸,1964-06-30→ July 1964,Risk-On,XLK 100%
+▸,1964-05-29→ June 1964,Risk-On,XLK 100%
+▸,1964-04-30→ May 1964,Risk-On,XLK 100%
+▸,1964-03-31→ April 1964,Risk-On,XLK 100%
+▸,1964-02-28→ March 1964,Risk-On,XLK 100%
+▸,1964-01-31→ February 1964,Risk-On,XLK 100%
+▸,1963-12-31→ January 1964,Risk-On,XLK 100%
+▸,1963-11-29→ December 1963,Risk-On,XLK 100%
+▸,1963-10-31→ November 1963,Risk-On,XLK 100%
+▸,1963-09-30→ October 1963,Risk-On,XLK 100%
+▸,1963-08-30→ September 1963,Risk-On,XLK 100%
+▸,1963-07-31→ August 1963,Risk-On,XLK 100%
+▸,1963-06-28→ July 1963,Risk-On,XLK 100%
+▸,1963-05-31→ June 1963,Risk-On,XLK 100%
+▸,1963-04-30→ May 1963,Risk-On,XLK 100%
+▸,1963-03-29→ April 1963,Risk-On,XLK 100%
+▸,1963-02-28→ March 1963,Risk-On,XLK 100%
+▸,1963-01-31→ February 1963,Risk-On,XLK 100%
+▸,1962-12-31→ January 1963,Risk-On,XLK 100%
+▸,1962-11-30→ December 1962,Risk-On,XLK 100%
+▸,1962-10-31→ November 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-09-28→ October 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-08-31→ September 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-07-31→ August 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-06-29→ July 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-05-31→ June 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-04-30→ May 1962,Risk-Off,"XLP 50%, IEF 50%"
+▸,1962-03-30→ April 1962,Risk-On,XLK 100%
+▸,1962-02-28→ March 1962,Risk-On,XLK 100%
+▸,1962-01-31→ February 1962,Risk-On,XLK 100%
+▸,1961-12-29→ January 1962,Risk-On,XLK 100%
+▸,1961-11-30→ December 1961,Risk-On,XLK 100%
+▸,1961-10-31→ November 1961,Risk-On,XLK 100%
+▸,1961-09-29→ October 1961,Risk-On,XLK 100%
+▸,1961-08-31→ September 1961,Risk-On,XLK 100%
+▸,1961-07-31→ August 1961,Risk-On,XLK 100%
+▸,1961-06-30→ July 1961,Risk-On,XLK 100%
+▸,1961-05-31→ June 1961,Risk-On,XLK 100%
+▸,1961-04-28→ May 1961,Risk-On,XLK 100%
+▸,1961-03-31→ April 1961,Risk-On,XLK 100%
+▸,1961-02-28→ March 1961,Risk-On,XLK 100%
+▸,1961-01-31→ February 1961,Risk-On,XLK 100%
+▸,1960-12-30→ January 1961,Risk-On,XLK 100%
+▸,1960-11-30→ December 1960,Risk-On,XLK 100%
+▸,1960-10-31→ November 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-09-30→ October 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-08-31→ September 1960,Risk-On,XLK 100%
+▸,1960-07-29→ August 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-06-30→ July 1960,Risk-On,XLK 100%
+▸,1960-05-31→ June 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-04-29→ May 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-03-31→ April 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-02-29→ March 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1960-01-29→ February 1960,Risk-Off,"XLP 50%, IEF 50%"
+▸,1959-12-31→ January 1960,Risk-On,XLK 100%
+▸,1959-11-30→ December 1959,Risk-On,XLK 100%
+▸,1959-10-30→ November 1959,Risk-On,XLK 100%
+▸,1959-09-30→ October 1959,Risk-On,XLK 100%
+▸,1959-08-31→ September 1959,Risk-On,XLK 100%
+▸,1959-07-31→ August 1959,Risk-On,XLK 100%
+▸,1959-06-30→ July 1959,Risk-On,XLK 100%
+▸,1959-05-29→ June 1959,Risk-On,XLK 100%
+▸,1959-04-30→ May 1959,Risk-On,XLK 100%
+▸,1959-03-31→ April 1959,Risk-On,XLK 100%
+▸,1959-02-27→ March 1959,Risk-On,XLK 100%
+▸,1959-01-30→ February 1959,Risk-On,XLK 100%
+▸,1958-12-31→ January 1959,Risk-On,XLK 100%
+▸,1958-11-28→ December 1958,Risk-On,XLK 100%
+▸,1958-10-31→ November 1958,Risk-On,XLK 100%
+▸,1958-09-30→ October 1958,Risk-On,XLK 100%
+▸,1958-08-29→ September 1958,Risk-On,XLE 100%
+▸,1958-07-31→ August 1958,Risk-On,XLE 100%
+▸,1958-06-30→ July 1958,Risk-On,XLK 100%
+▸,1958-05-30→ June 1958,Risk-On,XLK 100%
+▸,1958-04-30→ May 1958,Risk-On,XLE 100%
+▸,1958-03-31→ April 1958,Risk-Off,"XLP 50%, IEF 50%"
+▸,1958-02-28→ March 1958,Risk-Off,XLU 100%
+▸,1958-01-31→ February 1958,Risk-Off,"XLP 50%, IEF 50%"
+▸,1957-12-31→ January 1958,Risk-Off,"XLP 50%, IEF 50%"
+▸,1957-11-29→ December 1957,Risk-Off,"XLP 50%, IEF 50%"
+▸,1957-10-31→ November 1957,Risk-Off,"XLP 50%, IEF 50%"
+▸,1957-09-30→ October 1957,Risk-Off,"XLP 50%, IEF 50%"
+▸,1957-08-30→ September 1957,Risk-On,XLK 100%
+▸,1957-07-31→ August 1957,Risk-On,XLK 100%
+▸,1957-06-28→ July 1957,Risk-On,XLE 100%
+▸,1957-05-31→ June 1957,Risk-On,XLE 100%
+▸,1957-04-30→ May 1957,Risk-On,XLE 100%
+▸,1957-03-29→ April 1957,Risk-Off,XLU 100%
+▸,1957-02-28→ March 1957,Risk-Off,XLU 100%
+▸,1957-01-31→ February 1957,Risk-Off,XLU 100%
+▸,1956-12-31→ January 1957,Risk-On,XLE 100%
+▸,1956-11-30→ December 1956,Risk-Off,XLU 100%
+▸,1956-10-31→ November 1956,Risk-Off,"XLP 50%, IEF 50%"
+▸,1956-09-28→ October 1956,Risk-Off,"XLP 50%, IEF 50%"
+▸,1956-08-31→ September 1956,Risk-On,XLE 100%
+▸,1956-07-31→ August 1956,Risk-On,XLK 100%
+▸,1956-06-29→ July 1956,Risk-On,XLK 100%
+▸,1956-05-31→ June 1956,Risk-On,XLK 100%
+▸,1956-04-30→ May 1956,Risk-On,XLK 100%
+▸,1956-03-30→ April 1956,Risk-On,XLK 100%
+▸,1956-02-29→ March 1956,Risk-On,XLK 100%
+▸,1956-01-31→ February 1956,Risk-On,XLK 100%
+▸,1955-12-30→ January 1956,Risk-On,XLK 100%
+▸,1955-11-30→ December 1955,Risk-On,XLK 100%
+▸,1955-10-31→ November 1955,Risk-On,XLK 100%
+▸,1955-09-30→ October 1955,Risk-On,XLK 100%
+▸,1955-08-31→ September 1955,Risk-On,XLK 100%
+▸,1955-07-29→ August 1955,Risk-On,XLK 100%
+▸,1955-06-30→ July 1955,Risk-On,XLK 100%
+▸,1955-05-31→ June 1955,Risk-On,XLK 100%
+▸,1955-04-29→ May 1955,Risk-On,XLK 100%
+▸,1955-03-31→ April 1955,Risk-On,XLK 100%
+▸,1955-02-28→ March 1955,Risk-On,XLK 100%
+▸,1955-01-31→ February 1955,Risk-On,XLK 100%
+▸,1954-12-31→ January 1955,Risk-On,XLK 100%
+▸,1954-11-30→ December 1954,Risk-On,XLK 100%
+▸,1954-10-29→ November 1954,Risk-On,XLK 100%
+▸,1954-09-30→ October 1954,Risk-On,XLK 100%
+▸,1954-08-31→ September 1954,Risk-On,XLK 100%
+▸,1954-07-30→ August 1954,Risk-On,XLK 100%
+▸,1954-06-30→ July 1954,Risk-On,XLK 100%
+▸,1954-05-31→ June 1954,Risk-On,XLK 100%
+▸,1954-04-30→ May 1954,Risk-On,XLK 100%
+▸,1954-03-31→ April 1954,Risk-On,XLK 100%
+▸,1954-02-26→ March 1954,Risk-On,XLK 100%
+▸,1954-01-29→ February 1954,Risk-On,XLK 100%
+▸,1953-12-31→ January 1954,Risk-On,XLK 100%
+▸,1953-11-30→ December 1953,Risk-On,XLK 100%
+▸,1953-10-30→ November 1953,Risk-On,XLK 100%
+▸,1953-09-30→ October 1953,Risk-Off,"XLP 50%, IEF 50%"
+▸,1953-08-31→ September 1953,Risk-Off,"XLP 50%, IEF 50%"
+▸,1953-07-31→ August 1953,Risk-On,XLK 100%
+▸,1953-06-30→ July 1953,Risk-Off,"XLP 50%, IEF 50%"
+▸,1953-05-29→ June 1953,Risk-Off,"XLP 50%, IEF 50%"
+▸,1953-04-30→ May 1953,Risk-Off,"XLP 50%, IEF 50%"
+▸,1953-03-31→ April 1953,Risk-On,XLK 100%
+▸,1953-02-27→ March 1953,Risk-On,XLK 100%
+▸,1953-01-30→ February 1953,Risk-On,XLK 100%
+▸,1952-12-31→ January 1953,Risk-On,XLK 100%
+▸,1952-11-28→ December 1952,Risk-On,XLK 100%
+▸,1952-10-31→ November 1952,Risk-On,XLK 100%
+▸,1952-09-30→ October 1952,Risk-On,XLE 100%
+▸,1952-08-29→ September 1952,Risk-On,XLE 100%
+▸,1952-07-31→ August 1952,Risk-On,XLE 100%
+▸,1952-06-30→ July 1952,Risk-On,XLK 100%
+▸,1952-05-30→ June 1952,Risk-On,XLK 100%
+▸,1952-04-30→ May 1952,Risk-On,XLK 100%
+▸,1952-03-31→ April 1952,Risk-On,XLE 100%
+▸,1952-02-29→ March 1952,Risk-On,XLE 100%
+▸,1952-01-31→ February 1952,Risk-On,XLE 100%
+▸,1951-12-31→ January 1952,Risk-On,XLE 100%
+▸,1951-11-30→ December 1951,Risk-On,XLE 100%
+▸,1951-10-31→ November 1951,Risk-On,XLE 100%
+▸,1951-09-28→ October 1951,Risk-On,XLE 100%
+▸,1951-08-31→ September 1951,Risk-On,XLE 100%
+▸,1951-07-31→ August 1951,Risk-On,XLE 100%
+▸,1951-06-29→ July 1951,Risk-On,XLK 100%
+▸,1951-05-31→ June 1951,Risk-On,XLE 100%
+▸,1951-04-30→ May 1951,Risk-On,XLE 100%
+▸,1951-03-30→ April 1951,Risk-On,XLE 100%
+▸,1951-02-28→ March 1951,Risk-On,XLE 100%

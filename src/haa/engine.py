@@ -208,7 +208,8 @@ def _run_weighted_backtest(
                 sale = max(0.0, current - desired_before_tax.get(asset, 0.0))
                 if sale and tax_enabled:
                     basis = tax_state.cost_bases.get(asset, 0.0)
-                    event = tax_state.sell(sale, asset=asset, cost_basis_sold=basis * sale / current if current else 0.0)
+                    sold_basis = min(basis, basis * sale / current) if current else 0.0
+                    event = tax_state.sell(sale, asset=asset, cost_basis_sold=sold_basis)
                     taxes += event["tax_paid"]
                     tax_events.append({"date": row.execution_date, "sold_asset": asset, "proceeds": sale, **event})
             trade_cost = current_total * transaction_cost * turnover

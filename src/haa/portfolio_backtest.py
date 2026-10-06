@@ -117,7 +117,8 @@ def run_portfolio_backtest(
                     sale = max(0.0, current - desired_before_tax[name])
                     if sale:
                         basis = tax_state.cost_bases.get(name, 0.0)
-                        event = tax_state.sell(sale, asset=name, cost_basis_sold=basis * sale / current if current else 0.0)
+                        sold_basis = min(basis, basis * sale / current) if current else 0.0
+                        event = tax_state.sell(sale, asset=name, cost_basis_sold=sold_basis)
                         tax_paid += event["tax_paid"]
                         residual[name] -= sale
                         tax_events.append({"date": date, "tax_level": "portfolio reset", "sold_sleeve": name, "proceeds": sale, **event})
