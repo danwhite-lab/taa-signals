@@ -2208,7 +2208,7 @@ if page == "Signals":
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if is_daily_execution:
         title_column.title(signal_model_name)
-        title_column.caption("EXPERIMENTAL · not a verified BestFolio replica · completed daily decision · next-session-close execution")
+        title_column.caption("EXPERIMENTAL · independently implemented rules · completed daily decision · next-session-close execution")
         st.warning(signal_strategy.risk_warning)
         if signal_status.decision is None:
             st.error(signal_status.reason)

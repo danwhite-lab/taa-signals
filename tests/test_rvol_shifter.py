@@ -15,6 +15,10 @@ from haa.strategies.rvol_shifter import RVolShifterCashOnly, completed_daily_cut
 
 
 class RVolShifterTests(unittest.TestCase):
+    def test_experimental_warning_does_not_display_vendor_branding(self):
+        self.assertIn("EXPERIMENTAL", RVolShifterCashOnly.risk_warning)
+        self.assertNotIn("bestfolio", RVolShifterCashOnly.risk_warning.casefold())
+
     def transition(self, state="QLD", **changes):
         inputs = dict(rvol=0.16, vr=1.0, trend=0.0, credit=0.0, donchian=False,
                       recovery=0.0, defensive_age=0, donchian_lock=False)

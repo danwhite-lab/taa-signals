@@ -27,7 +27,7 @@ class RVolShifterCashOnly:
     backtest_available = True
     risk_warning = (
         "EXPERIMENTAL daily leveraged Nasdaq strategy: losses can be severe. This is a documented interpretation, "
-        "not a verified BestFolio replica. Assumptions: adjusted closes for all signals; VR = 15-session "
+        "not independently validated against a reference implementation. Assumptions: adjusted closes for all signals; VR = 15-session "
         "annualized log-return sample volatility / its trailing 252-session mean (including today); "
         "close-based 40/5-session lows including today; 20 trading-session timeout; start defensive; "
         "one state transition per close, with ordinary defensive exits taking priority over Donchian. "
