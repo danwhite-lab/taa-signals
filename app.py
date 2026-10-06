@@ -657,7 +657,6 @@ if page == "Backtest":
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
             st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {US_TOTAL_MARKET_BENCHMARK.label}.")
-            st.caption(f"Benchmark source: [{US_TOTAL_MARKET_BENCHMARK.source_url}]({US_TOTAL_MARKET_BENCHMARK.source_url}).")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")

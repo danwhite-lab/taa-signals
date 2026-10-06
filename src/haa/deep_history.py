@@ -33,7 +33,6 @@ class DeepHistoryBenchmarkSpec:
     asset_id: str
     label: str
     returns_file: str
-    source_url: str
     caveat: str
 
 
@@ -44,11 +43,10 @@ DEEP_HISTORY_SPECS = {
 }
 
 US_TOTAL_MARKET_BENCHMARK = DeepHistoryBenchmarkSpec(
-    asset_id="US_TOTAL_MARKET_BESTFOLIO",
+    asset_id="US_TOTAL_MARKET_VTI_PROXY",
     label="US Total Market VTI Proxy",
-    returns_file="us_total_market_bestfolio_monthly_returns.csv",
-    source_url="https://bestfolio.app/strategies/us-market-benchmark",
-    caveat="BestFolio labels the benchmark as VTI, but its history before May 2001 uses stand-in funds (VTSMX and VFINX). It is a simulated total-U.S.-market proxy, not actual pre-inception VTI or S&P 500/SPY history.",
+    returns_file="us_total_market_vti_proxy_monthly_returns.csv",
+    caveat="Before May 2001, this series uses stand-in funds (VTSMX and VFINX). It is a simulated total-U.S.-market proxy, not actual pre-inception VTI or S&P 500/SPY history.",
 )
 
 

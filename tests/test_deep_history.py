@@ -13,7 +13,7 @@ def test_bundled_proxy_histories_align_without_invented_months():
         assert (signals.index + pd.offsets.MonthEnd(0) + pd.offsets.MonthEnd(1)).isin(returns.index).all()
 
 
-def test_deep_history_uses_the_bestfolio_total_market_proxy_only_over_shared_months():
+def test_deep_history_uses_the_total_market_vti_proxy_only_over_shared_months():
     benchmark_returns = _read_monthly_returns(DEEP_HISTORY_DIR / US_TOTAL_MARKET_BENCHMARK.returns_file)
     assert benchmark_returns.index.min() == pd.Timestamp("1988-01-31")
     assert benchmark_returns.index.max() == pd.Timestamp("2026-10-31")
