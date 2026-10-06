@@ -25,3 +25,12 @@ def performance_metrics(values: pd.Series, initial_value: float, periods_per_yea
 def annual_returns(monthly_returns: pd.Series) -> pd.Series:
     """Compound the exact holding-period returns in each calendar year."""
     return monthly_returns.resample("YE").apply(lambda returns: (1 + returns).prod() - 1).rename("return")
+
+
+def rolling_annualized_returns(monthly_returns: pd.Series, years: int) -> pd.Series:
+    """Return annualized compound returns for every complete rolling monthly window."""
+    if years < 1:
+        raise ValueError("Rolling-return window must be at least one year.")
+    months = years * 12
+    compounded = (1 + monthly_returns).rolling(months, min_periods=months).apply(np.prod, raw=True)
+    return compounded.pow(1 / years).sub(1).rename(f"{years}-year rolling CAGR")

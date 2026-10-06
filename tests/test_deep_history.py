@@ -2,6 +2,7 @@ import pandas as pd
 
 from haa.deep_history import DEEP_HISTORY_DIR, DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, _read_monthly_returns, deep_history_model_input, load_deep_history
 from haa.engine import run_backtest
+from haa.metrics import rolling_annualized_returns
 from haa.portfolio_backtest import run_portfolio_backtest
 
 
@@ -21,6 +22,14 @@ def test_deep_history_uses_the_total_market_vti_proxy_only_over_shared_months():
     assert model.benchmark_asset == US_TOTAL_MARKET_BENCHMARK.asset_id
     assert model.monthly_prices.index.min() == pd.Timestamp("1987-12-31")
     assert model.monthly_prices[US_TOTAL_MARKET_BENCHMARK.asset_id].notna().all()
+
+
+def test_rolling_annualized_returns_compound_exact_monthly_periods():
+    returns = pd.Series([0.01] * 24, index=pd.date_range("2020-01-31", periods=24, freq="ME"))
+    rolling = rolling_annualized_returns(returns, 1)
+    assert rolling.iloc[:11].isna().all()
+    assert abs(rolling.iloc[11] - ((1.01**12) - 1)) < 1e-12
+    assert abs(rolling.iloc[-1] - ((1.01**12) - 1)) < 1e-12
 
 
 def test_proxy_tax_path_and_cm_ic_blend_run():

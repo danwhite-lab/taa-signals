@@ -17,7 +17,7 @@ from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import DEEP_HISTORY_SPECS, US_TOTAL_MARKET_BENCHMARK, deep_history_model_input
 from haa.engine import run_backtest
-from haa.metrics import annual_returns, performance_metrics
+from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -288,6 +288,29 @@ def model_selector(prefix: str, heading: str | None = None, columns=None, implem
             else:
                 st.segmented_control("Implementation", available_implementations, default=st.session_state[implementation_key], key=implementation_key, selection_mode="single")
     return resolve(selected_strategy, selected_variant, st.session_state[implementation_key]).label
+
+
+def render_deep_history_rolling_returns(monthly_returns: pd.DataFrame, key_prefix: str) -> None:
+    """Render comparable rolling CAGRs from Deep History's exact holding returns."""
+    available_years = tuple(years for years in (1, 3, 5, 10) if len(monthly_returns) >= years * 12)
+    if not available_years:
+        return
+    with st.expander("Rolling returns", expanded=False):
+        default_years = 5 if 5 in available_years else available_years[-1]
+        years = st.selectbox(
+            "Rolling period",
+            available_years,
+            index=available_years.index(default_years),
+            format_func=lambda value: f"{value}-year rolling CAGR",
+            key=f"{key_prefix}_rolling_years",
+        )
+        rolling = pd.DataFrame({
+            column: rolling_annualized_returns(monthly_returns[column], years)
+            for column in monthly_returns.columns
+        }).dropna(how="all")
+        st.caption("Each point is the annualized compounded return for the preceding complete rolling period.")
+        st.plotly_chart(px.line(rolling, title=f"{years}-year rolling CAGR"), use_container_width=True)
+        st.dataframe(rolling.style.format("{:.2%}"), use_container_width=True)
 
 
 def execution_assets(decision: pd.Series, benchmark_asset: str) -> tuple[str, ...]:
@@ -752,6 +775,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                     st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
                 with monthly_tab:
                     st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+            render_deep_history_rolling_returns(monthly_returns, "deep_proxy_single")
         else:
             portfolio_inputs = {}
             selected_sleeves = []
@@ -824,6 +848,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                     st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
                 with monthly_tab:
                     st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+            render_deep_history_rolling_returns(monthly_returns, "deep_proxy_blend")
     except (ValueError, KeyError, OSError) as exc:
         title_column.title("Deep History / Proxy backtest")
         st.error(str(exc))
