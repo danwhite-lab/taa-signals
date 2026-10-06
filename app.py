@@ -15,7 +15,7 @@ from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_A
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
-from haa.deep_history import DEEP_HISTORY_SPECS, SP500_TOTAL_RETURN_BENCHMARK, deep_history_model_input
+from haa.deep_history import DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input
 from haa.engine import run_backtest
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -44,6 +44,7 @@ MODEL_RULES = {
     "Growth-Inflation Diversified": """**Growth-Inflation Diversified:** Uses the same SPY and sector-ratio 200-day signals as the Concentrated variant, but holds fixed 50/50 pairs: high growth/high inflation → XLE/XLI; high growth/low inflation → XLK/XLY; low growth/high inflation → XLE/XLB; low growth/low inflation → XLV/XLP. The pairs are fixed; no sectors are dynamically ranked. Inflation Compass is the later successor: it keeps this quadrant idea but makes five-year breakeven inflation its primary signal and uses sector relative strength as confirmation.""",
     "TA-125 Smart Momentum": """**TA-125 Smart Momentum:** An Israeli equity momentum strategy implemented through Migdal MTF TA-125 Smart Momentum (fund 5134713). The underlying TA-125 Smart Momentum index dynamically adjusts TA-125 stock weights according to momentum and trend strength, including the relationship between 50-day and 200-day moving averages. The fund is held continuously rather than tactically traded, so selection and reweighting happen inside the index without investor-level trading on each rebalance.""",
     "Buy and Hold SPY": """**Buy and Hold SPY:** Holds the SPDR S&P 500 ETF Trust continuously. There is no timing, rotation, or cash rule; the backtest uses only actual SPY ETF history available from Yahoo Finance.""",
+    "Buy and Hold VT": """**Buy and Hold VT:** Holds Vanguard Total World Stock ETF continuously. There is no timing, rotation, or cash rule; the backtest uses only actual VT ETF history available from Yahoo Finance.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
     "HAA 4 Israel": """**HAA 4 Israel:** Uses the published HAA-4 USD signal logic: TIP is the canary; SPY, VEA, VNQ, and IEF are ranked by 13612U; and IEF/BIL provide defensive replacement. Holdings map to CSPX (1159250), IBI MSCI AC World ex USA (5142476), IBI DJ US Real Estate (5131834), IEF (1159268), and Keren Kaspit (5136866). Its backtest uses VXUS as the U.S. return proxy for the ex-US execution fund, so it is not actual TASE or ILS performance.""",
@@ -640,6 +641,8 @@ if page == "Backtest":
         else:
             st.subheader("Proxy history sleeves")
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
+            benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option is a long-history global equity proxy, not actual VT ETF history.")
+            deep_history_benchmark = DEEP_HISTORY_BENCHMARKS[benchmark_key]
             proxy_options = tuple(DEEP_HISTORY_SPECS)
             proxy_labels = {key: spec.label for key, spec in DEEP_HISTORY_SPECS.items()}
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
@@ -679,7 +682,7 @@ if page == "Backtest":
                 st.success("Sleeve weights total 100%.")
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
-            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}.")
+            st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {deep_history_benchmark.label}.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -701,7 +704,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             raise ValueError("Choose each proxy strategy at most once.")
         if len(proxy_sleeves) == 1:
             spec = proxy_specs[proxy_sleeves[0]["model"]]
-            proxy_input = deep_history_model_input(spec)
+            proxy_input = deep_history_model_input(spec, benchmark=deep_history_benchmark)
             full_result = run_backtest(
                 proxy_input.decisions,
                 proxy_input.monthly_prices,
@@ -736,10 +739,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title(f"{spec.label} — Deep History / Proxy")
             st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
-            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}. {SP500_TOTAL_RETURN_BENCHMARK.caveat}")
+            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
             proxy_label = f"{spec.label} proxy pre-tax"
             proxy_after_label = f"{spec.label} proxy after-tax"
-            benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
+            benchmark_label = deep_history_benchmark.label
             summary = pd.DataFrame({proxy_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
             if tax_enabled:
                 summary[proxy_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)
@@ -789,7 +792,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 spec = proxy_specs[sleeve["model"]]
                 sleeve_key = f"{spec.label} ({sleeve['id']})"
                 weight = float(sleeve["weight"]) / 100
-                portfolio_inputs[sleeve_key] = (weight, deep_history_model_input(spec))
+                portfolio_inputs[sleeve_key] = (weight, deep_history_model_input(spec, benchmark=deep_history_benchmark))
                 selected_sleeves.append(f"{weight:.0%} {spec.label}")
             preliminary = run_portfolio_backtest(portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate)
             proxy_min = preliminary.common_index.min().date()
@@ -815,10 +818,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             )
             title_column.title("Deep History / Proxy portfolio blend")
             st.warning("Proxy blend: strategy-level returns are combined over their shared history. Tax uses the existing realized-gain portfolio logic, with allocation-change realization treated as a proxy because security-level prices are unavailable.")
-            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {SP500_TOTAL_RETURN_BENCHMARK.label}. {SP500_TOTAL_RETURN_BENCHMARK.caveat}")
+            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
-            benchmark_label = SP500_TOTAL_RETURN_BENCHMARK.label
+            benchmark_label = deep_history_benchmark.label
             summary = pd.DataFrame({blend_label: performance_metrics(result.monthly["pre_tax_value"], initial)})
             if tax_enabled:
                 summary[blend_after_label] = performance_metrics(result.monthly["after_tax_value"], initial)

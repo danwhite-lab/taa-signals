@@ -51,6 +51,18 @@ SP500_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
     caveat="Long monthly S&P Composite total-return proxy with dividends reinvested. It is not actual SPY, and its pre-1957 history is a reconstructed historical composite rather than the modern S&P 500.",
 )
 
+GLOBAL_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
+    asset_id="GLOBAL_EQUITY_TOTAL_RETURN_PROXY",
+    label="Global Equity Total Return Proxy",
+    returns_file="global_equity_total_return_proxy_monthly_returns.csv",
+    caveat="Synthetic FTSE All-World total-return proxy assembled from global index histories. It is not actual VT, and the proxy begins in 1970; actual VT ETF history begins in 2008.",
+)
+
+DEEP_HISTORY_BENCHMARKS = {
+    "sp500": SP500_TOTAL_RETURN_BENCHMARK,
+    "global": GLOBAL_TOTAL_RETURN_BENCHMARK,
+}
+
 
 def _parse_percent(value: str) -> float | None:
     value = value.strip().replace("%", "")
@@ -122,7 +134,26 @@ def _read_long_monthly_returns(path: Path) -> pd.Series:
 
 
 def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
-    return _read_long_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+    path = DEEP_HISTORY_DIR / spec.returns_file
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = set(reader.fieldnames or ())
+        if {"year", "month", "nominalReturn"}.issubset(fieldnames):
+            rows = [
+                (pd.Timestamp(int(row["year"]), int(row["month"]), 1) + pd.offsets.MonthEnd(0), float(row["nominalReturn"]))
+                for row in reader
+            ]
+        elif {"Date", "Return (%)"}.issubset(fieldnames):
+            rows = [
+                (pd.to_datetime(row["Date"], format="%m/%Y") + pd.offsets.MonthEnd(0), float(row["Return (%)"]) / 100)
+                for row in reader
+            ]
+        else:
+            raise ValueError(f"Unsupported benchmark CSV columns: {path.name}")
+    series = pd.Series(dict(rows), dtype=float).sort_index()
+    if series.empty or series.index.has_duplicates:
+        raise ValueError(f"Benchmark history is empty or has duplicate months: {path.name}")
+    return series
 
 
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
