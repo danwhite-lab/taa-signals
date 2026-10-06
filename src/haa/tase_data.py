@@ -14,6 +14,7 @@ import pandas as pd
 
 TASE_ISRAEL_ASSET_IDS = {
     "CSPX_IL": "1159250",
+    "FTSE_ALL_WORLD_IL": "1209220",
     "IEF_IL": "1159268",
     "SPMO_IL": "5140850",
     "AYALON_KASPIT": "5136866",
@@ -23,7 +24,7 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLV_IL": "1150390",
     "XLP_IL": "1150366",
 }
-TASE_ETF_ASSETS = frozenset({"CSPX_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
+TASE_ETF_ASSETS = frozenset({"CSPX_IL", "FTSE_ALL_WORLD_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
 PUBLIC_HISTORY_YEARS = 5
 
 # Default locally tradable implementations for the substitution mode. They
@@ -153,9 +154,9 @@ class TasePriceSource:
         return pd.DataFrame(series), pd.DataFrame(metadata).set_index("asset")
 
 
-def download_tase_israel_prices() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Download the three Israeli sleeves used by HAA-Simple Israel."""
-    return TasePriceSource().fetch_all()
+def download_tase_israel_prices(assets: Iterable[str] = TASE_ISRAEL_ASSET_IDS) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Download the requested Israeli security histories."""
+    return TasePriceSource().fetch_all(assets)
 
 
 def download_tase_security_prices(role_to_security_id: Mapping[str, str]) -> tuple[pd.DataFrame, pd.DataFrame]:

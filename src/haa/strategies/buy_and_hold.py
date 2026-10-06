@@ -99,6 +99,24 @@ class BuyAndHoldSPYIsrael(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldGlobalIsrael(BuyAndHoldSPY):
+    """Continuous FTSE All-World holding through TASE security 1209220."""
+
+    name = "Buy and Hold Global Israel"
+    holding_asset = "FTSE_ALL_WORLD_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-global-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold FTSE All-World security 1209220 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "FTSE All-World (1209220) remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes="Uses actual TASE/Maya history for security 1209220 in ILS, including currency exposure. History begins with available local security prices.",
+    )
+
+
 class BuyAndHoldACWI:
     """Continuous iShares MSCI ACWI ETF holding."""
 
