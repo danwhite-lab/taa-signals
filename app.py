@@ -31,6 +31,13 @@ from haa.validation import ValidationInput, profile_for, run_deterministic_valid
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Chimeric Asset Allocation": """**Experimental monthly Chimeric Asset Allocation.** Rank UPRO, TQQQ, EURL, EDC, TNA, PDBC, ERX, UGL, EDV and TMF using nine signals: total return and log-return path efficiency over 63/126/252 trading days, and price versus 3/6/12-month simple averages including the current monthly close. Divide each signal by one plus its 252-session daily-simple-return correlation to the equal-weight ten-asset universe (including itself), percentile-rank each signal with average ties, then average the nine ranks.
+
+Take the top four at 25% each, retaining a slot only if its own equal-weight 1/3/6/12-month momentum is strictly positive. When TIP momentum is negative, retain only the best-ranked equity and diversifiers in the overall top three, still subject to positive own momentum. Replace rejected slots with whichever of IEF/SGOV has stronger 13612 momentum in either regime; do not refill from lower ranks.
+
+**Conventions:** ERX rather than DIG; alphabetical final-score ties; IEF wins a defensive tie; zero TIP momentum is normal mode. Undefined correlation or zero path length rejects the signal. Actual adjusted ETF history only, with 12 completed prior monthly observations and 252 daily returns. Monthly decisions execute at the next session close through existing fees/tax logic. No synthetic prehistory or claim of reproducing published performance.
+
+Source: [creator's published replication note](https://www.reddit.com/r/LETFs/comments/1w6rva4/chimeric_asset_allocation_drink_the_koolaid/).""",
     "A-RVol Shifter V3 Cash-Only": """**Daily three-state Cash-Only interpretation.** TQQQ → QLD when RVol >18%, VR >1.25, or SPY is below SMA(200)−3%. QLD → BIL when RVol >36%, VR >1.40, SPY is below SMA−3%, or the HYG/LQD ratio falls more than 4% in 20 sessions. Otherwise QLD → BIL on a close-based 40-session QQQ low with RVol ≥20%; QLD → TQQQ when RVol <14%, VR <0.90 and SPY is above SMA+3%. Ordinary BIL → QLD requires RVol <25%, VR <1.10 and SPY above SMA−1.5%. After a Donchian exit, QQQ recovery ≥3% from its trailing five-session closing low or a 20-session timeout replaces the ordinary re-entry gate.
 
 **Explicit conventions:** RVol is 15-session log-return sample standard deviation × √252. VR divides that RVol by its trailing 252-session mean, including the current session. All indicators use adjusted closes; rolling lows include the current close. Start in BIL after full warm-up and actual ETF availability. One state transition per signal; ordinary exits take priority over Donchian. A signal executes at the next session **close**, not the creator's next open. No synthetic ETF prehistory. Fees apply to each buy and sell; tax uses the existing realized-gain/loss-carryforward logic without final liquidation. This is not a verified reproduction of published performance.
@@ -2173,6 +2180,8 @@ if page == "Compare":
 if page == "Signals":
     signal_model_name = model_name
     signal_strategy = MODEL_OPTIONS[signal_model_name]()
+    if hasattr(signal_strategy, "risk_warning") and getattr(signal_strategy, "execution_frequency", "monthly") != "daily":
+        st.warning(signal_strategy.risk_warning)
     signal_definition = definition_for_label(signal_model_name)
     signal_execution_currency = signal_definition.execution_currency
     signal_data_assets = getattr(signal_strategy, "data_assets", ASSETS)
@@ -2509,6 +2518,8 @@ if page == "Rules":
     title_column.title("Rules")
     st.subheader("Model rules")
     st.markdown(MODEL_RULES[model_name])
+    if hasattr(strategy, "risk_warning") and getattr(strategy, "execution_frequency", "monthly") != "daily":
+        st.warning(strategy.risk_warning)
     if getattr(strategy, "execution_frequency", "monthly") == "daily":
         st.warning(strategy.risk_warning)
         st.caption("Single-strategy Backtest and daily Signals are available. Monthly portfolio/Compare and generic monthly Research workflows are not yet supported.")

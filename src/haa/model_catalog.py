@@ -41,6 +41,7 @@ from .strategies import (
     VAAG4,
     MomentumCorrelationTriplet,
     RVolShifterCashOnly,
+    ChimericAssetAllocation,
 )
 
 
@@ -59,6 +60,7 @@ class ModelDefinition:
 
 
 MODEL_CATALOG: tuple[ModelDefinition, ...] = (
+    ModelDefinition("Chimeric Asset Allocation", "Standard", "Published rules (experimental)", "Chimeric Asset Allocation", ChimericAssetAllocation, description="Experimental monthly leveraged top-four allocation, nine correlation-adjusted signals and partial TIP defense. ERX energy and IEF/SGOV defense; actual ETF history only."),
     ModelDefinition("HAA", "Simple", "Original", "HAA-Simple", HAASimple),
     ModelDefinition("HAA", "Simple", "Israel", "HAA-Simple Israel", HAASimpleIsrael, "ILS"),
     ModelDefinition("HAA", "Simple Leveraged 2x", "Original", "HAA-Simple Leveraged 2x (SSO)", HAASimpleLeveraged2x),
