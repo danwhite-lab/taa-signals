@@ -1,5 +1,9 @@
 # Chimeric Asset Allocation — experimental
 
+## Full Retreat variant
+
+Separate catalog variant under Chimeric Asset Allocation. A strictly negative TIP 13612U sends 100% to the stronger IEF/SGOV (IEF wins a tie). Zero or positive TIP follows unchanged Standard allocation. Scoring, universe, data integrity, warm-up, execution, fee and tax treatment are shared. This is an ablation, not the Standard published allocation; no reported historical performance comparison is presented as verified by this app.
+
 Implemented from the creator's replication note and defensive-selection clarification:
 https://www.reddit.com/r/LETFs/comments/1w6rva4/chimeric_asset_allocation_drink_the_koolaid/
 

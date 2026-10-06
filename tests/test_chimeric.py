@@ -6,8 +6,8 @@ import pandas as pd
 from haa.data import to_month_end
 from haa.engine import run_backtest
 from haa.market_sessions import us_equity_sessions
-from haa.model_catalog import resolve, strategies
-from haa.strategies import ChimericAssetAllocation
+from haa.model_catalog import resolve, strategies, variants
+from haa.strategies import ChimericAssetAllocation, ChimericFullRetreat
 
 
 def fixture():
@@ -126,6 +126,46 @@ class TestChimeric(unittest.TestCase):
         momenta = pd.Series(1.0, index=self.model.data_assets)
         momenta.loc[list(self.model.offensive_assets)] = 0
         self.assertEqual(self.model.allocate(tied, momenta), {"IEF": 1.0})
+
+    def test_full_retreat_selects_stronger_defense_and_ief_on_tie(self):
+        model = ChimericFullRetreat()
+        scores = pd.Series(1.0, index=model.offensive_assets)
+        momentum = pd.Series(1.0, index=model.data_assets)
+        momentum["TIP"] = -0.000001
+        self.assertEqual(model.allocate(scores, momentum), {"IEF": 1.0})
+        momentum["SGOV"] = 2.0
+        self.assertEqual(model.allocate(scores, momentum), {"SGOV": 1.0})
+        momentum["IEF"] = -1.0
+        momentum["SGOV"] = -2.0
+        self.assertEqual(model.allocate(scores, momentum), {"IEF": 1.0})
+
+    def test_full_retreat_matches_standard_when_tip_zero_or_positive(self):
+        scores = pd.Series({a: i for i, a in enumerate(self.model.offensive_assets)})
+        momentum = pd.Series(1.0, index=self.model.data_assets)
+        momentum["EDV"] = -1.0
+        for tip in (0.0, 0.000001, 1.0):
+            momentum["TIP"] = tip
+            self.assertEqual(ChimericFullRetreat().allocate(scores, momentum), self.model.allocate(scores, momentum))
+
+    def test_full_retreat_decisions_preserve_scoring_and_run_engine(self):
+        prices = self.prices.copy()
+        prices["TIP"] = 100 * np.exp(-.001 * np.arange(len(prices)))
+        standard = self.model.decisions(prices)
+        full = ChimericFullRetreat().decisions(prices)
+        pd.testing.assert_index_equal(standard.index, full.index)
+        shared = [c for c in standard if c.endswith(("_score", "_correlation", "_13612u"))]
+        pd.testing.assert_frame_equal(standard[shared], full[shared])
+        self.assertTrue((full.regime == "risk-off").all())
+        self.assertTrue((standard.regime == "partial-risk-off").all())
+        for _, row in full.iterrows():
+            self.assertEqual(row.target_weights, {row.defensive_winner: 1.0})
+        result = run_backtest(full, to_month_end(prices), 100000,
+                              transaction_cost=.001, tax_enabled=True, daily_prices=prices)
+        self.assertFalse(result.monthly.empty)
+
+    def test_full_retreat_catalog_is_a_separate_variant(self):
+        self.assertEqual(variants("Chimeric Asset Allocation"), ("Standard", "Full Retreat"))
+        self.assertIs(resolve("Chimeric Asset Allocation", "Full Retreat", "Ablation (experimental)").model_class, ChimericFullRetreat)
 
 
 if __name__ == "__main__":

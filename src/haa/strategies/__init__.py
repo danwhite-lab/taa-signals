@@ -16,7 +16,7 @@ from .baa import BAAG4Aggressive, BAAG4AggressiveIsrael
 from .vaa import VAAG4
 from .momentum_correlation_triplet import MomentumCorrelationTriplet
 from .rvol_shifter import RVolShifterCashOnly
-from .chimeric import ChimericAssetAllocation
+from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 
 __all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "BuyAndHoldACWI", "BuyAndHoldGlobalIsrael", "BuyAndHoldQQQ", "BuyAndHoldQQQIsrael", "BuyAndHoldSPY", "BuyAndHoldSPYIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GEM", "GEMIsrael", "GGCEMLinkOriginal", "GGCEMLinkOriginalIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "MomentumCorrelationTriplet", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]

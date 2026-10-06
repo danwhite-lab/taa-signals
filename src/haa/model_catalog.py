@@ -42,6 +42,7 @@ from .strategies import (
     MomentumCorrelationTriplet,
     RVolShifterCashOnly,
     ChimericAssetAllocation,
+    ChimericFullRetreat,
 )
 
 
@@ -61,6 +62,7 @@ class ModelDefinition:
 
 MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Chimeric Asset Allocation", "Standard", "Published rules (experimental)", "Chimeric Asset Allocation", ChimericAssetAllocation, description="Experimental monthly leveraged top-four allocation, nine correlation-adjusted signals and partial TIP defense. ERX energy and IEF/SGOV defense; actual ETF history only."),
+    ModelDefinition("Chimeric Asset Allocation", "Full Retreat", "Ablation (experimental)", "Chimeric Asset Allocation Full Retreat", ChimericFullRetreat, description="Experimental full-retreat ablation: negative TIP momentum sends 100% to the stronger IEF/SGOV. Otherwise unchanged Standard scoring and top-four allocation. Actual ETF history only; no promised performance advantage."),
     ModelDefinition("HAA", "Simple", "Original", "HAA-Simple", HAASimple),
     ModelDefinition("HAA", "Simple", "Israel", "HAA-Simple Israel", HAASimpleIsrael, "ILS"),
     ModelDefinition("HAA", "Simple Leveraged 2x", "Original", "HAA-Simple Leveraged 2x (SSO)", HAASimpleLeveraged2x),

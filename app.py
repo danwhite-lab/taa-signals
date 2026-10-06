@@ -31,6 +31,13 @@ from haa.validation import ValidationInput, profile_for, run_deterministic_valid
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
 MODEL_RULES = {
+    "Chimeric Asset Allocation Full Retreat": """**Experimental Chimeric Asset Allocation — Full Retreat.** Uses the same universe, nine-signal correlation-adjusted ranking, ERX energy, warm-up and actual ETF prices as Standard.
+
+**Only allocation-rule difference:** when TIP's equal-weight 1/3/6/12-month momentum is strictly negative, hold 100% of whichever has stronger momentum: IEF or SGOV. A defensive tie selects IEF. Zero TIP momentum remains normal mode. Otherwise retain the Standard top-four 25% slots subject to positive own momentum, replacing unfilled slots with the defensive winner.
+
+Monthly decisions execute at the next available session close using the existing fees and optional realized-gain tax logic. This is an ablation, not the creator's Standard partial-retreat rule. No synthetic prehistory or claim of matching published performance; compare both variants over the same available dates.
+
+The Standard Rules page documents the shared scoring formulas and conventions.""",
     "Chimeric Asset Allocation": """**Experimental monthly Chimeric Asset Allocation.** Rank UPRO, TQQQ, EURL, EDC, TNA, PDBC, ERX, UGL, EDV and TMF using nine signals: total return and log-return path efficiency over 63/126/252 trading days, and price versus 3/6/12-month simple averages including the current monthly close. Divide each signal by one plus its 252-session daily-simple-return correlation to the equal-weight ten-asset universe (including itself), percentile-rank each signal with average ties, then average the nine ranks.
 
 Take the top four at 25% each, retaining a slot only if its own equal-weight 1/3/6/12-month momentum is strictly positive. When TIP momentum is negative, retain only the best-ranked equity and diversifiers in the overall top three, still subject to positive own momentum. Replace rejected slots with whichever of IEF/SGOV has stronger 13612 momentum in either regime; do not refill from lower ranks.

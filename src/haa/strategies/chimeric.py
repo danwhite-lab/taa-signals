@@ -22,6 +22,7 @@ class ChimericAssetAllocation:
     uses_daily_signals = True  # Daily inputs, MONTHLY decisions and execution.
     execution_frequency = "monthly"
     backtest_available = True
+    full_retreat = False
     risk_warning = (
         "EXPERIMENTAL leveraged monthly strategy: severe losses are possible. "
         "Creator-published rules, not independently validated against a reference implementation. "
@@ -34,6 +35,8 @@ class ChimericAssetAllocation:
         """Four ranked slots; replacements never promote fifth-place assets."""
         ranked = scores.reindex(sorted(self.offensive_assets)).sort_values(ascending=False, kind="stable")
         defense = momenta.loc[list(self.defensive_assets)].sort_values(ascending=False, kind="stable").index[0]
+        if self.full_retreat and momenta["TIP"] < 0:
+            return {defense: 1.0}
         best_equity = next(asset for asset in ranked.index if asset in self.equity_assets)
         partial = momenta["TIP"] < 0
         weights: dict[str, float] = {}
@@ -96,7 +99,7 @@ class ChimericAssetAllocation:
             weights = self.allocate(scores, momentum)
             rows.append({
                 "signal_date": date,
-                "regime": "partial-risk-off" if momentum["TIP"] < 0 else "risk-on",
+                "regime": ("risk-off" if self.full_retreat else "partial-risk-off") if momentum["TIP"] < 0 else "risk-on",
                 "defensive_winner": momentum.loc[list(self.defensive_assets)].sort_values(ascending=False, kind="stable").index[0],
                 "ranked_assets": ", ".join(ranked.index),
                 "selected_asset": ", ".join(weights), "selected_assets": ", ".join(weights),
@@ -109,3 +112,15 @@ class ChimericAssetAllocation:
             })
             previous = weights.copy()
         return pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
+
+
+class ChimericFullRetreat(ChimericAssetAllocation):
+    """Ablation: negative TIP replaces all four slots with defense."""
+
+    name = "Chimeric Asset Allocation Full Retreat"
+    full_retreat = True
+    risk_warning = (
+        "Full Retreat variant: negative TIP momentum sends 100% to the stronger IEF/SGOV. "
+        "This is an ablation, not the creator's standard partial-retreat rule. "
+        + ChimericAssetAllocation.risk_warning
+    )
