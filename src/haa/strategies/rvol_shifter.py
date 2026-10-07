@@ -26,13 +26,10 @@ class RVolShifterCashOnly:
     is_multi_asset = True
     backtest_available = True
     risk_warning = (
-        "EXPERIMENTAL daily leveraged Nasdaq strategy: losses can be severe. This is a documented interpretation, "
-        "not independently validated against a reference implementation. Assumptions: adjusted closes for all signals; VR = 15-session "
-        "annualized log-return sample volatility / its trailing 252-session mean (including today); "
-        "close-based 40/5-session lows including today; 20 trading-session timeout; start defensive; "
-        "one state transition per close, with ordinary defensive exits taking priority over Donchian. "
-        "Trades execute at the next session CLOSE, not the creator's next-open convention. "
-        "Actual ETF history only; no synthetic leveraged prehistory."
+        "EXPERIMENTAL: checks using market prices reproduced the app's historical signals and returns. "
+        "This is our interpretation of the published rules, with some calculation assumptions. "
+        "Backtests trade at the next trading day's close, not the morning open. "
+        "Leveraged ETFs can suffer large losses; past results do not guarantee future returns."
     )
 
     @staticmethod

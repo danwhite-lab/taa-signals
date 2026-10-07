@@ -23,6 +23,9 @@ class RVolShifterTests(unittest.TestCase):
     def test_experimental_warning_does_not_display_vendor_branding(self):
         self.assertIn("EXPERIMENTAL", RVolShifterCashOnly.risk_warning)
         self.assertNotIn("bestfolio", RVolShifterCashOnly.risk_warning.casefold())
+        self.assertIn("reproduced", RVolShifterCashOnly.risk_warning)
+        self.assertIn("not the morning open", RVolShifterCashOnly.risk_warning)
+        self.assertIn("calculation assumptions", RVolShifterCashOnly.risk_warning)
 
     def transition(self, state="QLD", **changes):
         inputs = dict(rvol=0.16, vr=1.0, trend=0.0, credit=0.0, donchian=False,

@@ -14,7 +14,9 @@ def performance_metrics(values: pd.Series, initial_value: float, periods_per_yea
     years = len(values) / periods_per_year
     cagr = (values.iloc[-1] / initial_value) ** (1 / years) - 1 if years and initial_value > 0 else 0.0
     vol = returns.std(ddof=1) * np.sqrt(periods_per_year) if len(returns) > 1 else 0.0
-    downside = returns[returns < 0].std(ddof=1) * np.sqrt(periods_per_year) if (returns < 0).sum() > 1 else np.nan
+    # Zero-target downside deviation: every observation belongs in the
+    # denominator, with non-negative returns contributing zero shortfall.
+    downside = np.sqrt(np.minimum(returns, 0.0).pow(2).mean()) * np.sqrt(periods_per_year)
     sharpe = (returns.mean() / returns.std(ddof=1) * np.sqrt(periods_per_year)) if len(returns) > 1 and returns.std(ddof=1) else np.nan
     sortino = (returns.mean() * periods_per_year / downside) if pd.notna(downside) and downside else np.nan
     drawdown = values / values.cummax() - 1
