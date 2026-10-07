@@ -187,6 +187,14 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
     signals = _read_signals(DEEP_HISTORY_DIR / spec.signal_file)
     returns = _read_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+    if spec.key == "chimeric":
+        # User's updated history, supplied 2026-10-07. Preserve the original
+        # CSV verbatim; apply this single auditable correction on import.
+        corrected_date = pd.Timestamp("2026-08-31")
+        if corrected_date not in signals.index:
+            raise ValueError("Chimeric source lacks the reviewed August 31 correction row.")
+        signals.at[corrected_date, "target_weights"] = {"UPRO": .25, "ERX": .25, "PDBC": .25, "BIL": .25}
+        signals.at[corrected_date, "regime"] = "Risk-Off"
     if spec.completed_only:
         cutoff = (pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M") - 1).to_timestamp("M")
         if spec.usable_through:

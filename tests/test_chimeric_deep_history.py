@@ -30,6 +30,32 @@ class ChimericDeepHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(returns.iloc[0], .041)
         self.assertAlmostEqual(returns.iloc[-1], .026)
 
+    def test_august_correction_preserves_raw_export_and_returns(self):
+        raw = _read_signals(DEEP_HISTORY_DIR / self.spec.signal_file)
+        signals, returns = load_deep_history(self.spec)
+        date = pd.Timestamp("2026-08-31")
+        self.assertEqual(raw.loc[date, "target_weights"], {"BIL": 1.0})
+        self.assertEqual(signals.loc[date, "target_weights"], {"UPRO": .25, "ERX": .25, "PDBC": .25, "BIL": .25})
+        self.assertEqual(signals.loc[date, "regime"], "Risk-Off")
+        pd.testing.assert_frame_equal(signals.drop(date), raw.loc[signals.index].drop(date))
+        raw_returns = _read_monthly_returns(DEEP_HISTORY_DIR / self.spec.returns_file).loc[returns.index]
+        pd.testing.assert_series_equal(returns, raw_returns)
+
+    def test_correction_changes_tax_path_not_pre_tax_returns(self):
+        signals, returns = load_deep_history(self.spec)
+        old_signals = signals.copy(deep=True)
+        old_signals.at[pd.Timestamp("2026-08-31"), "target_weights"] = {"BIL": 1.0}
+        corrected_model = deep_history_model_input(self.spec)
+        with patch("haa.deep_history.load_deep_history", return_value=(old_signals, returns)):
+            old_model = deep_history_model_input(self.spec)
+        results = [run_backtest(m.decisions, m.monthly_prices, 100000, tax_enabled=True, benchmark_asset=m.benchmark_asset)
+                   for m in (corrected_model, old_model)]
+        corrected, old = results
+        pd.testing.assert_series_equal(corrected.monthly.pre_tax_value, old.monthly.pre_tax_value)
+        self.assertFalse(corrected.tax_events.equals(old.tax_events))
+        self.assertEqual(corrected.audit.loc[pd.Timestamp("2026-08-31"), "target_weights"],
+                         {"UPRO": .25, "ERX": .25, "PDBC": .25, "BIL": .25})
+
     def test_supplied_return_reconciliation_tax_and_both_benchmarks(self):
         _, returns = load_deep_history(self.spec)
         for benchmark in (SP500_TOTAL_RETURN_BENCHMARK, GLOBAL_TOTAL_RETURN_BENCHMARK):
