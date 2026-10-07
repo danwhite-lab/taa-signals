@@ -98,6 +98,43 @@ def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None) -> pd.Dat
     return result
 
 
+def adjusted_yahoo_daily_bars(raw: pd.DataFrame, sources: Mapping[str, str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Extract close/open on one total-return scale; never substitute a close for an open."""
+    def field(name: str, ticker: str) -> pd.Series:
+        if isinstance(raw.columns, pd.MultiIndex):
+            if name in raw.columns.get_level_values(0):
+                return raw[name][ticker]
+            if name in raw.columns.get_level_values(1):
+                return raw.xs(name, axis=1, level=1)[ticker]
+        elif name in raw.columns:
+            return raw[name]
+        raise ValueError(f"{ticker}: next-open execution requires Open, Close and Adj Close from the same source.")
+    closes, opens = {}, {}
+    for asset, ticker in sources.items():
+        adjusted = field('Adj Close', ticker)
+        close = field('Close', ticker)
+        opening = field('Open', ticker)
+        factor = adjusted / close.where(close > 0)
+        closes[asset] = adjusted
+        opens[asset] = opening * factor
+    return _clean_prices(pd.DataFrame(closes)), _clean_prices(pd.DataFrame(opens))
+
+
+def download_yahoo_daily_bars(ticker_map: Mapping[str, str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Download adjusted closes and correspondingly adjusted opens in one request."""
+    import yfinance as yf
+    sources = dict(ticker_map)
+    if not sources:
+        raise ValueError("Provide at least one Yahoo ticker mapping.")
+    raw = yf.download(list(sources.values()), period='max', auto_adjust=False, progress=False)
+    if raw.empty:
+        raise RuntimeError("Yahoo Finance returned no daily bars.")
+    closes, opens = adjusted_yahoo_daily_bars(raw, sources)
+    if any(closes[a].dropna().empty or opens[a].dropna().empty for a in sources):
+        raise RuntimeError("Required adjusted close/open history is unavailable; refusing close-price execution fallback.")
+    return closes, opens
+
+
 def download_latest_yahoo_close(ticker: str) -> tuple[float, pd.Timestamp]:
     """Return Yahoo Finance's most recent available close and its timestamp.
 

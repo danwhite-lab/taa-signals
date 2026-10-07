@@ -28,6 +28,7 @@ def run_backtest(
     daily_prices: pd.DataFrame | None = None,
     benchmark_asset: str = "SPY",
     execution_delay_business_days: int = 0,
+    daily_open_prices: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """Execute one allocation for the month following each signal.
 
@@ -48,7 +49,7 @@ def run_backtest(
             raise ValueError("Daily execution requires daily prices, not month-end data.")
         return run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost,
                                   tax_enabled, tax_rate, start, end, benchmark_asset,
-                                  execution_delay_business_days)
+                                  execution_delay_business_days, daily_open_prices)
     if "target_weights" in decisions.columns:
         return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset, execution_delay_business_days)
     if decisions.empty:

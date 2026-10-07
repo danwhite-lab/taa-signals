@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, OECD_CLI_DIFFUSION_ASSET, TA125_SMART_MOMENTUM_ASSET
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
-from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
+from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, download_yahoo_daily_bars, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import ALL_DEEP_HISTORY_SPECS, DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input, deep_history_options, load_deep_history
 from haa.engine import run_backtest
 from haa.daily_engine import daily_performance_metrics
@@ -47,7 +47,7 @@ Take the top four at 25% each, retaining a slot only if its own equal-weight 1/3
 Source: [creator's published replication note](https://www.reddit.com/r/LETFs/comments/1w6rva4/chimeric_asset_allocation_drink_the_koolaid/).""",
     "A-RVol Shifter V3 Cash-Only": """**Daily three-state Cash-Only interpretation.** TQQQ → QLD when RVol >18%, VR >1.25, or SPY is below SMA(200)−3%. QLD → BIL when RVol >36%, VR >1.40, SPY is below SMA−3%, or the HYG/LQD ratio falls more than 4% in 20 sessions. Otherwise QLD → BIL on a close-based 40-session QQQ low with RVol ≥20%; QLD → TQQQ when RVol <14%, VR <0.90 and SPY is above SMA+3%. Ordinary BIL → QLD requires RVol <25%, VR <1.10 and SPY above SMA−1.5%. After a Donchian exit, QQQ recovery ≥3% from its trailing five-session closing low or a 20-session timeout replaces the ordinary re-entry gate.
 
-**Explicit conventions:** RVol is 15-session log-return sample standard deviation × √252. VR divides that RVol by its trailing 252-session mean, including the current session. All indicators use adjusted closes; rolling lows include the current close. Start in BIL after full warm-up and actual ETF availability. One state transition per signal; ordinary exits take priority over Donchian. A signal executes at the next session **close**, not the creator's next open. No synthetic ETF prehistory. Fees apply to each buy and sell; tax uses the existing realized-gain/loss-carryforward logic without final liquidation. This is not a verified reproduction of published performance.
+**Explicit conventions:** RVol is 15-session log-return sample standard deviation × √252. VR divides that RVol by its trailing 252-session mean, including the current session. All indicators use adjusted closes; rolling lows include the current close. Start in BIL after full warm-up and actual ETF availability. One state transition per signal; ordinary exits take priority over Donchian. A signal executes at the next session **open**, using adjusted opening prices from the same source as adjusted closes. The old holding earns the overnight move; the new holding earns the open-to-close move. No synthetic ETF prehistory or closing-price fallback for missing opens. Fees apply to each buy and sell; tax uses the existing realized-gain/loss-carryforward logic without final liquidation. This is not a verified reproduction of published performance.
 
 Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update_2_arvol_v3_adding_credit_spreads_and/) and [original post/code](https://www.reddit.com/r/TQQQ/comments/1rpzweg/stop_blindly_holding_3x_the_rvol_shifter_for_the/).""",
     "Century Momentum Israel": """**Century Momentum Israel:** At each completed month-end, compare MTF Tracking S&P 500 Momentum (4D) (5140850) with its 10-month simple moving average, calculated from the ten completed TASE month-end closes including the current signal close. If it is strictly above the average, hold 100% MTF Tracking S&P 500 Momentum (4D) (5140850); if it is equal to or below the average, hold 100% iShares $ Treasury Bond 7–10yr UCITS (1159268). The decision takes effect from the following available TASE trading day. This ILS execution variant uses actual TASE fund histories only; it does not synthesize a longer history.""",
@@ -1012,6 +1012,11 @@ def load_data(source_items: tuple[tuple[str, str], ...]):
     return download_yahoo_prices(dict(source_items))
 
 
+@st.cache_data(ttl=3600, show_spinner="Downloading daily closing and opening prices...")
+def load_daily_bars(source_items: tuple[tuple[str, str], ...]):
+    return download_yahoo_daily_bars(dict(source_items))
+
+
 @st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading FRED macro data...")
 def load_fred_data():
     return download_fred_series(FRED_ASSETS)
@@ -1113,7 +1118,12 @@ runtime_fred_assets = tuple(asset for asset in runtime_assets if asset in FRED_A
 needs_oecd = OECD_CLI_DIFFUSION_ASSET in runtime_assets
 
 try:
-    downloaded = load_data(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)) if runtime_yahoo_assets else pd.DataFrame()
+    execution_opens = None
+    needs_open_prices = page == "Backtest" and backtest_mode != "Portfolio" and getattr(strategy, "execution_frequency", "monthly") == "daily"
+    if needs_open_prices:
+        downloaded, execution_opens = load_daily_bars(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets))
+    else:
+        downloaded = load_data(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)) if runtime_yahoo_assets else pd.DataFrame()
 except Exception as exc:
     st.error(f"Yahoo Finance download failed: {exc}")
     st.stop()
@@ -1191,6 +1201,9 @@ if page == "Backtest":
     st.session_state["uploaded_replacements"] = replacements
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
 all_prices = combine_replacements(downloaded_all, replacements, runtime_assets)
+if needs_open_prices and set(replacements).intersection(strategy.data_assets):
+    st.error("Next-open A-RVol backtests require opening and closing prices from the same source. Close-only CSV replacements cannot be used; remove these uploads or select a Yahoo ticker source.")
+    st.stop()
 substitution_all_prices: pd.DataFrame | None = None
 if substitution_downloaded is not None or substitution_tase_prices is not None:
     substitution_all_prices = all_prices.copy()
@@ -1421,7 +1434,7 @@ if page in {"Backtest", "Research", "Rules"}:
             st.stop()
     first_signal = decisions.index.min()
     try:
-        result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset)
+        result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset, daily_open_prices=execution_opens)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -1614,7 +1627,7 @@ if page == "Backtest":
     title_column.title(strategy.name)
     st.caption("These settings configure this backtest only.")
     if result.daily is not None:
-        st.caption("Signals are evaluated every completed session and execute at the next session close. Fees apply separately to buys and sells. Daily drawdown/volatility; monthly returns below are reporting aggregates, including partial boundary months.")
+        st.caption("Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
         st.info("Standalone daily backtests only. Monthly portfolio/Compare integration and Deep History proxies are not enabled for this strategy.")
     else:
         st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
@@ -2242,18 +2255,18 @@ if page == "Signals":
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if is_daily_execution:
         title_column.title(daily_signal_heading(signal_status.decision))
-        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · independently implemented rules · completed daily decision · next-session-close execution")
+        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-open execution")
         st.warning(signal_strategy.risk_warning)
         if signal_status.decision is None:
             st.error(signal_status.reason)
         else:
             signal = signal_status.decision
             st.dataframe(pd.DataFrame([{"Decision date": signal.decision_date.date(),
-                "Execution date (scheduled)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
+                "Execution date (scheduled open)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
                 "State transition": signal.transition_reason, "RVol": signal.rvol,
                 "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
                 "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
-            st.caption("Decision date is the unchanged indicator/decision day. Scheduled execution is the next exchange-session CLOSE, not a confirmed broker fill; an unchanged target requires no trade. Targets reflect replayed model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
+            st.caption("This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
         with st.expander("Daily signal history"):
             date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]
             history_columns = date_columns + [column for column in signal_decisions.columns if column not in date_columns]

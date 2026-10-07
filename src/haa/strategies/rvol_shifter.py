@@ -26,9 +26,9 @@ class RVolShifterCashOnly:
     is_multi_asset = True
     backtest_available = True
     risk_warning = (
-        "EXPERIMENTAL: checks using market prices reproduced the app's historical signals and returns. "
+        "EXPERIMENTAL: closing-price signals have passed checks using market prices. "
         "This is our interpretation of the published rules, with some calculation assumptions. "
-        "Backtests trade at the next trading day's close, not the morning open. "
+        "Use the signal at the next trading day's open; backtests use that timing too. "
         "Leveraged ETFs can suffer large losses; past results do not guarantee future returns."
     )
 
@@ -110,5 +110,6 @@ class RVolShifterCashOnly:
         if not result.empty:
             result["decision_date"] = result.index
             result["scheduled_execution_date"] = scheduled_execution_dates(result.index)
+            result["scheduled_execution_timing"] = "next-session-open"
         result.attrs.update(execution_frequency="daily", completed_through=prices.index.max() if len(prices) else None)
         return result

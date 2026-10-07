@@ -1,4 +1,4 @@
-"""Daily single-asset execution at the next available session close.
+"""Daily single-asset execution at the next available session open.
 
 The old monthly engine is unchanged. Daily NAV retains every close; monthly
 output is reporting aggregation only, never a monthly sampling of signals.
@@ -16,7 +16,8 @@ from .market_sessions import validate_us_equity_sessions
 
 def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost=0.0,
                        tax_enabled=False, tax_rate=0.25, start=None, end=None,
-                       benchmark_asset="SPY", execution_delay_business_days=0):
+                       benchmark_asset="SPY", execution_delay_business_days=0,
+                       daily_open_prices=None):
     if decisions.empty or decisions.index.has_duplicates:
         raise ValueError("Daily signals are empty or duplicated.")
     if not 0 <= transaction_cost < 1 or not 0 <= tax_rate <= 1 or initial_investment <= 0:
@@ -38,6 +39,11 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
     if completed_through is not None:
         prices = prices.loc[:completed_through]
     validate_us_equity_sessions(prices)
+    if daily_open_prices is None:
+        raise ValueError("Next-open daily execution requires adjusted opening prices; closes cannot substitute for opens.")
+    if not assets.issubset(daily_open_prices.columns) or daily_open_prices.index.has_duplicates:
+        raise ValueError("Required opening prices are missing or duplicated.")
+    opens = daily_open_prices.loc[:, sorted(assets)].sort_index().reindex(prices.index)
     # Signals must refer to observed sessions; never silently align to a
     # later usable date when a required price is missing.
     positions = prices.index.get_indexer(decisions.index)
@@ -59,6 +65,9 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         raise ValueError("No complete daily execution sessions within the selected date range.")
     if not np.isfinite(eligible.to_numpy()).all() or (eligible <= 0).any().any():
         raise ValueError("Missing or invalid daily execution prices; refusing to skip sessions.")
+    required_opens = opens.loc[eligible.index]
+    if not np.isfinite(required_opens.to_numpy()).all() or (required_opens <= 0).any().any():
+        raise ValueError("Missing or invalid opening prices; refusing to skip sessions or use closing prices.")
     pre = after = benchmark = float(initial_investment)
     holding = None
     prior_date = None
@@ -67,10 +76,14 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
     for date, row in eligible.iterrows():
         prior_pre, prior_after, prior_benchmark = pre, after, benchmark
         if prior_date is not None:
-            growth = row[holding] / prices.loc[prior_date, holding]
+            # The old holding earns the overnight move up to today's open.
+            growth = opens.loc[date, holding] / prices.loc[prior_date, holding]
             pre *= growth
             after *= growth
             benchmark *= row[benchmark_asset] / prices.loc[prior_date, benchmark_asset]
+        else:
+            # Benchmark enters at the same first-session open as the strategy.
+            benchmark *= row[benchmark_asset] / opens.loc[date, benchmark_asset]
         if date not in schedule:
             raise ValueError(f"No daily decision scheduled for {date.date()}; missing signals cannot be forward-filled.")
         signal_date, decision = schedule[date]
@@ -99,7 +112,12 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                 # convention; sale fee reduces realized proceeds.
                 tax.buy(target, after + buy_after)
         holding = target
+        # After the open fill, only the new holding earns the intraday move.
+        intraday = row[holding] / opens.loc[date, holding]
+        pre *= intraday
+        after *= intraday
         audit_row = {**decision.to_dict(), "signal_date": signal_date, "decision_date": signal_date, "execution_date": date,
+                     "execution_timing": "next-session-open", "execution_price": opens.loc[date, target],
                      "holding_end": date, "selected_asset": target, "allocation_change": changing,
                      "turnover": float(entering), "pre_tax_fee": fee_pre, "after_tax_fee": fee_after}
         audit.append(audit_row)
@@ -127,7 +145,8 @@ def daily_performance_metrics(result: BacktestResult, column: str, initial: floa
     """Daily risk metrics, calendar-time CAGR, monthly best/worst reports."""
     daily = result.daily
     metrics = performance_metrics(daily[column], initial, periods_per_year=252)
-    years = max((daily.index[-1] - daily.index[0]).days, 1) / 365.25
+    # NAV is marked at the close; initial capital enters at the first open.
+    years = max((daily.index[-1] - daily.index[0]).days + 6.5 / 24, 6.5 / 24) / 365.25
     metrics["CAGR"] = (daily[column].iloc[-1] / initial) ** (1 / years) - 1
     values = np.r_[initial, daily[column].to_numpy()]
     metrics["Maximum drawdown"] = float((values / np.maximum.accumulate(values) - 1).min())

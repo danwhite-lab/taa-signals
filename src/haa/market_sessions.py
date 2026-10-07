@@ -47,7 +47,7 @@ def validate_us_equity_sessions(prices: pd.DataFrame) -> None:
 
 
 def scheduled_execution_dates(decision_dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """Next exchange-session CLOSE dates, not claimed or observed fills."""
+    """Next exchange-session dates, not claimed or observed fills."""
     if not len(decision_dates):
         return pd.DatetimeIndex([])
     # Extend beyond the final observation only to schedule a date, never a

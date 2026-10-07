@@ -23,8 +23,8 @@ class RVolShifterTests(unittest.TestCase):
     def test_experimental_warning_does_not_display_vendor_branding(self):
         self.assertIn("EXPERIMENTAL", RVolShifterCashOnly.risk_warning)
         self.assertNotIn("bestfolio", RVolShifterCashOnly.risk_warning.casefold())
-        self.assertIn("reproduced", RVolShifterCashOnly.risk_warning)
-        self.assertIn("not the morning open", RVolShifterCashOnly.risk_warning)
+        self.assertIn("passed checks", RVolShifterCashOnly.risk_warning)
+        self.assertIn("next trading day's open", RVolShifterCashOnly.risk_warning)
         self.assertIn("calculation assumptions", RVolShifterCashOnly.risk_warning)
 
     def transition(self, state="QLD", **changes):
@@ -161,9 +161,9 @@ class DailyEngineTests(unittest.TestCase):
 
     def run_model(self, **kwargs):
         decisions, prices = self.fixture()
-        return run_backtest(decisions, prices, 1000, daily_prices=prices, **kwargs)
+        return run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy(), **kwargs)
 
-    def test_next_close_execution_daily_carry_and_no_final_sale(self):
+    def test_next_open_execution_daily_carry_and_no_final_sale(self):
         result = self.run_model(tax_enabled=True)
         self.assertEqual(len(result.daily), 4)
         self.assertTrue((result.audit.execution_date > result.audit.index).all())
@@ -198,7 +198,7 @@ class DailyEngineTests(unittest.TestCase):
         decisions, prices = self.fixture()
         decisions.target_weights = [{"TQQQ": 1.0} for _ in decisions.index]
         prices.TQQQ = [100, 100, 50, 100, 100]
-        result = run_backtest(decisions, prices, 1000, daily_prices=prices)
+        result = run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy())
         self.assertEqual(daily_performance_metrics(result, "pre_tax_value", 1000)["Maximum drawdown"], -.5)
         self.assertAlmostEqual(result.monthly.pre_tax_monthly_return.iloc[0], 0)
 
@@ -211,13 +211,54 @@ class DailyEngineTests(unittest.TestCase):
             compare_models({"Daily": model, "Other": model}, 1000)
         prices.iloc[3, 0] = np.nan
         with self.assertRaisesRegex(ValueError, "Missing or invalid"):
-            run_backtest(decisions, prices, 1000, daily_prices=prices)
+            run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy())
 
     def test_execution_engine_rejects_entire_missing_session(self):
         decisions, prices = self.fixture()
         prices = prices.drop(index=prices.index[2])
         with self.assertRaisesRegex(ValueError, "Missing US equity trading sessions"):
-            run_backtest(decisions, prices, 1000, daily_prices=prices)
+            run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy())
+
+    def test_overnight_old_holding_then_new_holding_intraday(self):
+        decisions, prices = self.fixture()
+        decisions.target_weights = [{a: 1.0} for a in ('TQQQ','QLD','QLD','QLD','QLD')]
+        opens = prices.copy()
+        opens.TQQQ = [90, 50, 120, 121, 999]
+        opens.QLD = [80, 90, 50, 100, 120]
+        result = run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=opens)
+        # First buy at 50, mark at 100. Then old TQQQ earns 100->120
+        # overnight; QLD is bought at 50 and earns 50->95 intraday.
+        self.assertAlmostEqual(result.daily.pre_tax_value.iloc[0], 2000)
+        self.assertAlmostEqual(result.daily.pre_tax_value.iloc[1], 4560)
+        self.assertEqual(result.audit.execution_price.iloc[1], 50)
+        self.assertTrue((result.audit.execution_timing == 'next-session-open').all())
+        self.assertAlmostEqual((1+result.monthly.pre_tax_monthly_return).prod(),result.daily.pre_tax_value.iloc[-1]/1000)
+
+    def test_open_switch_tax_realizes_only_old_asset_overnight_gain(self):
+        decisions, prices = self.fixture()
+        decisions.target_weights = [{a: 1.0} for a in ('TQQQ','QLD','QLD','QLD','QLD')]
+        opens = prices.copy()
+        opens.TQQQ = [90, 50, 120, 121, 999]
+        opens.QLD = [80, 90, 50, 100, 120]
+        result = run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=opens,tax_enabled=True)
+        self.assertAlmostEqual(result.tax_events.tax_paid.iloc[0],350)
+        self.assertAlmostEqual(result.daily.after_tax_value.iloc[1],(2400-350)*95/50)
+
+    def test_missing_open_is_rejected_not_filled_with_close(self):
+        decisions, prices = self.fixture()
+        with self.assertRaisesRegex(ValueError,'opening prices'):
+            run_backtest(decisions,prices,1000,daily_prices=prices)
+        opens=prices.copy()
+        opens.iloc[2,opens.columns.get_loc('QLD')]=np.nan
+        with self.assertRaisesRegex(ValueError,'opening prices'):
+            run_backtest(decisions,prices,1000,daily_prices=prices,daily_open_prices=opens)
+
+    def test_benchmark_enters_at_first_open(self):
+        decisions,prices=self.fixture()
+        opens=prices.copy(); opens.iloc[1,opens.columns.get_loc('SPY')]=50
+        result=run_backtest(decisions,prices,1000,daily_prices=prices,daily_open_prices=opens)
+        self.assertAlmostEqual(result.daily.benchmark_value.iloc[0],2000)
+        self.assertAlmostEqual(result.daily.benchmark_value.iloc[-1],2060)
 
 
 if __name__ == "__main__":
