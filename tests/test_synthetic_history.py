@@ -79,7 +79,7 @@ class SyntheticHistoryTests(unittest.TestCase):
 
     def test_tax_fees_and_blends_fail_closed(self):
         model = deep_history_model_input(self.spec)
-        for options in ({"tax_enabled": True}, {"transaction_cost": .001}):
+        for options in ({"fixed_fee": 5}, {"transaction_cost": .001}):
             with self.assertRaises(ValueError):
                 run_backtest(model.decisions, model.monthly_prices, 100000, daily_prices=model.daily_prices, **options)
         with self.assertRaisesRegex(ValueError, "single-strategy only"):
@@ -99,7 +99,7 @@ class SyntheticHistoryTests(unittest.TestCase):
         expected = result.sleeve_returns["A-RVol"]*.7 + result.sleeve_returns["CM"]*.3
         np.testing.assert_allclose(result.monthly.pre_tax_monthly_return, expected)
         self.assertIsNone(result.daily)
-        for options in ({"tax_enabled": True}, {"fixed_fee": 5}, {"transaction_cost": .001}):
+        for options in ({"fixed_fee": 5}, {"transaction_cost": .001}):
             with self.assertRaises(ValueError):
                 run_portfolio_backtest({"A-RVol": (.7, model), "CM": (.3, other)}, 100000, **options)
         dca = run_portfolio_backtest({"A-RVol": (.7, model), "CM": (.3, other)}, 100000, monthly_contribution=100)

@@ -87,6 +87,17 @@ def profile_for(strategy: object | type) -> ValidationProfile | None:
     return profile
 
 
+def research_unavailable_reason(strategy: object | type) -> str | None:
+    """An explicit capability limitation, never a substitute for a passing test."""
+    strategy_class = strategy if isinstance(strategy, type) else type(strategy)
+    reason = getattr(strategy_class, "research_unavailable_reason", None)
+    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
+        raise TypeError("Research unavailability must have a nonempty explanatory reason.")
+    if reason is not None and profile_for(strategy_class) is not None:
+        raise ValueError("A strategy cannot declare both Research support and unavailability.")
+    return reason
+
+
 @dataclass(frozen=True)
 class ValidationInput:
     """All immutable inputs required to validate one already-defined strategy."""

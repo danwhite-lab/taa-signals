@@ -1,12 +1,14 @@
 """Creator-published Chimeric rules, with actual ETF prices only."""
 from __future__ import annotations
 
+from dataclasses import replace
 import numpy as np
 import pandas as pd
 
 from ..data import to_month_end
 from ..market_sessions import validate_us_equity_sessions
 from ..momentum import momentum_13612u
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class ChimericAssetAllocation:
@@ -23,6 +25,18 @@ class ChimericAssetAllocation:
     execution_frequency = "monthly"
     backtest_available = True
     full_retreat = False
+    validation_profile = ValidationProfile(
+        profile_id="chimeric-standard",
+        published_parameters=(
+            ParameterSpec("signal_months", (3, 6, 12), (), "Fixed return, path-efficiency and average-price signal windows.", "months"),
+            ParameterSpec("slots", 4, (), "Four equal-weight offensive/defensive slots."),
+            ParameterSpec("full_retreat", False, (), "Negative TIP uses partial retreat, not full retreat."),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-session close after the month-end decision", (0, 1, 2), (0,)),
+        applicable_tests=frozenset({"execution_delay", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "block_bootstrap", "data_quality"}),
+        data_confidence="moderate",
+        notes="Limited Research scope on actual ETF data. No threshold tuning, parameter sweep, signal perturbation or proxy substitution is declared. A profile enables stress tests; it does not establish independent rule fidelity or replicated performance.",
+    )
     risk_warning = (
         "EXPERIMENTAL leveraged monthly strategy: severe losses are possible. "
         "Creator-published rules, not independently validated against a reference implementation. "
@@ -119,6 +133,12 @@ class ChimericFullRetreat(ChimericAssetAllocation):
 
     name = "Chimeric Asset Allocation Full Retreat"
     full_retreat = True
+    validation_profile = replace(
+        ChimericAssetAllocation.validation_profile,
+        profile_id="chimeric-full-retreat",
+        published_parameters=tuple(p for p in ChimericAssetAllocation.validation_profile.published_parameters if p.key != "full_retreat") +
+            (ParameterSpec("full_retreat", True, (), "Negative TIP sends all four slots to defense; ablation variant."),),
+    )
     risk_warning = (
         "Full Retreat variant: negative TIP momentum sends 100% to the stronger IEF/SGOV. "
         "This is an ablation, not the creator's standard partial-retreat rule. "

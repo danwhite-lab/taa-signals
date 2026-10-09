@@ -56,6 +56,9 @@ def run_portfolio_backtest(
         raise ValueError("Trading fees are unavailable: an imported sleeve lacks trade values.")
     if any(model.decisions.attrs.get("single_strategy_only") for _, model in sleeves.values()):
         raise ValueError("Daily supplied proxies are single-strategy only and cannot be portfolio sleeves.")
+    if tax_enabled and any(model.decisions.attrs.get("synthetic_tax_proxy") for _, model in sleeves.values()):
+        from .synthetic_tax import run_synthetic_tax_portfolio
+        return run_synthetic_tax_portfolio(sleeves, initial_investment, tax_rate, start, end, monthly_contribution)
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
         from .mixed_portfolio import run_mixed_portfolio
         return run_mixed_portfolio(sleeves, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, monthly_contribution, fixed_fee)

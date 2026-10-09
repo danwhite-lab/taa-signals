@@ -2,7 +2,7 @@ import pytest
 
 from haa.model_catalog import MODEL_CATALOG
 from haa.strategies import BAAG4Aggressive, HAASimple, InflationCompassStandard, OrthogonalAlpha, VAAG4
-from haa.validation import ValidationProfile, profile_for
+from haa.validation import ValidationProfile, profile_for, research_unavailable_reason
 
 
 @pytest.mark.parametrize("strategy_class, profile_id", [
@@ -46,6 +46,56 @@ def test_profile_is_immutable_and_unprofiled_strategies_are_explicit():
     assert profile_for(Unprofiled) is None
 
 
-def test_every_catalogued_strategy_declares_a_validation_profile():
-    missing = [definition.label for definition in MODEL_CATALOG if profile_for(definition.model_class) is None]
-    assert missing == []
+def test_every_catalogued_strategy_declares_research_support_or_explicit_limitation():
+    for definition in MODEL_CATALOG:
+        profile = profile_for(definition.model_class)
+        reason = research_unavailable_reason(definition.model_class)
+        assert (profile is not None) != (reason is not None), definition.label
+    unsupported = {d.label for d in MODEL_CATALOG if research_unavailable_reason(d.model_class)}
+    assert unsupported == {"A-RVol Shifter V3 Cash-Only"}
+
+
+def test_new_monthly_profiles_do_not_enable_tuning_or_change_variants():
+    from haa.strategies import ChimericAssetAllocation, ChimericFullRetreat, MomentumCorrelationTriplet, RVolShifterCashOnly
+    for model in (ChimericAssetAllocation, ChimericFullRetreat, MomentumCorrelationTriplet):
+        profile = profile_for(model)
+        assert profile.execution.rebalance_frequency == "monthly"
+        assert "parameter_sweep" not in profile.applicable_tests
+        assert all(not p.candidate_values for p in profile.published_parameters)
+    assert profile_for(ChimericAssetAllocation).profile_id != profile_for(ChimericFullRetreat).profile_id
+    assert profile_for(RVolShifterCashOnly) is None
+    assert "opening prices" in research_unavailable_reason(RVolShifterCashOnly())
+
+
+@pytest.mark.parametrize("model_name", ["ChimericAssetAllocation", "ChimericFullRetreat", "MomentumCorrelationTriplet"])
+def test_new_profiles_run_research_with_benchmark_and_preserve_signals(model_name):
+    from dataclasses import replace
+    import numpy as np
+    import pandas as pd
+    from haa import strategies
+    from haa.data import to_month_end
+    from haa.market_sessions import us_equity_sessions
+    from haa.validation import ValidationInput, run_deterministic_validation
+
+    strategy = getattr(strategies, model_name)()
+    dates = us_equity_sessions("2021-01-04", "2024-12-31")
+    t = np.arange(len(dates))
+    # Match app preparation: retain the benchmark even when it is not a signal asset.
+    assets = tuple(dict.fromkeys((*strategy.data_assets, strategy.benchmark_asset)))
+    daily = pd.DataFrame({
+        asset: 100 * np.exp(np.cumsum(0.0002 + j * 0.00002 + 0.009 * np.sin(t / (7 + j)) + 0.003 * np.cos(t / 19)))
+        for j, asset in enumerate(assets)
+    }, index=dates)
+    decisions = strategy.decisions(daily)
+    original = decisions.copy(deep=True)
+    profile = profile_for(strategy)
+    profile = replace(profile, bootstrap=replace(profile.bootstrap, simulations=20))
+    inputs = ValidationInput(strategy.name, decisions, to_month_end(daily), daily,
+                             strategy.benchmark_asset, profile, strategy=strategy, signal_prices=daily)
+    report = run_deterministic_validation(inputs, 10_000)
+    for test, count in (("baseline", 1), ("execution_delay", 3), ("transaction_cost", 3), ("israeli_tax", 1)):
+        rows = report.scenarios.loc[report.scenarios.test == test]
+        assert len(rows) == count
+        assert set(rows.status) == {"complete"}
+    assert not set(report.scenarios.test) & {"parameter_sweep", "rebalance_shift", "signal_perturbation"}
+    pd.testing.assert_frame_equal(decisions, original)

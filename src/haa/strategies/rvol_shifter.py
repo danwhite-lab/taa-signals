@@ -25,6 +25,12 @@ class RVolShifterCashOnly:
     execution_frequency = "daily"
     is_multi_asset = True
     backtest_available = True
+    research_unavailable_reason = (
+        "The generic Research engine supports monthly execution only and does not "
+        "accept the adjusted opening prices needed by this daily state machine. "
+        "Use Backtest or portfolio comparisons with daily valuation. "
+        "This limitation does not disable the strategy's dedicated rule and tax tests."
+    )
     risk_warning = (
         "EXPERIMENTAL: closing-price signals have passed checks using market prices. "
         "This is our interpretation of the published rules, with some calculation assumptions. "

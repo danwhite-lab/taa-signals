@@ -65,7 +65,7 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert implementations("Orthogonal Alpha", None) == ("Standard",)
     assert resolve("Orthogonal Alpha", None, "Standard").model_class is OrthogonalAlpha
     with pytest.raises(ValueError, match="Unknown model selection"):
-        resolve("HAA", "HAA 4", "Israel")
+        resolve("HAA", "HAA 4", "Unknown implementation")
 
 
 

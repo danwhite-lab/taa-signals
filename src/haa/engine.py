@@ -47,6 +47,10 @@ def run_backtest(
         raise ValueError("Additional trade-fee modeling requires daily trade values; the supplied monthly return stream is used unchanged.")
     if decisions.attrs.get("daily_nav_proxy"):
         from .synthetic_history import run_synthetic_nav_backtest
+        if tax_enabled:
+            from .synthetic_tax import run_synthetic_tax_single
+            return run_synthetic_tax_single(daily_prices, monthly_prices, initial_investment, start, end,
+                benchmark_asset, monthly_contribution, tax_rate, decisions.attrs["synthetic_source_path"])
         return run_synthetic_nav_backtest(daily_prices, monthly_prices, initial_investment, start, end, benchmark_asset, monthly_contribution)
     if execution_delay_business_days < 0:
         raise ValueError("Execution delay must be zero or a positive number of business days.")

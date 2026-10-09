@@ -32,7 +32,7 @@ from haa.portfolio_backtest import run_portfolio_backtest
 from haa.signals import daily_signal_heading, execution_assets, first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
-from haa.validation import ValidationInput, profile_for, run_deterministic_validation
+from haa.validation import ValidationInput, profile_for, research_unavailable_reason, run_deterministic_validation
 
 
 def add_test_dates(table, result):
@@ -786,13 +786,15 @@ if page == "Backtest":
                 st.warning(f"Sleeve weights total {proxy_weight_total:.2f}%. Set them to exactly 100% to run the proxy backtest.")
             else:
                 st.success("Sleeve weights total 100%.")
-            if any(ALL_DEEP_HISTORY_SPECS[s["model"]].daily_signal_history for s in updated_proxy_sleeves):
+            if any(s["model"] == "rvol_daily" for s in updated_proxy_sleeves):
                 st.toggle("Israeli capital-gains tax (unavailable for this import)", value=False, disabled=True, key="daily_proxy_tax_unavailable")
-                st.caption("Trade values are unavailable, so tax and additional fees are disabled. Long synthetic A-RVol supports monthly portfolio blends; only standalone synthetic tests show daily risk. The earlier daily-signal import remains standalone only.")
+                st.caption("The earlier daily-signal import lacks trade values and remains standalone only, without tax or extra fees.")
             else:
                 st.toggle("Israeli capital-gains tax", key="tax_enabled")
                 st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
                 st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {deep_history_benchmark.label}.")
+                if any(s["model"] == "rvol_synthetic" for s in updated_proxy_sleeves):
+                    st.warning("Synthetic tax estimate: A-RVol's daily sales are reconstructed from frozen inputs; other sleeves use monthly allocation-change proxies. Monthly weight-reset sales are taxed too. Average cost and separate loss carryforwards by sleeve; no cross-sleeve loss offsets, FX/indexation or terminal liquidation. Modeled cash gains are taxed on sale, not as interest. Extra trading fees remain unsupported.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -816,8 +818,9 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             if any(s["model"] == "rvol_daily" for s in proxy_sleeves) and len(proxy_sleeves) != 1:
                 raise ValueError("Daily supplied proxies support a single strategy only, not blends.")
             if backtest_extra.get("fixed_fee") or cost_pct:
-                st.info("Trading-fee assumptions are not applied to this daily proxy import: separate trade values are unavailable. DCA remains available.")
-            tax_enabled = False
+                st.info("Additional trading-fee assumptions are not supported for this daily proxy import and are not applied. DCA remains available; the long synthetic option also supports modeled CGT.")
+            if any(s["model"] == "rvol_daily" for s in proxy_sleeves):
+                tax_enabled = False
             cost_pct = 0.0
             backtest_extra["fixed_fee"] = 0.
         for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
@@ -884,6 +887,9 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 daily_units = initial*(1+result.daily.pre_tax_daily_return).cumprod()
                 daily_drawdown = daily_units / daily_units.cummax().clip(lower=initial) - 1
                 summary.loc["Daily maximum drawdown", proxy_label] = daily_drawdown.min()
+                if tax_enabled:
+                    after_units=initial*(1+result.daily.after_tax_daily_return).cumprod()
+                    summary.loc["Daily maximum drawdown", proxy_after_label]=(after_units/after_units.cummax().clip(lower=initial)-1).min()
                 summary.loc["Daily maximum drawdown", benchmark_label] = float("nan")
             summary.loc["Worst 5-year rolling CAGR", proxy_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
             summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
@@ -918,9 +924,13 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 if not spec.daily_signal_history:
                     st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
                 elif spec.daily_nav_history:
-                    st.caption("Comparable metrics use complete monthly periods. The separate daily drawdown row uses every synthetic daily NAV, including starting capital. Daily benchmark drawdown is unavailable; no daily benchmark observations are invented. Tax and additional fees are unavailable.")
+                    st.caption(f"Comparable metrics use complete monthly periods; daily drawdown uses every synthetic daily NAV. No daily benchmark observations are invented. Modeled sale events: {len(result.tax_events)}. Tax is a simplified USD realized-gain estimate; extra fees are unsupported.")
                 else:
                     st.caption("Monthly return statistics. Daily maximum drawdown and realized-gain tax are unavailable from this import.")
+                if tax_enabled and spec.daily_nav_history:
+                    st.download_button("Download modeled tax ledger", result.tax_events.to_csv(index=False).encode(), "arvol_synthetic_tax_ledger.csv", "text/csv", key="synthetic_single_tax_download")
+                    st.download_button("Download daily pre-tax / after-tax NAV", result.daily.to_csv().encode(), "arvol_synthetic_funded_nav.csv", "text/csv", key="synthetic_single_funded_download")
+                    st.download_button("Download modeled transactions", result.audit.to_csv(index=False).encode(), "arvol_synthetic_transactions.csv", "text/csv", key="synthetic_single_audit_download")
             annual = pd.DataFrame({proxy_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
             monthly_returns = pd.DataFrame({proxy_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
             if tax_enabled:
@@ -979,7 +989,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 **backtest_extra,
             )
             title_column.title("Deep History / Proxy portfolio blend")
-            st.warning("Proxy blend: exact strategy-level monthly returns are combined over shared history, with monthly sleeve weight resets. Daily portfolio drawdown is unavailable. Tax is an allocation-change approximation when enabled; with synthetic A-RVol, tax and additional fees are unavailable.")
+            st.warning("Proxy blend: exact monthly returns are combined over shared history, with monthly sleeve weight resets. Daily portfolio drawdown is unavailable. When tax is enabled, A-RVol uses reconstructed daily sales and other sleeves use monthly allocation-change approximations; reset sales are included. Extra fees remain unsupported with synthetic A-RVol.")
             st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
@@ -1017,6 +1027,10 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
                 st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                if tax_enabled:
+                    st.download_button("Download portfolio tax ledger", result.tax_events.to_csv(index=False).encode(), "deep_history_portfolio_tax_ledger.csv", "text/csv", key="deep_blend_tax_download")
+                    if result.audit is not None:
+                        st.download_button("Download modeled portfolio transactions", result.audit.to_csv(index=False).encode(), "deep_history_portfolio_transactions.csv", "text/csv", key="deep_blend_audit_download")
             annual = pd.DataFrame({blend_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
             monthly_returns = pd.DataFrame({blend_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
             if tax_enabled:
@@ -1054,14 +1068,14 @@ if page in {"Backtest", "Rules"} and backtest_mode == "Single strategy" and not 
     st.stop()
 if page == "Research" and research_profile is None:
     title_column.title("Research")
-    st.info(f"{strategy.name} does not yet declare a validation profile. Add one beside the strategy implementation before running research validation.")
+    st.info(research_unavailable_reason(strategy) or f"{strategy.name} does not yet declare a validation profile. Add one beside the strategy implementation before running research validation.")
     st.stop()
 if page == "Research" and not getattr(strategy, "backtest_available", True):
     title_column.title("Research")
     st.info(f"{strategy.name} has a validation profile, but its executable historical-price data is not available for research backtests yet.")
     st.stop()
-data_assets = getattr(strategy, "data_assets", ASSETS)
 benchmark_asset = getattr(strategy, "benchmark_asset", "SPY")
+data_assets = tuple(dict.fromkeys((*getattr(strategy, "data_assets", ASSETS), benchmark_asset)))
 benchmark_label = f"{benchmark_asset} buy-and-hold"
 
 try:
@@ -1507,7 +1521,7 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.stop()
 if page in {"Backtest", "Research", "Rules"}:
     prices = all_prices.loc[:, data_assets]
-    market_data_assets = getattr(strategy, "market_data_assets", data_assets)
+    market_data_assets = tuple(dict.fromkeys((*getattr(strategy, "market_data_assets", data_assets), benchmark_asset)))
     monthly, monthly_decision_input = monthly_strategy_input(prices, market_data_assets)
     substitution_prices: pd.DataFrame | None = None
     substitution_monthly: pd.DataFrame | None = None
@@ -1791,7 +1805,7 @@ if page == "Backtest":
     st.caption("These settings configure this backtest only.")
     if result.daily is not None:
         st.caption("Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
-        st.info("Also available in USD portfolio backtests with drifting sleeve weights. Monthly Compare remains unsupported. Imported Deep History daily proxies remain standalone only.")
+        st.info("Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
     else:
         st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
     if substitution_result is not None:
@@ -2778,7 +2792,7 @@ if page == "Rules":
         st.warning(strategy.risk_warning)
     if getattr(strategy, "execution_frequency", "monthly") == "daily":
         st.warning(strategy.risk_warning)
-        st.caption("Single-strategy and mixed-frequency USD portfolio Backtests are available. Mixed portfolios have initial sleeve weights only, with no transfers between sleeves. Monthly Compare and generic monthly Research remain unsupported.")
+        st.caption("Single-strategy and mixed-frequency USD portfolio Backtests are available. Mixed portfolios have initial sleeve weights only, with no transfers between sleeves. Portfolio Compare supports daily valuation; model-only monthly Compare and generic monthly Research remain unsupported.")
         st.dataframe(ranges, use_container_width=True, hide_index=True)
         st.stop()
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":

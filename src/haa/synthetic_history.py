@@ -14,13 +14,15 @@ SOURCE_HASH = "4449127d40b730d384a58860972a37a2debcd712746604ba392901cc31555d5a"
 def monthly_blend_input(model):
     """Use exact NAV month-end returns, not invented daily security prices.
 
-    The daily standalone engine remains unchanged. The blend is a monthly
-    strategy-NAV allocation; it cannot model internal trades or daily blend risk.
+    Untaxed blends remain monthly NAV allocations. Preserve provenance so
+    optional tax can rebuild daily internal sales; daily blend risk is unavailable.
     """
     if not model.decisions.attrs.get("daily_nav_proxy"):
         return model
     decisions = model.decisions.copy(deep=True)
-    decisions.attrs = {"tax_supported": False, "trade_cost_supported": False}
+    decisions.attrs = {"tax_supported": True, "trade_cost_supported": False,
+                       "synthetic_tax_proxy": True,
+                       "synthetic_source_path": model.decisions.attrs["synthetic_source_path"]}
     return ModelInput(model.name, decisions, model.monthly_prices, None, model.benchmark_asset)
 
 
@@ -50,8 +52,8 @@ def synthetic_model_input(label, path, benchmark_returns, benchmark_asset, usabl
                            benchmark_asset: np.r_[100., 100. * (1 + benchmark_returns.loc[months]).cumprod()]},
                           index=pd.DatetimeIndex([anchor]).append(months))
     decisions = pd.DataFrame({"selected_asset": "ARVOL_SYNTHETIC_NAV_PROXY"}, index=prices.index[:-1])
-    decisions.attrs.update(single_strategy_only=True, tax_supported=False, trade_cost_supported=False,
-                           daily_nav_proxy=True)
+    decisions.attrs.update(single_strategy_only=True, tax_supported=True, trade_cost_supported=False,
+                           daily_nav_proxy=True, synthetic_source_path=str(path))
     return ModelInput(label, decisions, prices, daily, benchmark_asset)
 
 

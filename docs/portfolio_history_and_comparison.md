@@ -14,8 +14,13 @@ Long synthetic A-RVol can be blended with other proxy sleeves. Its month-end NAV
 ratios are preserved exactly, including the effect of its daily trades. The blend
 resets sleeve weights monthly, supports monthly DCA, and uses only shared complete
 months. Other sleeves lack daily observations, so blended risk statistics are
-monthly only. No interpolated daily returns are generated. Internal trade values
-are unavailable; tax and extra trading fees are disabled for any such blend.
+monthly only. No interpolated daily returns are generated. Optional CGT now
+reconstructs A-RVol's daily sale proceeds from reviewed frozen inputs and tracks
+funded average cost and separate sleeve loss carryforwards. Monthly reset sales
+are also recorded and taxed. Other sleeves remain monthly tax proxies. Cash is
+an accumulating instrument taxed on sale, not an interest withholding simulation.
+No FX/indexation, cross-sleeve loss offsets or terminal liquidation. Extra trading
+fees remain unsupported. A zero tax rate must reproduce the untaxed NAV path.
 Standalone synthetic tests retain the original daily NAV engine. The older
 daily-signal/monthly-return import remains standalone only.
 

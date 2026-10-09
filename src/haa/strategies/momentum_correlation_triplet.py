@@ -6,6 +6,7 @@ from itertools import combinations
 import pandas as pd
 
 from ..data import to_month_end
+from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
 class MomentumCorrelationTriplet:
@@ -23,6 +24,18 @@ class MomentumCorrelationTriplet:
     top_n = 5
     holdings = 3
     correlation_window = 252
+    validation_profile = ValidationProfile(
+        profile_id="momentum-correlation-triplet",
+        published_parameters=(
+            ParameterSpec("top_n", 5, (), "Number of cash-hurdle-qualified momentum candidates."),
+            ParameterSpec("holdings", 3, (), "Equal-weight slots, with unfilled slots in BIL."),
+            ParameterSpec("correlation_window", 252, (), "Common daily observations for pairwise correlations.", "sessions"),
+        ),
+        execution=ExecutionSpec("monthly", "Next available trading-session close after the month-end decision", (0, 1, 2), (0,)),
+        applicable_tests=frozenset({"execution_delay", "alternate_start_dates", "rolling_windows", "subperiods", "transaction_costs", "israeli_tax", "block_bootstrap", "data_quality"}),
+        data_confidence="moderate",
+        notes="Monthly allocation with daily correlation inputs. Research leaves all live ranking and correlation rules unchanged. No parameter sweep or undeclared substitute universe is enabled. Profile availability is not independent performance validation.",
+    )
 
     def decisions(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
         missing = set(self.data_assets) - set(daily_prices.columns)

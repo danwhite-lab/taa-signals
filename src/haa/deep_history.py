@@ -73,12 +73,13 @@ DEEP_HISTORY_BENCHMARKS = {
 }
 
 # Daily imports need explicit handling: synthetic NAV can be blended through
-# its exact monthly adapter, but neither import can reconstruct trade-level tax.
+# its monthly adapter and frozen inputs now support modeled trade-level tax;
+# the older monthly-return/daily-signal import remains tax unsupported.
 DEEP_HISTORY_SINGLE_SPECS = {
     "rvol_synthetic": DeepHistorySpec("rvol_synthetic", "A-RVol Shifter (long synthetic history)",
         "", "arvol_synthetic_v5/daily.csv", holding_asset="ARVOL_SYNTHETIC_NAV_PROXY",
         completed_only=True, usable_through="2026-09-30", daily_signal_history=True, daily_nav_history=True,
-        caveat="Fully modeled USD exposure, not actual ETF performance. State transitions match the app on these proxy inputs. Uses NDX price returns without dividends, synthetic leveraged funds and T-bill cash; credit is disabled before May 2007. Execution is next-close before 2001 and next-open thereafter. Tax and additional trading fees are unavailable. Standalone tests preserve daily NAV; blends use exact monthly NAV returns, without daily portfolio risk statistics. The benchmark has monthly observations only. Comparable complete months run December 1986–September 2026; the raw source also contains partial November 1986 and October 2026. Live rules are unchanged."),
+        caveat="Fully modeled USD exposure, not actual ETF performance. State transitions match the app on these proxy inputs. Uses NDX price returns without dividends, synthetic leveraged funds and T-bill cash; credit is disabled before May 2007. Execution is next-close before 2001 and next-open thereafter. Optional tax reconstructs daily sale proceeds, average cost and separate sleeve loss carryforwards; cash is an accumulating proxy taxed on sale. No FX/indexation, interest withholding, cross-sleeve loss offsets or terminal liquidation. Additional trading fees remain unsupported. Standalone tests preserve daily NAV; blends use complete months without daily portfolio risk statistics. The benchmark has monthly observations only. Complete months run December 1986–September 2026. Live rules are unchanged."),
     "rvol_daily": DeepHistorySpec("rvol_daily", "A-RVol Shifter (daily supplied proxy)",
         "rvol_daily_signals.csv", "rvol_daily_monthly_returns.csv",
         holding_asset="ARVOL_STRATEGY_NAV_PROXY", completed_only=True,
