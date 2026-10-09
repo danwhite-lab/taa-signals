@@ -18,7 +18,11 @@ from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, download_yahoo_daily_bars, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import ALL_DEEP_HISTORY_SPECS, DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input, deep_history_options, load_deep_history
 from haa.backtest_options import result_metrics as backtest_result_metrics, unit_curves
-from haa.portfolio_config import backtest_portfolio_config
+from haa.portfolio_config import backtest_portfolio_config, deep_history_portfolio_config
+from haa.synthetic_history import monthly_blend_input
+from haa.portfolio_comparison import compare_portfolios
+
+
 from haa.engine import run_backtest
 from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
@@ -29,6 +33,14 @@ from haa.signals import daily_signal_heading, execution_assets, first_trading_da
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
+
+
+def add_test_dates(table, result):
+    """Date rows are actual observed coverage, never a requested but unfilled date."""
+    observed = result.daily if result.daily is not None and not result.daily.empty else result.monthly
+    table.loc["Tested from (first observation)"] = observed.index.min().strftime("%Y-%m-%d")
+    table.loc["Tested through (last observation)"] = observed.index.max().strftime("%Y-%m-%d")
+
 
 MODEL_OPTIONS = {item.label: item.model_class for item in MODEL_CATALOG}
 BACKTEST_MODEL_OPTIONS = {label: model_class for label, model_class in MODEL_OPTIONS.items() if getattr(model_class, "backtest_available", True)}
@@ -586,6 +598,18 @@ if pending_backtest is not None:
         st.session_state["initial"] = loaded_capital
     except (ValueError, TypeError) as exc:
         st.error(str(exc))
+pending_deep = st.session_state.pop("pending_deep_portfolio", None)
+if pending_deep is not None:
+    try:
+        loaded_sleeves, loaded_capital = deep_history_portfolio_config(pending_deep, MODEL_OPTIONS, ALL_DEEP_HISTORY_SPECS)
+        for key in list(st.session_state):
+            if key.startswith("deep_proxy_sleeve_"):
+                del st.session_state[key]
+        st.session_state["deep_proxy_sleeves"] = loaded_sleeves
+        st.session_state["deep_proxy_next_id"] = len(loaded_sleeves) + 1
+        st.session_state["initial"] = loaded_capital
+    except (ValueError, TypeError) as exc:
+        st.error(str(exc))
 seed_model_selection("signals", st.session_state["signals_model_name"])
 seed_model_selection("backtest", st.session_state["model_name"])
 seed_model_selection("rules", st.session_state["model_name"])
@@ -697,16 +721,34 @@ if page == "Backtest":
             st.caption("Tax applies to realized sales. With A-RVol, tax bases and loss carryforwards stay separate by sleeve; there are no sleeve resets or cross-sleeve loss offsets. This is a simplified tax model.")
         else:
             st.subheader("Proxy history sleeves")
+            with st.expander("Load saved portfolio"):
+                library = st.session_state["browser_portfolio_library"]
+                if library:
+                    saved_index = st.selectbox("Saved in this browser", range(len(library)), format_func=lambda i: library[i]["name"], key="deep_saved_picker")
+                    if st.button("Load browser portfolio", key="deep_load_browser"):
+                        st.session_state["pending_deep_portfolio"] = library[saved_index]
+                        st.rerun()
+                saved_file = st.file_uploader("Portfolio JSON from device", type=["json"], key="deep_portfolio_file")
+                if saved_file is not None and st.button("Load portfolio file", key="deep_load_file"):
+                    try:
+                        if saved_file.size > 100000: raise ValueError("Portfolio file is too large.")
+                        payload = json.loads(saved_file.getvalue())
+                        deep_history_portfolio_config(payload, MODEL_OPTIONS, ALL_DEEP_HISTORY_SPECS)
+                        st.session_state["pending_deep_portfolio"] = payload
+                        st.rerun()
+                    except (ValueError, TypeError) as exc:
+                        st.error(str(exc))
+                st.caption("Loads compatible strategy proxies and weights, not actual ETF/ILS history. Unsupported variants are rejected. Saved capital is converted to USD; browser defaults stay unchanged.")
             st.caption("Bundled strategy-level monthly returns and signal histories extend beyond the available ETF/TASE price histories. Results are proxy backtests, not security-level historical returns.")
             benchmark_key = st.selectbox("Deep History benchmark", tuple(DEEP_HISTORY_BENCHMARKS), format_func=lambda key: DEEP_HISTORY_BENCHMARKS[key].label, key="deep_history_benchmark", help="The global option uses nominal USD ACWI proxy returns from 1970. Early history uses substitute assets; it is not actual ACWI or ISAC ETF history throughout.")
             deep_history_benchmark = DEEP_HISTORY_BENCHMARKS[benchmark_key]
             configured_proxy_sleeves = st.session_state["deep_proxy_sleeves"]
             proxy_options = deep_history_options(len(configured_proxy_sleeves))
             proxy_labels = {key: spec.label for key, spec in ALL_DEEP_HISTORY_SPECS.items()}
-            configured_daily_proxy = any(ALL_DEEP_HISTORY_SPECS[st.session_state.get(f"deep_proxy_sleeve_{sleeve['id']}_model", sleeve["model"])].daily_signal_history for sleeve in configured_proxy_sleeves)
+            configured_daily_proxy = any(st.session_state.get(f"deep_proxy_sleeve_{sleeve['id']}_model", sleeve["model"]) == "rvol_daily" for sleeve in configured_proxy_sleeves)
             _, add_column, remove_column = st.columns([7, 0.5, 0.5])
             with add_column:
-                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve (daily proxies are standalone only)", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(DEEP_HISTORY_SPECS))
+                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve; long synthetic A-RVol supports monthly blends", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(deep_history_options(2)))
             with remove_column:
                 remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
             updated_proxy_sleeves = []
@@ -719,7 +761,7 @@ if page == "Backtest":
                     with strategy_column:
                         sleeve_model = st.selectbox("Proxy strategy", proxy_options, format_func=lambda key: proxy_labels[key], key=model_key)
                     with weight_column:
-                        is_daily_proxy = ALL_DEEP_HISTORY_SPECS[sleeve_model].daily_signal_history
+                        is_daily_proxy = sleeve_model == "rvol_daily"
                         if is_daily_proxy:
                             st.text_input("Weight (%)", value="100", disabled=True, key=f"daily_proxy_fixed_weight_{sleeve_id}")
                             sleeve_weight = 100.0
@@ -730,7 +772,8 @@ if page == "Backtest":
             if add_proxy_sleeve:
                 next_id = st.session_state["deep_proxy_next_id"]
                 st.session_state["deep_proxy_next_id"] = next_id + 1
-                st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": deep_history_options(2)[0]})
+                unused_proxy = next(key for key in deep_history_options(2) if key not in {s["model"] for s in updated_proxy_sleeves})
+                st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": unused_proxy})
                 st.rerun()
             if remove_proxy_sleeve:
                 st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves[:-1]
@@ -745,7 +788,7 @@ if page == "Backtest":
                 st.success("Sleeve weights total 100%.")
             if any(ALL_DEEP_HISTORY_SPECS[s["model"]].daily_signal_history for s in updated_proxy_sleeves):
                 st.toggle("Israeli capital-gains tax (unavailable for this import)", value=False, disabled=True, key="daily_proxy_tax_unavailable")
-                st.caption("Standalone daily-strategy history. Separate trade values are unavailable, so tax and additional trade-fee calculations are disabled. The long synthetic option preserves daily NAV; the earlier supplied option has monthly returns only.")
+                st.caption("Trade values are unavailable, so tax and additional fees are disabled. Long synthetic A-RVol supports monthly portfolio blends; only standalone synthetic tests show daily risk. The earlier daily-signal import remains standalone only.")
             else:
                 st.toggle("Israeli capital-gains tax", key="tax_enabled")
                 st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
@@ -770,7 +813,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
     try:
         proxy_sleeves = st.session_state["deep_proxy_sleeves"]
         if any(proxy_specs[s["model"]].daily_signal_history for s in proxy_sleeves):
-            if len(proxy_sleeves) != 1:
+            if any(s["model"] == "rvol_daily" for s in proxy_sleeves) and len(proxy_sleeves) != 1:
                 raise ValueError("Daily supplied proxies support a single strategy only, not blends.")
             if backtest_extra.get("fixed_fee") or cost_pct:
                 st.info("Trading-fee assumptions are not applied to this daily proxy import: separate trade values are unavailable. DCA remains available.")
@@ -866,7 +909,9 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             if spec.daily_nav_history:
                 st.plotly_chart(px.line(daily_values.rename(proxy_label), title="Synthetic daily equity curve"), use_container_width=True)
                 st.plotly_chart(px.line(daily_drawdown.rename(proxy_label), title="Synthetic daily drawdown"), use_container_width=True)
-            with st.expander("Performance and tax details", expanded=False):
+            with st.container():
+                st.subheader("Performance and tax details")
+                add_test_dates(summary, result)
                 proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Daily maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
                 proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
@@ -908,7 +953,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 spec = proxy_specs[sleeve["model"]]
                 sleeve_key = f"{spec.label} ({sleeve['id']})"
                 weight = float(sleeve["weight"]) / 100
-                portfolio_inputs[sleeve_key] = (weight, deep_history_model_input(spec, benchmark=deep_history_benchmark))
+                portfolio_inputs[sleeve_key] = (weight, monthly_blend_input(deep_history_model_input(spec, benchmark=deep_history_benchmark)))
                 selected_sleeves.append(f"{weight:.0%} {spec.label}")
             preliminary = run_portfolio_backtest(portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra)
             proxy_min = preliminary.common_index.min().date()
@@ -934,7 +979,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                 **backtest_extra,
             )
             title_column.title("Deep History / Proxy portfolio blend")
-            st.warning("Proxy blend: strategy-level returns are combined over their shared history. Tax uses the existing realized-gain portfolio logic, with allocation-change realization treated as a proxy because security-level prices are unavailable.")
+            st.warning("Proxy blend: exact strategy-level monthly returns are combined over shared history, with monthly sleeve weight resets. Daily portfolio drawdown is unavailable. Tax is an allocation-change approximation when enabled; with synthetic A-RVol, tax and additional fees are unavailable.")
             st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
             blend_label = "Proxy blend pre-tax"
             blend_after_label = "Proxy blend after-tax"
@@ -965,7 +1010,9 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             st.plotly_chart(px.line(curves, title="Proxy blend equity curve"), use_container_width=True)
             units = unit_curves(result, {blend_label:"pre_tax_value", benchmark_label:"benchmark_value", **({blend_after_label:"after_tax_value"} if tax_enabled else {})}, initial)
             st.plotly_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Proxy blend drawdown"), use_container_width=True)
-            with st.expander("Performance and tax details", expanded=False):
+            with st.container():
+                st.subheader("Performance and tax details")
+                add_test_dates(summary, result)
                 proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
                 proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
                 st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
@@ -1172,9 +1219,23 @@ elif page == "Today":
 elif page == "Backtest" and backtest_mode == "Portfolio":
     active_model_labels = selected_sleeve_labels(st.session_state["backtest_sleeves"], "backtest_sleeve")
 elif page == "Compare":
+    with title_column:
+        comparison_mode = st.radio("Compare", ("Models", "Portfolios"), horizontal=True, key="comparison_mode")
+        if comparison_mode == "Portfolios":
+            library = st.session_state["browser_portfolio_library"]
+            selected_portfolio_indices = st.multiselect("Load portfolios saved in this browser", range(len(library)), format_func=lambda i: library[i]["name"], key="comparison_saved_portfolios")
+            st.caption("Save portfolios on the Portfolio page first. Loading here does not change browser defaults.")
+            portfolio_drift = st.selectbox("Portfolio method", ("Monthly sleeve weight resets", "Initial weights / daily valuation"), key="comparison_portfolio_method") == "Initial weights / daily valuation"
+            st.caption("Daily valuation preserves each sleeve's trading schedule and lets weights drift. Required for A-RVol. Monthly resets are for monthly strategies only. USD sleeves only.")
     default_comparison = [model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))]
     default_comparison.append(next(label for label in BACKTEST_MODEL_OPTIONS if label != default_comparison[0]))
     active_model_labels = list(st.session_state.get("compare_models", default_comparison))
+    if comparison_mode == "Portfolios":
+        active_model_labels = list(dict.fromkeys(s["model"] for i in selected_portfolio_indices for s in library[i]["sleeves"]))
+        if len(selected_portfolio_indices) < 2:
+            title_column.title("Compare portfolios")
+            st.info("Load at least two saved portfolios to compare.")
+            st.stop()
 else:
     active_model_labels = [model_name]
 
@@ -1183,7 +1244,7 @@ else:
 # catalogue of strategies.
 runtime_assets = assets_for_models(
     active_model_labels,
-    include_spy_benchmark=page == "Backtest" and backtest_mode == "Portfolio",
+    include_spy_benchmark=(page == "Backtest" and backtest_mode == "Portfolio") or (page == "Compare" and comparison_mode == "Portfolios"),
     include_research_proxies=page == "Research",
 )
 runtime_yahoo_assets = tuple(asset for asset in runtime_assets if asset in YAHOO_ASSETS)
@@ -1195,6 +1256,7 @@ try:
     execution_opens = None
     mixed_portfolio_requested = page == "Backtest" and backtest_mode == "Portfolio" and any(getattr(MODEL_OPTIONS[label], "execution_frequency", "monthly") == "daily" for label in active_model_labels)
     needs_open_prices = page == "Backtest" and (mixed_portfolio_requested or (backtest_mode != "Portfolio" and getattr(strategy, "execution_frequency", "monthly") == "daily"))
+    needs_open_prices = needs_open_prices or (page == "Compare" and comparison_mode == "Portfolios" and portfolio_drift)
     if needs_open_prices:
         downloaded, execution_opens = load_daily_bars(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets))
     else:
@@ -1412,7 +1474,9 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
     units = unit_curves(portfolio_result, {portfolio_label:"pre_tax_value", benchmark_label:"benchmark_value", **({portfolio_after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
     st.plotly_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Drawdown"), use_container_width=True)
-    with st.expander("Full performance table", expanded=False):
+    with st.container():
+        st.subheader("Full performance table")
+        add_test_dates(summary, portfolio_result)
         st.dataframe(styled_summary, use_container_width=True)
     st.subheader("Selected sleeves")
     if backtest_extra.get("monthly_contribution") or backtest_extra.get("fixed_fee"):
@@ -1801,7 +1865,9 @@ if page == "Backtest":
         units = units.join(extra_units)
     drawdowns = units.div(units.cummax().clip(lower=initial)).sub(1)
     st.plotly_chart(px.line(drawdowns, title="Drawdown"), use_container_width=True)
-    with st.expander("Full performance table", expanded=False):
+    with st.container():
+        st.subheader("Full performance table")
+        add_test_dates(summary, result)
         st.dataframe(styled_summary, use_container_width=True)
     annual = pd.DataFrame({pre_tax_label: annual_returns(result.monthly["pre_tax_monthly_return"])})
     if tax_enabled:
@@ -2205,6 +2271,54 @@ if page == "Portfolio":
 
 if page == "Compare":
     title_column.title("Compare")
+    if comparison_mode == "Portfolios":
+        try:
+            portfolios = {}
+            for i in selected_portfolio_indices:
+                payload = library[i]
+                sleeves, _ = backtest_portfolio_config(payload, BACKTEST_MODEL_OPTIONS)
+                inputs = {}
+                for sleeve in sleeves:
+                    label = sleeve["model"]
+                    model = BACKTEST_MODEL_OPTIONS[label]()
+                    currency = definition_for_label(label).execution_currency
+                    if currency != "USD": raise ValueError(f"{label}: portfolio comparison requires USD sleeves.")
+                    model_assets = getattr(model, "data_assets", ASSETS)
+                    daily = all_prices.loc[:, list(dict.fromkeys((*model_assets, "SPY")))]
+                    monthly, decision_monthly = monthly_strategy_input(daily, tuple(dict.fromkeys((*getattr(model, "market_data_assets", model_assets), "SPY"))))
+                    decision_prices = daily if getattr(model, "uses_daily_signals", False) else decision_monthly
+                    key = f"{label} ({sleeve['id']})"
+                    inputs[key] = (sleeve["weight"] / 100, ModelInput(key, model.decisions(decision_prices), monthly, daily, "SPY", execution_opens, currency))
+                portfolios[f"{payload['name']} ({i+1})"] = inputs
+            compare_initial = st.number_input("Initial investment per portfolio (USD)", min_value=1., value=100000., key="portfolio_compare_initial")
+            compare_fee = st.number_input("Trading fee (%)", min_value=0., max_value=10., value=0., key="portfolio_compare_fee") / 100
+            compare_tax = st.toggle("Israeli capital-gains tax", key="portfolio_compare_tax")
+            compare_tax_rate = st.number_input("Tax rate (%)", min_value=0., max_value=100., value=25., disabled=not compare_tax, key="portfolio_compare_tax_rate") / 100
+            preliminary = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, drift=portfolio_drift)
+            minimum, maximum = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
+            start_date = st.date_input("Compare portfolios from", value=minimum, min_value=minimum, max_value=maximum)
+            end_date = st.date_input("Compare portfolios through", value=maximum, min_value=minimum, max_value=maximum)
+            if start_date > end_date: raise ValueError("Start must not be after end.")
+            comparison = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, pd.Timestamp(start_date), pd.Timestamp(end_date), portfolio_drift)
+            st.dataframe(comparison.available_periods, hide_index=True, use_container_width=True)
+            summary = pd.DataFrame({name: backtest_result_metrics(r, "after_tax_value" if compare_tax else "pre_tax_value", compare_initial) for name, r in comparison.results.items()})
+            first = next(iter(comparison.results.values()))
+            summary["SPY buy-and-hold"] = backtest_result_metrics(first, "benchmark_value", compare_initial)
+            add_test_dates(summary, first)
+            st.subheader("Full performance table — after tax" if compare_tax else "Full performance table — pre tax")
+            st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[[r for r in percentage_rows if r in summary.index], :]).format("{:.2f}", subset=pd.IndexSlice[[r for r in ratio_rows + numeric_rows if r in summary.index], :]), use_container_width=True)
+            column = "after_tax_value" if compare_tax else "pre_tax_value"
+            curves = pd.DataFrame({name: (r.daily if portfolio_drift else r.monthly)[column] for name, r in comparison.results.items()})
+            curves["SPY buy-and-hold"] = (first.daily if portfolio_drift else first.monthly).benchmark_value
+            st.plotly_chart(px.line(curves, title="Portfolio comparison"), use_container_width=True)
+            st.plotly_chart(px.line(curves.div(curves.cummax().clip(lower=compare_initial)).sub(1), title="Drawdown"), use_container_width=True)
+            returns = pd.DataFrame({name: r.monthly["after_tax_monthly_return" if compare_tax else "pre_tax_monthly_return"] for name, r in comparison.results.items()})
+            returns["SPY buy-and-hold"] = first.monthly.benchmark_monthly_return
+            st.download_button("Download portfolio comparison returns", returns.to_csv().encode(), "portfolio_comparison.csv", "text/csv")
+            st.caption("Every portfolio restarts with equal capital over the same observed dates. Fees and tax are computed independently. Tax is simplified; cross-sleeve loss offsets and terminal liquidation are not modeled in daily valuation.")
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(str(exc))
+        st.stop()
     st.caption("Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.")
     default_model = model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))
     default_comparison = [default_model, next(name for name in BACKTEST_MODEL_OPTIONS if name != default_model)]

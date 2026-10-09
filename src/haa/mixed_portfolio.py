@@ -195,12 +195,15 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     sleeve_nav=pd.DataFrame({n:r.daily.pre_tax_value for n,r in results.items()})
     daily['pre_tax_value']=sleeve_nav.sum(axis=1)
     daily['after_tax_value']=sum(r.daily.after_tax_value for r in results.values())
-    daily_model=next(m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily')
+    daily_model=next((m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily'), next(iter(sleeves.values()))[1])
     if daily_model.daily_open_prices is None: raise ValueError('Daily sleeve requires adjusted opening prices.')
+    benchmark_opens=daily_model.daily_open_prices.reindex(sessions)[benchmark]
+    if not np.isfinite(benchmark_opens).all() or (benchmark_opens<=0).any():
+        raise ValueError('Missing/invalid benchmark opening prices in comparison history.')
     benchmark_open=daily_model.daily_open_prices.loc[sessions[0],benchmark]
     daily['benchmark_value']=initial*daily_model.daily_prices.loc[sessions,benchmark]/benchmark_open
     daily['contribution']=sum(r.daily.contribution for r in results.values())
-    open_flows=sum(r.daily.contribution for n,r in results.items() if sleeves[n][1].decisions.attrs.get('execution_frequency')=='daily')
+    open_flows=sum((r.daily.contribution for n,r in results.items() if sleeves[n][1].decisions.attrs.get('execution_frequency')=='daily'), pd.Series(0., index=sessions))
     close_flows=daily.contribution-open_flows
     bench=initial
     benchmark_returns=[]; benchmark_values=[]

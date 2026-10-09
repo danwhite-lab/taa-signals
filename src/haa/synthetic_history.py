@@ -11,6 +11,19 @@ from .market_sessions import validate_us_equity_sessions
 SOURCE_HASH = "4449127d40b730d384a58860972a37a2debcd712746604ba392901cc31555d5a"
 
 
+def monthly_blend_input(model):
+    """Use exact NAV month-end returns, not invented daily security prices.
+
+    The daily standalone engine remains unchanged. The blend is a monthly
+    strategy-NAV allocation; it cannot model internal trades or daily blend risk.
+    """
+    if not model.decisions.attrs.get("daily_nav_proxy"):
+        return model
+    decisions = model.decisions.copy(deep=True)
+    decisions.attrs = {"tax_supported": False, "trade_cost_supported": False}
+    return ModelInput(model.name, decisions, model.monthly_prices, None, model.benchmark_asset)
+
+
 def load_synthetic_daily(path: Path) -> pd.DataFrame:
     if hashlib.sha256(path.read_bytes()).hexdigest() != SOURCE_HASH:
         raise ValueError("Synthetic A-RVol source hash differs from the reviewed v5 dataset.")

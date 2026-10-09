@@ -85,7 +85,25 @@ class SyntheticHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "single-strategy only"):
             run_portfolio_backtest({"synthetic": (1., model)}, 100000)
         self.assertIn("rvol_synthetic", deep_history_options(1))
-        self.assertNotIn("rvol_synthetic", deep_history_options(2))
+        self.assertIn("rvol_synthetic", deep_history_options(2))
+
+    def test_monthly_blend_preserves_exact_nav_returns_and_tax_guards(self):
+        from haa.synthetic_history import monthly_blend_input
+        model = monthly_blend_input(deep_history_model_input(self.spec))
+        other = deep_history_model_input(ALL_DEEP_HISTORY_SPECS["century_momentum"])
+        result = run_portfolio_backtest({"A-RVol": (.7, model), "CM": (.3, other)}, 100000)
+        solo = run_backtest(model.decisions, model.monthly_prices, 100000, benchmark_asset=model.benchmark_asset)
+        np.testing.assert_allclose(result.sleeve_returns["A-RVol"], solo.monthly.loc[result.common_index, "pre_tax_monthly_return"])
+        exact = model.monthly_prices.ARVOL_SYNTHETIC_NAV_PROXY.pct_change().loc[result.common_index]
+        np.testing.assert_allclose(result.sleeve_returns["A-RVol"], exact)
+        expected = result.sleeve_returns["A-RVol"]*.7 + result.sleeve_returns["CM"]*.3
+        np.testing.assert_allclose(result.monthly.pre_tax_monthly_return, expected)
+        self.assertIsNone(result.daily)
+        for options in ({"tax_enabled": True}, {"fixed_fee": 5}, {"transaction_cost": .001}):
+            with self.assertRaises(ValueError):
+                run_portfolio_backtest({"A-RVol": (.7, model), "CM": (.3, other)}, 100000, **options)
+        dca = run_portfolio_backtest({"A-RVol": (.7, model), "CM": (.3, other)}, 100000, monthly_contribution=100)
+        np.testing.assert_allclose(dca.monthly.pre_tax_monthly_return, expected, atol=1e-12)
 
 
 if __name__ == "__main__":

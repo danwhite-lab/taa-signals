@@ -50,6 +50,10 @@ def run_portfolio_backtest(
     validate_options(monthly_contribution, fixed_fee)
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
+    if tax_enabled and any(model.decisions.attrs.get("tax_supported") is False for _, model in sleeves.values()):
+        raise ValueError("Tax is unavailable: an imported sleeve lacks trade values.")
+    if (transaction_cost or fixed_fee) and any(model.decisions.attrs.get("trade_cost_supported") is False for _, model in sleeves.values()):
+        raise ValueError("Trading fees are unavailable: an imported sleeve lacks trade values.")
     if any(model.decisions.attrs.get("single_strategy_only") for _, model in sleeves.values()):
         raise ValueError("Daily supplied proxies are single-strategy only and cannot be portfolio sleeves.")
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
@@ -69,6 +73,8 @@ def run_portfolio_backtest(
             transaction_cost=0. if (monthly_contribution or fixed_fee) else transaction_cost,
             tax_enabled=False if (monthly_contribution or fixed_fee) else tax_enabled,
             tax_rate=tax_rate,
+            start=start,
+            end=end,
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
         )
