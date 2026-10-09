@@ -18,6 +18,8 @@ class ModelInput:
     monthly_prices: pd.DataFrame
     daily_prices: pd.DataFrame | None = None
     benchmark_asset: str = "SPY"
+    daily_open_prices: pd.DataFrame | None = None
+    execution_currency: str = "USD"
 
 
 @dataclass(frozen=True)

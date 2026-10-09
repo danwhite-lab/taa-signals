@@ -19,6 +19,9 @@ class PortfolioBacktestResult:
     sleeve_returns: pd.DataFrame
     common_index: pd.DatetimeIndex
     tax_events: pd.DataFrame
+    daily: pd.DataFrame | None = None
+    sleeve_nav: pd.DataFrame | None = None
+    audit: pd.DataFrame | None = None
 
 
 def run_portfolio_backtest(
@@ -29,6 +32,8 @@ def run_portfolio_backtest(
     tax_rate: float = 0.25,
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
+    monthly_contribution: float = 0.,
+    fixed_fee: float = 0.,
 ) -> PortfolioBacktestResult:
     """Backtest weighted sleeves, resetting sleeve weights each month-end.
 
@@ -41,12 +46,15 @@ def run_portfolio_backtest(
     This deliberately uses only the intersection of executable holding
     periods; no return series is padded or synthesized.
     """
+    from .backtest_options import validate_options
+    validate_options(monthly_contribution, fixed_fee)
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
     if any(model.decisions.attrs.get("single_strategy_only") for _, model in sleeves.values()):
         raise ValueError("Daily supplied proxies are single-strategy only and cannot be portfolio sleeves.")
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
-        raise ValueError("Daily-execution models currently support single-strategy Backtest only; monthly sleeve tax/reset integration is not enabled.")
+        from .mixed_portfolio import run_mixed_portfolio
+        return run_mixed_portfolio(sleeves, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, monthly_contribution, fixed_fee)
     weights = {name: float(weight) for name, (weight, _) in sleeves.items()}
     if any(weight <= 0 for weight in weights.values()) or abs(sum(weights.values()) - 1.0) > 1e-9:
         raise ValueError("Portfolio sleeve weights must be positive and total exactly 100%.")
@@ -58,8 +66,8 @@ def run_portfolio_backtest(
             model.decisions,
             model.monthly_prices,
             1.0,
-            transaction_cost=transaction_cost,
-            tax_enabled=tax_enabled,
+            transaction_cost=0. if (monthly_contribution or fixed_fee) else transaction_cost,
+            tax_enabled=False if (monthly_contribution or fixed_fee) else tax_enabled,
             tax_rate=tax_rate,
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
@@ -73,6 +81,29 @@ def run_portfolio_backtest(
         common = common[common <= pd.Timestamp(end)]
     if common.empty:
         raise ValueError("The selected sleeves have no common executable holding periods in the requested date range.")
+
+    if monthly_contribution or fixed_fee:
+        # Fund one security-level monthly book, rather than charging an
+        # absolute fee to the old normalized one-unit sleeve simulations.
+        from .engine import _simulate_weighted_execution
+        rows = []
+        for date in common:
+            targets, asset_returns = {}, {}
+            for name, result in sleeve_results.items():
+                period = result.monthly.loc[date]
+                target = period.get("target_weights", {period.get("selected_asset"): 1.})
+                returns = period.get("asset_returns", {period.get("selected_asset"): period.holding_period_return})
+                for asset, weight in target.items():
+                    role = f"{name}::{asset}"
+                    targets[role] = weights[name] * weight
+                    asset_returns[role] = returns[asset]
+            benchmark_return = next(iter(sleeve_results.values())).monthly.loc[date, "benchmark_monthly_return"]
+            rows.append({"signal_date": date, "execution_date": date, "holding_end": date,
+                "target_weights": targets, "asset_returns": asset_returns,
+                "holding_period_return": sum(targets[a]*asset_returns[a] for a in targets), "spy_return": benchmark_return})
+        funded = _simulate_weighted_execution(pd.DataFrame(rows), initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee)
+        sleeve_returns = pd.DataFrame({n:r.monthly.loc[common,"pre_tax_monthly_return"] for n,r in sleeve_results.items()})
+        return PortfolioBacktestResult(funded.monthly, sleeve_returns, common, funded.tax_events, audit=funded.audit)
 
     returns = pd.DataFrame({
         name: result.monthly.loc[common, "pre_tax_monthly_return"]

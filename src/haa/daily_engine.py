@@ -17,7 +17,8 @@ from .market_sessions import validate_us_equity_sessions
 def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost=0.0,
                        tax_enabled=False, tax_rate=0.25, start=None, end=None,
                        benchmark_asset="SPY", execution_delay_business_days=0,
-                       daily_open_prices=None):
+                       daily_open_prices=None, monthly_contribution=0., fixed_fee=0.):
+    from .backtest_options import contribution_for, order_fee
     if decisions.empty or decisions.index.has_duplicates:
         raise ValueError("Daily signals are empty or duplicated.")
     if not 0 <= transaction_cost < 1 or not 0 <= tax_rate <= 1 or initial_investment <= 0:
@@ -75,34 +76,41 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
     output, audit, events = [], [], []
     for date, row in eligible.iterrows():
         prior_pre, prior_after, prior_benchmark = pre, after, benchmark
+        contribution = contribution_for(date, None, prior_date, monthly_contribution)
         if prior_date is not None:
             # The old holding earns the overnight move up to today's open.
             growth = opens.loc[date, holding] / prices.loc[prior_date, holding]
             pre *= growth
             after *= growth
-            benchmark *= row[benchmark_asset] / prices.loc[prior_date, benchmark_asset]
+            benchmark *= opens.loc[date, benchmark_asset] / prices.loc[prior_date, benchmark_asset]
         else:
             # Benchmark enters at the same first-session open as the strategy.
             benchmark *= row[benchmark_asset] / opens.loc[date, benchmark_asset]
         if date not in schedule:
             raise ValueError(f"No daily decision scheduled for {date.date()}; missing signals cannot be forward-filled.")
         signal_date, decision = schedule[date]
+        open_pre, open_after, open_benchmark = pre, after, benchmark
+        pre += contribution
+        after += contribution
+        benchmark += contribution
+        if prior_date is not None:
+            benchmark *= row[benchmark_asset] / opens.loc[date, benchmark_asset]
         target = next(iter(decision.target_weights))
         changing = holding is not None and holding != target
         entering = holding is None or changing
         fee_pre = fee_after = 0.0
         if entering:
             if holding is not None:
-                fee_pre = pre * transaction_cost
-                fee_after = after * transaction_cost
+                fee_pre = order_fee(pre - contribution, transaction_cost, fixed_fee)
+                fee_after = order_fee(after - contribution, transaction_cost, fixed_fee)
                 pre -= fee_pre
                 after -= fee_after
                 if tax_enabled:
-                    event = tax.sell(after, asset=holding)
+                    event = tax.sell(after - contribution, asset=holding)
                     after -= event["tax_paid"]
                     events.append({"date": date, "signal_date": signal_date, "sold_asset": holding,
-                                   "proceeds": after + event["tax_paid"], **event})
-            buy_pre, buy_after = pre * transaction_cost, after * transaction_cost
+                                   "proceeds": after - contribution + event["tax_paid"], **event})
+            buy_pre, buy_after = order_fee(pre, transaction_cost, fixed_fee), order_fee(after, transaction_cost, fixed_fee)
             fee_pre += buy_pre
             fee_after += buy_after
             pre -= buy_pre
@@ -111,6 +119,13 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                 # Acquisition fee is included in cost basis under this fee
                 # convention; sale fee reduces realized proceeds.
                 tax.buy(target, after + buy_after)
+        elif contribution:
+            buy_fee = order_fee(contribution, transaction_cost, fixed_fee)
+            pre -= buy_fee
+            after -= buy_fee
+            fee_pre = fee_after = buy_fee
+            if tax_enabled:
+                tax.buy(target, contribution)
         holding = target
         # After the open fill, only the new holding earns the intraday move.
         intraday = row[holding] / opens.loc[date, holding]
@@ -123,9 +138,11 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         audit.append(audit_row)
         output.append({**audit_row, "pre_tax_value": pre, "after_tax_value": after,
                        "benchmark_value": benchmark,
-                       "pre_tax_monthly_return": pre / prior_pre - 1,
-                       "after_tax_monthly_return": after / prior_after - 1,
-                       "benchmark_monthly_return": benchmark / prior_benchmark - 1})
+                       "pre_tax_monthly_return": open_pre / prior_pre * pre / (open_pre + contribution) - 1,
+                       "after_tax_monthly_return": open_after / prior_after * after / (open_after + contribution) - 1,
+                       "benchmark_monthly_return": open_benchmark / prior_benchmark * benchmark / (open_benchmark + contribution) - 1,
+                       "open_pre_tax_value": open_pre, "open_after_tax_value": open_after,
+                       "contribution": contribution})
         prior_date = date
     daily = pd.DataFrame(output).set_index("holding_end")
     monthly_rows = []
@@ -135,6 +152,7 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
             last[column] = (1 + group[column]).prod() - 1
         last["allocation_change"] = int(group.allocation_change.sum())
         last["turnover"] = group.turnover.sum()
+        last["contribution"] = group.contribution.sum()
         last["holding_end"] = group.index[-1]
         monthly_rows.append(last)
     monthly = pd.DataFrame(monthly_rows).set_index("holding_end")
@@ -144,15 +162,22 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
 def daily_performance_metrics(result: BacktestResult, column: str, initial: float) -> dict:
     """Daily risk metrics, calendar-time CAGR, monthly best/worst reports."""
     daily = result.daily
-    metrics = performance_metrics(daily[column], initial, periods_per_year=252)
+    returns_column = {"pre_tax_value": "pre_tax_monthly_return", "after_tax_value": "after_tax_monthly_return", "benchmark_value": "benchmark_monthly_return"}[column]
+    contributed = "contribution" in daily and daily.contribution.any()
+    metric_values = initial * (1 + daily[returns_column]).cumprod() if contributed else daily[column]
+    metrics = performance_metrics(metric_values, initial, periods_per_year=252)
     # NAV is marked at the close; initial capital enters at the first open.
     years = max((daily.index[-1] - daily.index[0]).days + 6.5 / 24, 6.5 / 24) / 365.25
-    metrics["CAGR"] = (daily[column].iloc[-1] / initial) ** (1 / years) - 1
-    values = np.r_[initial, daily[column].to_numpy()]
+    metrics["CAGR"] = (metric_values.iloc[-1] / initial) ** (1 / years) - 1
+    values = np.r_[initial, metric_values.to_numpy()]
     metrics["Maximum drawdown"] = float((values / np.maximum.accumulate(values) - 1).min())
     dd = metrics["Maximum drawdown"]
     metrics["Calmar"] = metrics["CAGR"] / abs(dd) if dd < 0 else np.nan
     returns_column = {"pre_tax_value": "pre_tax_monthly_return", "after_tax_value": "after_tax_monthly_return", "benchmark_value": "benchmark_monthly_return"}[column]
     metrics["Best month"] = result.monthly[returns_column].max()
     metrics["Worst month"] = result.monthly[returns_column].min()
+    metrics["Final value"] = daily[column].iloc[-1]
+    if contributed:
+        metrics["Total contributed"] = initial + daily.contribution.sum()
+        metrics["Investment gain"] = metrics["Final value"] - metrics["Total contributed"]
     return metrics

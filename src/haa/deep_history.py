@@ -32,6 +32,7 @@ class DeepHistorySpec:
     caveat: str = ""
     usable_through: str | None = None
     daily_signal_history: bool = False
+    daily_nav_history: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,10 @@ DEEP_HISTORY_BENCHMARKS = {
 # Kept outside the blendable registry: these returns summarize a daily model,
 # not a monthly sleeve whose trade-level taxes can be reconstructed.
 DEEP_HISTORY_SINGLE_SPECS = {
+    "rvol_synthetic": DeepHistorySpec("rvol_synthetic", "A-RVol Shifter (long synthetic history)",
+        "", "arvol_synthetic_v5/daily.csv", holding_asset="ARVOL_SYNTHETIC_NAV_PROXY",
+        completed_only=True, usable_through="2026-09-30", daily_signal_history=True, daily_nav_history=True,
+        caveat="Single strategy only. Fully modeled USD exposure, not actual ETF performance. State transitions match the app on these proxy inputs. Uses NDX price returns without dividends, synthetic leveraged funds and T-bill cash; credit is disabled before May 2007. Execution is next-close before 2001 and next-open thereafter. Tax and additional trading fees are unavailable. Daily NAV is preserved; the benchmark has monthly observations only. Comparable complete months run December 1986–September 2026; the raw source also contains partial November 1986 and October 2026. Live rules are unchanged."),
     "rvol_daily": DeepHistorySpec("rvol_daily", "A-RVol Shifter (daily supplied proxy)",
         "rvol_daily_signals.csv", "rvol_daily_monthly_returns.csv",
         holding_asset="ARVOL_STRATEGY_NAV_PROXY", completed_only=True,
@@ -185,6 +190,14 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
 
 
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
+    if spec.daily_nav_history:
+        from .synthetic_history import load_synthetic_daily
+        daily = load_synthetic_daily(DEEP_HISTORY_DIR / spec.returns_file)
+        ends = daily.groupby(daily.index.to_period("M")).nav.last()
+        returns = ends.pct_change().iloc[1:]
+        returns.index = returns.index.to_timestamp("M")
+        returns = returns.loc[returns.index <= pd.Timestamp(spec.usable_through)]
+        return daily, returns
     signals = _read_signals(DEEP_HISTORY_DIR / spec.signal_file)
     returns = _read_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
     if spec.key == "chimeric":
@@ -217,6 +230,10 @@ def deep_history_model_input(
     security tax lots. The result is restricted to the independently supplied
     benchmark's usable months; no benchmark pre-history is invented.
     """
+    if spec.daily_nav_history:
+        from .synthetic_history import synthetic_model_input
+        return synthetic_model_input(spec.label, DEEP_HISTORY_DIR / spec.returns_file,
+            _read_benchmark_returns(benchmark), benchmark.asset_id, spec.usable_through)
     if spec.buy_and_hold or spec.daily_signal_history:
         path = DEEP_HISTORY_DIR / spec.returns_file
         returns = (load_deep_history(spec)[1] if spec.daily_signal_history else

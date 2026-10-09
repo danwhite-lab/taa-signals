@@ -205,7 +205,7 @@ class DailyEngineTests(unittest.TestCase):
     def test_missing_prices_and_unsupported_monthly_blends_fail_explicitly(self):
         decisions, prices = self.fixture()
         model = ModelInput("Daily", decisions, prices, prices)
-        with self.assertRaisesRegex(ValueError, "single-strategy"):
+        with self.assertRaisesRegex(ValueError, "opening prices"):
             run_portfolio_backtest({"Daily": (1.0, model)}, 1000)
         with self.assertRaisesRegex(ValueError, "single-strategy"):
             compare_models({"Daily": model, "Other": model}, 1000)

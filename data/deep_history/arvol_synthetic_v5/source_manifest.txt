@@ -1,0 +1,15 @@
+# v5 input manifest. All files are Yahoo Finance chart API daily data (query1.finance.yahoo.com/v8/finance/chart/<ticker>?interval=1d) downloaded 2026-10-09; CSV content with .txt extension, columns date,open,high,low,close,adj.
+# To reproduce: create a folder data_cache/ next to arvol_v5_generator.py, place these files in it (names exactly as listed, e.g. data_cache/NDX.txt) and run: python3 arvol_v5_generator.py --outdir out . The generator also accepts .csv names.
+# Reproduction test done by the author: running the generator on these exact files produced daily/monthly outputs with identical SHA-256 as the delivered files (below).
+# NOTE: Yahoo history is revised retroactively (adj values change after dividends); do not re-download if you want bit-for-bit results, use these files.
+file,source,rows,first_date,last_date,sha256
+GSPC.txt,^GSPC S&P 500 price index (used before 1988-01 only),10549,1984-11-23,2026-10-08,55908b938817e6ff7f20f78723d82786efe6c73078511cb547be6971ff98233f
+NDX.txt,^NDX Nasdaq-100 price index (open/close),10335,1985-10-01,2026-10-08,fdeffa631612b26570b216d9ab668f56bf4199dc61bdf3bb24c34357117f38b1
+SP500TR.txt,^SP500TR S&P 500 total return index,9765,1988-01-04,2026-10-08,212a4a7d9556d359624db835e6a5f6dfe5d964aed35108a1eaec36559642daf9
+IRX.txt,^IRX 13-week T-bill yield, percent;10550,1984-11-23,2026-10-09,38970fbb92ff6a57e66eea9ad5d46e6ad1fde0b516799e696500478183df0371
+HYG.txt,HYG iShares iBoxx HY (adj used for credit gate),4906,2007-04-11,2026-10-08,e3d33d4377c5ab9b4b5c1bda3d668fc2b4d392ca2eb43281711a0bc51a5e8c2f
+LQD.txt,LQD iShares iBoxx IG (adj used for credit gate),6088,2002-07-30,2026-10-08,54383cb1a1a5af99500494d37c9fd418fe11ec5c4e719cd9f226785258e9d624
+QLD.txt,QLD ProShares Ultra QQQ (REFERENCE column only, not in NAV),5107,2006-06-21,2026-10-08,08f7b9ba22f4a0ae48e28d29f173377b942a56af7ea8907a37c4edd52e044740
+TQQQ.txt,TQQQ ProShares UltraPro QQQ (REFERENCE column only, not in NAV),4190,2010-02-11,2026-10-08,6154809b9fb3393cd5ab543daf84efb4ab2efb5e4eb2223a7848b983a0ceec38
+# OUTPUT hashes (sha256): arvol_synthetic_daily.txt=4449127d40b730d384a58860972a37a2debcd712746604ba392901cc31555d5a arvol_synthetic_monthly.txt=ab8725921b3cdbb5e134ac75de7a857ba07c04540a0f25b6718771905922140a 
+# NDX note: ^NDX opens before 2001 are mostly equal to the previous close (not real opens); the generator uses opens only from 2001-01-02.

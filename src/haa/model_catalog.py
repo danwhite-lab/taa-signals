@@ -98,7 +98,7 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("BAA", "G4 (Aggressive)", "Original", "BAA-G4 (Aggressive)", BAAG4Aggressive),
     ModelDefinition("BAA", "G4 (Aggressive)", "Israel", "BAA-G4 (Aggressive) Israel", BAAG4AggressiveIsrael, "ILS", "externally_timed", "external", None, "Uses published USD BAA-G4 signals and maps the selected holdings to the specified TASE-listed ILS securities. Its backtest uses the corresponding U.S. execution-proxy returns—VXUS, BNDW, and GLDM where needed—not TASE fund returns or ILS performance."),
     ModelDefinition("Orthogonal Alpha", None, "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
-    ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "Documented interpretation", "A-RVol Shifter V3 Cash-Only", RVolShifterCashOnly, "USD", "daily_timed", "daily", None, "Daily TQQQ / QLD / BIL state machine. Closing-price decisions and next-session-open execution using actual ETF history. Explicit calculation assumptions; single-strategy backtests only, not monthly portfolio/Compare."),
+    ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "Documented interpretation", "A-RVol Shifter V3 Cash-Only", RVolShifterCashOnly, "USD", "daily_timed", "daily", None, "Daily TQQQ / QLD / BIL state machine. Closing-price decisions and next-session-open execution. Supports USD mixed-frequency portfolios with initial sleeve weights and no sleeve transfers. Monthly Compare remains unsupported."),
 )
 
 
