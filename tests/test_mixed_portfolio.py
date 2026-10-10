@@ -163,3 +163,37 @@ def test_inconsistent_benchmark_series_rejected():
     other=prices.copy(); other.SPY*=2
     with pytest.raises(ValueError,match='inconsistent benchmark'):
         run_portfolio_backtest({'fast':(.5,daily),'slow':(.5,ModelInput('slow',slow.decisions,other,other))},100)
+
+
+def test_quarterly_cap_trims_a_daily_sleeve_and_records_transfer_tax():
+    fast,_,prices=fixture('2024-04-05')
+    prices.loc[prices.index[1]:,'A']=np.linspace(100,300,len(prices)-1)
+    fast.daily_open_prices.loc[prices.index[1]:,'A']=prices.loc[prices.index[1]:,'A']
+    slow_decisions=fast.decisions.copy()
+    slow_decisions['target_weights']=[{'B':1.} for _ in slow_decisions.index]
+    slow=ModelInput('slow',slow_decisions,prices,prices,'SPY',prices.copy())
+    result=run_portfolio_backtest(
+        {'rvol':(.3,fast),'other':(.7,slow)},100,tax_enabled=True,
+        sleeve_rebalance_mode='rvol_cap',rebalance_sleeve='rvol',
+        rebalance_cap=.40,rebalance_target=.20,
+    )
+    review=result.daily.index[result.daily.portfolio_rebalance][0]
+    assert result.sleeve_nav.loc[review,'rvol']/result.daily.loc[review,'pre_tax_value']==pytest.approx(.20)
+    assert result.daily.loc[review,'portfolio_rebalance_turnover']>0
+    assert set(result.tax_events.tax_level).issuperset({'portfolio sleeve transfer'})
+
+
+def test_annual_target_reset_restores_all_starting_weights():
+    fast,_,prices=fixture('2025-01-10')
+    prices.loc[prices.index[1]:,'A']=np.linspace(100,300,len(prices)-1)
+    fast.daily_open_prices.loc[prices.index[1]:,'A']=prices.loc[prices.index[1]:,'A']
+    slow_decisions=fast.decisions.copy()
+    slow_decisions['target_weights']=[{'B':1.} for _ in slow_decisions.index]
+    slow=ModelInput('slow',slow_decisions,prices,prices,'SPY',prices.copy())
+    result=run_portfolio_backtest(
+        {'fast':(.4,fast),'slow':(.6,slow)},100,
+        sleeve_rebalance_mode='annual_target',
+    )
+    review=result.daily.index[result.daily.portfolio_rebalance][0]
+    assert result.sleeve_nav.loc[review,'fast']/result.daily.loc[review,'pre_tax_value']==pytest.approx(.40)
+    assert result.sleeve_nav.loc[review,'slow']/result.daily.loc[review,'pre_tax_value']==pytest.approx(.60)

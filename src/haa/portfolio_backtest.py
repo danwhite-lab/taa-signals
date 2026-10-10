@@ -34,6 +34,10 @@ def run_portfolio_backtest(
     end: pd.Timestamp | None = None,
     monthly_contribution: float = 0.,
     fixed_fee: float = 0.,
+    sleeve_rebalance_mode: str = "none",
+    rebalance_sleeve: str | None = None,
+    rebalance_cap: float = .15,
+    rebalance_target: float = .10,
 ) -> PortfolioBacktestResult:
     """Backtest weighted sleeves, resetting sleeve weights each month-end.
 
@@ -61,7 +65,11 @@ def run_portfolio_backtest(
         return run_synthetic_tax_portfolio(sleeves, initial_investment, tax_rate, start, end, monthly_contribution)
     if any(model.decisions.attrs.get("execution_frequency") == "daily" for _, model in sleeves.values()):
         from .mixed_portfolio import run_mixed_portfolio
-        return run_mixed_portfolio(sleeves, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, monthly_contribution, fixed_fee)
+        return run_mixed_portfolio(
+            sleeves, initial_investment, transaction_cost, tax_enabled, tax_rate,
+            start, end, monthly_contribution, fixed_fee, sleeve_rebalance_mode,
+            rebalance_sleeve, rebalance_cap, rebalance_target,
+        )
     weights = {name: float(weight) for name, (weight, _) in sleeves.items()}
     if any(weight <= 0 for weight in weights.values()) or abs(sum(weights.values()) - 1.0) > 1e-9:
         raise ValueError("Portfolio sleeve weights must be positive and total exactly 100%.")

@@ -1,4 +1,4 @@
-"""USD mixed-frequency portfolios: initial sleeve funding, no sleeve transfers.
+"""USD mixed-frequency portfolios with optional sleeve-level transfers.
 
 Daily sleeves execute through the existing next-open engine. Monthly sleeves
 trade at next-session close, using actual daily prices and security-level books.
@@ -30,6 +30,129 @@ def aggregate_months(daily):
         if 'contribution' in group: row['contribution']=group.contribution.sum()
         rows.append({'holding_end':group.index[-1],**row})
     return pd.DataFrame(rows).set_index('holding_end')
+
+
+def _rebalance_dates(sessions, mode):
+    """Return calendar quarter/year-end review sessions, excluding inception."""
+    if mode == 'rvol_cap':
+        periods=sessions.to_period('Q')
+    elif mode == 'annual_target':
+        periods=sessions.to_period('Y')
+    else:
+        return pd.DatetimeIndex([])
+    completed=sessions.to_series().groupby(periods).max()
+    return pd.DatetimeIndex([date for period,date in completed.items() if date.month == period.asfreq('M','end').month])
+
+
+def _apply_sleeve_transfer(positions, bases, targets, fee, fixed_fee, tax_state=None, date=None, events=None):
+    """Restore target sleeve weights after a review.
+
+    Sleeve returns already include each strategy's own trading/tax ledger.  This
+    models the additional sale needed to fund a transfer as a sale of the
+    sleeve account itself.  It is deliberately an auditable approximation, not
+    an underlying-security lot reconstruction.
+    """
+    from .backtest_options import order_fee
+    total=sum(positions.values())
+    desired={name: total*weight for name,weight in targets.items()}
+    sales={name:max(0.,positions[name]-desired[name]) for name in positions}
+    sales={name:value for name,value in sales.items() if value>max(total,1.)*1e-12}
+    if not sales:
+        return positions, bases, 0., 0., [], 0.
+    sale_fees={name:order_fee(value,fee,fixed_fee) for name,value in sales.items()}
+    tax_paid=0.
+    transfer_events=[]
+    retained={name:positions[name]-sales.get(name,0.) for name in positions}
+    cash=sum(sales.values())-sum(sale_fees.values())
+    for name,sale in sales.items():
+        basis=bases.get(name,0.)
+        sold_basis=min(basis,basis*sale/positions[name]) if positions[name] else 0.
+        bases[name]=basis-sold_basis
+        if tax_state is not None:
+            event=tax_state.sell(sale-sale_fees[name],asset=name,cost_basis_sold=sold_basis)
+            levy=event['tax_paid']
+            tax_paid+=levy
+            cash-=levy
+            row={'date':date,'tax_level':'portfolio sleeve transfer','sold_sleeve':name,
+                 'proceeds':sale-sale_fees[name],**event}
+            events.append(row)
+            transfer_events.append(row)
+    # Pay purchase-side fees from the transfer pool, then distribute what is
+    # left in target proportions.  The exact transfer lots are retained in the
+    # audit/download rather than being hidden as a return adjustment.
+    new_total=sum(retained.values())+cash
+    target_after={name:new_total*weight for name,weight in targets.items()}
+    buys={name:max(0.,target_after[name]-retained[name]) for name in retained}
+    buy_fees={name:order_fee(value,fee,fixed_fee) for name,value in buys.items() if value>max(total,1.)*1e-12}
+    total_fees=sum(buy_fees.values())
+    if total_fees:
+        new_total-=total_fees
+        target_after={name:new_total*weight for name,weight in targets.items()}
+        buys={name:max(0.,target_after[name]-retained[name]) for name in retained}
+    positions={name:target_after[name] for name in positions}
+    for name,buy in buys.items():
+        if buy>0:
+            bases[name]=bases.get(name,0.)+buy+buy_fees.get(name,0.)
+            if tax_state is not None: tax_state.buy(name,buy+buy_fees.get(name,0.))
+    return positions,bases,tax_paid,sum(sale_fees.values())+sum(buy_fees.values()),transfer_events,sum(sales.values())+sum(buys.values())
+
+
+def _rebalance_mixed_daily(daily, sleeve_nav, after_sleeve_nav, weights, mode, cap_sleeve, cap, cap_target, fee, fixed_fee, taxed, tax_rate):
+    """Apply optional sleeve transfers to already-run daily sleeve return streams."""
+    if mode == 'none':
+        return daily, sleeve_nav, [], []
+    if mode not in {'rvol_cap','annual_target'}:
+        raise ValueError('Unknown mixed-portfolio sleeve rebalancing mode.')
+    if mode == 'rvol_cap':
+        if cap_sleeve not in weights:
+            raise ValueError('Select the RVol sleeve to cap.')
+        if not 0 < cap_target < cap < 1:
+            raise ValueError('RVol reset target must be positive and below the cap, which must be below 100%.')
+    if not np.isfinite(fee) or fee < 0 or fixed_fee < 0:
+        raise ValueError('Invalid sleeve transfer fee.')
+    if daily.contribution.any():
+        raise ValueError('Sleeve transfers are not available with monthly contributions yet.')
+    dates=_rebalance_dates(daily.index,mode)
+    pre_positions=sleeve_nav.iloc[0].to_dict()
+    after_positions=after_sleeve_nav.iloc[0].to_dict()
+    pre_bases=pre_positions.copy(); after_bases=after_positions.copy()
+    tax=IsraeliTaxState(tax_rate=tax_rate) if taxed else None
+    if tax is not None:
+        for name,amount in after_bases.items(): tax.buy(name,amount)
+    out_pre=[]; out_after=[]; out_sleeves=[]; turnover=[]; transfer_flags=[]; taxes=[]; audit=[]; events=[]
+    previous_pre=sleeve_nav.iloc[0]; previous_after=after_sleeve_nav.iloc[0]
+    for i,date in enumerate(daily.index):
+        if i:
+            factors=sleeve_nav.loc[date]/previous_pre
+            after_factors=after_sleeve_nav.loc[date]/previous_after
+            for name in weights:
+                pre_positions[name]*=factors[name]
+                after_positions[name]*=after_factors[name]
+        changed=False; fees=0.; tax_paid=0.
+        if date in dates:
+            current=sum(pre_positions.values())
+            current_weight=pre_positions[cap_sleeve]/current if mode=='rvol_cap' else None
+            if mode=='annual_target' or current_weight>cap:
+                targets=weights.copy()
+                if mode=='rvol_cap':
+                    remainder=1-cap_target
+                    other_total=1-weights[cap_sleeve]
+                    targets={name:(cap_target if name==cap_sleeve else weight/other_total*remainder) for name,weight in weights.items()}
+                pre_positions,pre_bases,_,pre_fees,_,pre_notional=_apply_sleeve_transfer(pre_positions,pre_bases,targets,fee,fixed_fee)
+                after_positions,after_bases,tax_paid,after_fees,transfer_events,after_notional=_apply_sleeve_transfer(after_positions,after_bases,targets,fee,fixed_fee,tax,date,events)
+                fees=max(pre_fees,after_fees); changed=True
+                audit.append({'execution_date':date,'execution_timing':'quarter-end close' if mode=='rvol_cap' else 'year-end close',
+                              'rebalance_mode':mode,'target_weights':targets,'rvol_weight_before':current_weight,
+                              'transfer_fees':fees,'transfer_tax':tax_paid,'transfer_notional':max(pre_notional,after_notional)})
+        pre_value=sum(pre_positions.values()); after_value=sum(after_positions.values())
+        out_pre.append(pre_value); out_after.append(after_value); out_sleeves.append(pre_positions.copy())
+        turnover.append(audit[-1]['transfer_notional'] / max(pre_value,1e-300) if changed else 0.)
+        transfer_flags.append(changed); taxes.append(tax_paid)
+        previous_pre=sleeve_nav.loc[date]; previous_after=after_sleeve_nav.loc[date]
+    adjusted=daily.copy(); adjusted['pre_tax_value']=out_pre; adjusted['after_tax_value']=out_after
+    adjusted['portfolio_rebalance_tax']=taxes; adjusted['portfolio_rebalance']=transfer_flags
+    adjusted['portfolio_rebalance_turnover']=turnover
+    return adjusted,pd.DataFrame(out_sleeves,index=daily.index),events,audit
 
 
 def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_contribution=0., fixed_fee=0.):
@@ -121,7 +244,7 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
     return BacktestResult(pd.DataFrame(),pd.DataFrame(audit),pd.DataFrame(events),daily)
 
 
-def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, monthly_contribution=0., fixed_fee=0.):
+def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, monthly_contribution=0., fixed_fee=0., sleeve_rebalance_mode='none', rebalance_sleeve=None, rebalance_cap=.15, rebalance_target=.10):
     from .portfolio_backtest import PortfolioBacktestResult
     weights={name:float(w) for name,(w,_) in sleeves.items()}
     if not np.isfinite(initial) or initial<=0 or not 0<=fee<1 or not 0<=tax_rate<=1:
@@ -193,8 +316,9 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         audits.append(result.audit.assign(sleeve=name))
     daily=pd.DataFrame(index=sessions)
     sleeve_nav=pd.DataFrame({n:r.daily.pre_tax_value for n,r in results.items()})
+    after_sleeve_nav=pd.DataFrame({n:r.daily.after_tax_value for n,r in results.items()})
     daily['pre_tax_value']=sleeve_nav.sum(axis=1)
-    daily['after_tax_value']=sum(r.daily.after_tax_value for r in results.values())
+    daily['after_tax_value']=after_sleeve_nav.sum(axis=1)
     daily_model=next((m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily'), next(iter(sleeves.values()))[1])
     if daily_model.daily_open_prices is None: raise ValueError('Daily sleeve requires adjusted opening prices.')
     benchmark_opens=daily_model.daily_open_prices.reindex(sessions)[benchmark]
@@ -223,6 +347,21 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     daily['allocation_change']=sum(r.daily.allocation_change.astype(int) for r in results.values())
     prior=daily.pre_tax_value.shift(1); prior.iloc[0]=initial
     daily['turnover']=sum(r.daily.purchase_notional for r in results.values())/prior
+    daily,sleeve_nav,transfer_events,transfer_audit=_rebalance_mixed_daily(
+        daily,sleeve_nav,after_sleeve_nav,weights,sleeve_rebalance_mode,rebalance_sleeve,
+        rebalance_cap,rebalance_target,fee,fixed_fee,taxed,tax_rate,
+    )
+    if sleeve_rebalance_mode != 'none':
+        for value,ret in [('pre_tax_value','pre_tax_monthly_return'),('after_tax_value','after_tax_monthly_return')]:
+            previous=daily[value].shift(1)
+            previous.iloc[0]=initial
+            daily[ret]=daily[value]/previous-1
+        daily['turnover']+=daily['portfolio_rebalance_turnover']
+        daily['allocation_change']=daily['allocation_change'].astype(int)+daily['portfolio_rebalance'].astype(int)
+    if transfer_events:
+        events.append(pd.DataFrame(transfer_events))
+    if transfer_audit:
+        audits.append(pd.DataFrame(transfer_audit).assign(sleeve='portfolio transfer'))
     monthly=aggregate_months(daily)
     sleeve_returns=pd.DataFrame({n:r.daily.pre_tax_monthly_return.groupby(r.daily.index.to_period('M')).apply(lambda x:(1+x).prod()-1).to_numpy() for n,r in results.items()},index=monthly.index)
     return PortfolioBacktestResult(monthly,sleeve_returns,sessions,
