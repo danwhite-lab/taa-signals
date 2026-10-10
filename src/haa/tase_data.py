@@ -13,6 +13,12 @@ import pandas as pd
 
 
 TASE_ISRAEL_ASSET_IDS = {
+    "RVOL_3X_IL": "1187079",
+    "RVOL_QQQ_IL": "1149038",
+    "RVOL_SPY_IL": "1144385",
+    "RVOL_LQD_IL": "1159185",
+    "RVOL_HYG_IL": "1159078",
+    "RVOL_CASH_IL": "5117700",
     "CSPX_IL": "1159250",
     "FTSE_ALL_WORLD_IL": "1209220",
     "QQQ_IL": "1186063",
@@ -25,7 +31,7 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLV_IL": "1150390",
     "XLP_IL": "1150366",
 }
-TASE_ETF_ASSETS = frozenset({"CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
+TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
 PUBLIC_HISTORY_YEARS = 5
 
 # Default locally tradable implementations for the substitution mode. They

@@ -16,6 +16,7 @@ from .baa import BAAG4Aggressive, BAAG4AggressiveIsrael
 from .vaa import VAAG4
 from .momentum_correlation_triplet import MomentumCorrelationTriplet
 from .rvol_shifter import RVolShifterCashOnly
+from .rvol_shifter_israel import RVolShifterCashOnlyIsrael
 from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 

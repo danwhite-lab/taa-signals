@@ -21,6 +21,12 @@ def factory_for(responses, calls):
 
 def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
     assert TASE_ISRAEL_ASSET_IDS == {
+        "RVOL_3X_IL": "1187079",
+        "RVOL_QQQ_IL": "1149038",
+        "RVOL_SPY_IL": "1144385",
+        "RVOL_LQD_IL": "1159185",
+        "RVOL_HYG_IL": "1159078",
+        "RVOL_CASH_IL": "5117700",
         "CSPX_IL": "1159250",
         "FTSE_ALL_WORLD_IL": "1209220",
         "QQQ_IL": "1186063",

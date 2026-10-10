@@ -1,6 +1,6 @@
-"""USD mixed-frequency portfolios with optional sleeve-level transfers.
+"""Same-currency USD or ILS portfolios with optional sleeve-level transfers.
 
-Daily sleeves execute through the existing next-open engine. Monthly sleeves
+US daily sleeves execute at next-open; Israel daily sleeves at next-close/NAV. Monthly sleeves
 trade at next-session close, using actual daily prices and security-level books.
 Each sleeve retains its own cost bases and loss carryforward. Mixed portfolios
 charge fees per actual buy/sell side; the legacy monthly-only engine is unchanged.
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .engine import BacktestResult, run_backtest, _normalise_weights
-from .market_sessions import scheduled_execution_dates, us_equity_sessions, validate_us_equity_sessions
+from .market_sessions import scheduled_execution_dates, us_equity_sessions, validate_us_equity_sessions, scheduled_tase_execution_dates, tase_equity_sessions, validate_tase_sessions
 from .tax import IsraeliTaxState
 
 
@@ -163,7 +163,7 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
     proportionally. No forced liquidation of retained assets or final holdings.
     """
     decisions=model.decisions.sort_index()
-    execution=scheduled_execution_dates(decisions.index)
+    execution=(scheduled_tase_execution_dates if model.execution_currency == 'ILS' else scheduled_execution_dates)(decisions.index)
     schedule={d:(s,row) for d,(s,row) in zip(execution,decisions.iterrows())}
     prior=decisions.loc[decisions.index<sessions[0]]
     if prior.empty:
@@ -247,14 +247,19 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
 def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, monthly_contribution=0., fixed_fee=0., sleeve_rebalance_mode='none', rebalance_sleeve=None, rebalance_cap=.15, rebalance_target=.10):
     from .portfolio_backtest import PortfolioBacktestResult
     weights={name:float(w) for name,(w,_) in sleeves.items()}
+    currencies={model.execution_currency for _,model in sleeves.values()}
+    if len(currencies) != 1 or not currencies.issubset({'USD','ILS'}):
+        raise ValueError('Daily portfolios require USD sleeves together or ILS sleeves together; currencies cannot be combined without FX conversion.')
+    local = currencies == {'ILS'}
+    schedule_dates=scheduled_tase_execution_dates if local else scheduled_execution_dates
+    session_dates=tase_equity_sessions if local else us_equity_sessions
+    validate_sessions=validate_tase_sessions if local else validate_us_equity_sessions
     if not np.isfinite(initial) or initial<=0 or not 0<=fee<1 or not 0<=tax_rate<=1:
         raise ValueError('Invalid mixed-portfolio capital, fee or tax rate.')
     if any(not np.isfinite(w) or w<=0 for w in weights.values()) or abs(sum(weights.values())-1)>1e-9:
         raise ValueError('Portfolio sleeve weights must be positive and total exactly 100%.')
     lower=[]; upper=[]; benchmark=None
     for _,model in sleeves.values():
-        if model.execution_currency!='USD':
-            raise ValueError('Mixed-frequency portfolios currently require USD sleeves on the US exchange calendar; no currency conversion is assumed.')
         if model.daily_prices is None or model.decisions.empty:
             raise ValueError('Mixed-frequency portfolios require actual daily security prices and decisions for every sleeve; monthly proxies cannot be used.')
         if model.decisions.index.has_duplicates or model.decisions.index.hasnans:
@@ -267,22 +272,22 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         if not assets.issubset(model.daily_prices.columns):
             raise ValueError('Required sleeve/benchmark security prices are unavailable.')
         quotes=model.daily_prices.loc[:,sorted(assets)].sort_index()
-        validate_us_equity_sessions(quotes)
+        validate_sessions(quotes)
         valid=np.isfinite(quotes).all(axis=1)&(quotes>0).all(axis=1)
         if not valid.any(): raise ValueError('No usable daily sleeve history.')
-        lower.extend([quotes.index[valid][0],scheduled_execution_dates(model.decisions.index[:1])[0]])
+        lower.extend([quotes.index[valid][0],schedule_dates(model.decisions.index[:1])[0]])
         upper.append(min(quotes.index.max(),model.decisions.attrs.get('completed_through',quotes.index.max())))
     first=max(lower+[pd.Timestamp(start)] if start is not None else lower)
     last=min(upper+[pd.Timestamp(end)] if end is not None else upper)
     if first>last: raise ValueError('No common executable daily history in the requested date range.')
-    sessions=us_equity_sessions(str(first.date()),str(last.date()))
+    sessions=session_dates(str(first.date()),str(last.date()))
     if sessions.empty: raise ValueError('No common executable trading sessions.')
     results={}; events=[]; audits=[]; benchmark_quotes=None
     for name,(weight,model) in sleeves.items():
         assets={benchmark}
         for _,row in model.decisions.iterrows(): assets.update(weights_for(row))
         values=model.daily_prices.reindex(sessions).loc[:,sorted(assets)]
-        if monthly_contribution:
+        if monthly_contribution and not local:
             if model.daily_open_prices is None or not assets.issubset(model.daily_open_prices.columns):
                 raise ValueError('Mixed DCA requires opening prices for every sleeve to measure cash-flow-adjusted returns.')
             if not np.isfinite(model.daily_open_prices.reindex(sessions).loc[:,sorted(assets)].to_numpy()).all():
@@ -303,7 +308,7 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
                 raise ValueError(f'{name}: missing monthly decisions for {list(missing)}; refusing to carry an unexplained stale signal.')
             result=monthly_daily_book(model,sessions,initial*weight,fee,taxed,tax_rate, monthly_contribution*weight, fixed_fee)
         if not result.daily.index.equals(sessions): raise ValueError('Sleeve daily histories do not align exactly.')
-        if model.decisions.attrs.get('execution_frequency')=='daily':
+        if model.decisions.attrs.get('execution_frequency')=='daily' and not model.decisions.attrs.get('local_daily_execution'):
             buys=[]
             for i,(date,row) in enumerate(result.daily.iterrows()):
                 asset=row.selected_asset
@@ -320,21 +325,21 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     daily['pre_tax_value']=sleeve_nav.sum(axis=1)
     daily['after_tax_value']=after_sleeve_nav.sum(axis=1)
     daily_model=next((m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily'), next(iter(sleeves.values()))[1])
-    if daily_model.daily_open_prices is None: raise ValueError('Daily sleeve requires adjusted opening prices.')
-    benchmark_opens=daily_model.daily_open_prices.reindex(sessions)[benchmark]
+    if daily_model.daily_open_prices is None and not local: raise ValueError('Daily sleeve requires adjusted opening prices.')
+    benchmark_opens=(daily_model.daily_prices if local else daily_model.daily_open_prices).reindex(sessions)[benchmark]
     if not np.isfinite(benchmark_opens).all() or (benchmark_opens<=0).any():
         raise ValueError('Missing/invalid benchmark opening prices in comparison history.')
-    benchmark_open=daily_model.daily_open_prices.loc[sessions[0],benchmark]
+    benchmark_open=benchmark_opens.loc[sessions[0]]
     daily['benchmark_value']=initial*daily_model.daily_prices.loc[sessions,benchmark]/benchmark_open
     daily['contribution']=sum(r.daily.contribution for r in results.values())
-    open_flows=sum((r.daily.contribution for n,r in results.items() if sleeves[n][1].decisions.attrs.get('execution_frequency')=='daily'), pd.Series(0., index=sessions))
+    open_flows=sum((r.daily.contribution for n,r in results.items() if not local and sleeves[n][1].decisions.attrs.get('execution_frequency')=='daily'), pd.Series(0., index=sessions))
     close_flows=daily.contribution-open_flows
     bench=initial
     benchmark_returns=[]; benchmark_values=[]
     for i,date in enumerate(sessions):
         prior_bench=bench
-        opening=bench if i==0 else bench*daily_model.daily_open_prices.loc[date,benchmark]/daily_model.daily_prices.loc[sessions[i-1],benchmark]
-        bench=(opening+open_flows.loc[date])*daily_model.daily_prices.loc[date,benchmark]/daily_model.daily_open_prices.loc[date,benchmark]+close_flows.loc[date]
+        opening=bench if i==0 else bench*benchmark_opens.loc[date]/daily_model.daily_prices.loc[sessions[i-1],benchmark]
+        bench=(opening+open_flows.loc[date])*daily_model.daily_prices.loc[date,benchmark]/benchmark_opens.loc[date]+close_flows.loc[date]
         benchmark_values.append(bench)
         benchmark_returns.append(opening/prior_bench*(bench-close_flows.loc[date])/(opening+open_flows.loc[date])-1)
     daily['benchmark_value']=benchmark_values
