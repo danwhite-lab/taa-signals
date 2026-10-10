@@ -716,9 +716,27 @@ if page == "Backtest":
                 st.warning(f"Sleeve weights total {backtest_weight_total:.2f}%. Set them to exactly 100% to run the portfolio backtest.")
             else:
                 st.success("Sleeve weights total 100%.")
+            st.subheader("Mixed-sleeve rebalancing")
+            st.caption("Applies only when a daily sleeve such as A-RVol is included. Transfers are checked at the stated close and are included in fees, turnover, and the sleeve-level realized-gain tax estimate.")
+            rebalance_label = st.selectbox(
+                "Sleeve transfer rule",
+                ("No transfers — allow drift", "Quarterly RVol cap", "Annual target-weight reset"),
+                key="mixed_rebalance_rule",
+            )
+            rvol_sleeves = [f"{s['model']} ({s['id']})" for s in updated_backtest_sleeves if "RVol" in s["model"]]
+            if rebalance_label == "Quarterly RVol cap":
+                if not rvol_sleeves:
+                    st.warning("Quarterly RVol cap requires an A-RVol sleeve.")
+                else:
+                    st.selectbox("RVol sleeve to cap", rvol_sleeves, key="mixed_rebalance_sleeve")
+                    cap_column, target_column = st.columns(2)
+                    with cap_column:
+                        st.number_input("RVol cap (%)", min_value=1.0, max_value=99.0, value=15.0, step=1.0, key="mixed_rebalance_cap")
+                    with target_column:
+                        st.number_input("RVol reset target (%)", min_value=1.0, max_value=98.0, value=10.0, step=1.0, key="mixed_rebalance_target")
             st.toggle("Israeli capital-gains tax", key="tax_enabled")
             st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, step=0.1, disabled=not st.session_state["tax_enabled"], key="settings_tax_rate")
-            st.caption("Tax applies to realized sales. With A-RVol, tax bases and loss carryforwards stay separate by sleeve; there are no sleeve resets or cross-sleeve loss offsets. This is a simplified tax model.")
+            st.caption("Tax applies to realized sales. With A-RVol, strategy tax bases and loss carryforwards stay separate by sleeve; optional sleeve transfers use a separate, auditable sleeve-level realized-gain estimate, without cross-sleeve loss offsets. This is a simplified tax model.")
         else:
             st.subheader("Proxy history sleeves")
             with st.expander("Load saved portfolio"):
@@ -807,6 +825,15 @@ backtest_extra = {}
 if page == "Backtest":
     backtest_extra = {"monthly_contribution": st.session_state.get("backtest_dca_amount", 0.) if st.session_state.get("backtest_dca_enabled") else 0.,
                       "fixed_fee": st.session_state.get("backtest_fixed_fee", 0.) if st.session_state.get("backtest_fee_mode") == "Fixed amount" else 0.}
+    if backtest_mode == "Portfolio":
+        rule = st.session_state.get("mixed_rebalance_rule", "No transfers — allow drift")
+        mode = {"No transfers — allow drift": "none", "Quarterly RVol cap": "rvol_cap", "Annual target-weight reset": "annual_target"}[rule]
+        backtest_extra.update({
+            "sleeve_rebalance_mode": mode,
+            "rebalance_sleeve": st.session_state.get("mixed_rebalance_sleeve"),
+            "rebalance_cap": st.session_state.get("mixed_rebalance_cap", 15.) / 100,
+            "rebalance_target": st.session_state.get("mixed_rebalance_target", 10.) / 100,
+        })
     if st.session_state.get("backtest_fee_mode") == "Fixed amount": cost_pct = 0.
 tax_rate = st.session_state["tax_rate"]
 
@@ -1448,8 +1475,14 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     title_column.title("Portfolio backtest")
     mixed_daily = portfolio_result.daily is not None
     if mixed_daily:
-        st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. A-RVol trades at the next session's open; monthly sleeves trade at the next session's close after their monthly decision. Portfolio values are marked daily at the close.")
-        st.caption("Fees apply per actual buy/sell side in this mixed-frequency model. Each sleeve has separate tax bases and loss carryforward; cross-sleeve loss offsets and terminal liquidation are not modeled. USD/US-calendar sleeves only.")
+        mode = backtest_extra.get("sleeve_rebalance_mode", "none")
+        if mode == "none":
+            st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. A-RVol trades at the next session's open; monthly sleeves trade at the next session's close after their monthly decision. Portfolio values are marked daily at the close.")
+        elif mode == "rvol_cap":
+            st.caption("Quarterly RVol-cap review: when the selected sleeve exceeds its cap at quarter-end, it is reset to the chosen target and the other sleeves receive the proceeds in their target proportions.")
+        else:
+            st.caption("Annual target-weight reset: all sleeves are restored to their starting target weights at each calendar year-end close.")
+        st.caption("Fees apply per actual buy/sell side in this mixed-frequency model. Strategy taxes use each sleeve's own ledger; transfer taxes are a sleeve-level realized-gain approximation, without cross-sleeve loss offsets, FX/indexation, or terminal liquidation. USD/US-calendar sleeves only.")
         st.download_button("Download daily portfolio NAV", portfolio_result.daily.to_csv().encode("utf-8"), "mixed_portfolio_daily_nav.csv", "text/csv")
         st.download_button("Download daily sleeve NAV", portfolio_result.sleeve_nav.to_csv().encode("utf-8"), "mixed_portfolio_sleeve_nav.csv", "text/csv")
         st.download_button("Download sleeve executions", portfolio_result.audit.to_csv(index=False).encode("utf-8"), "mixed_portfolio_executions.csv", "text/csv")
