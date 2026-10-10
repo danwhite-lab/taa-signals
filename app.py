@@ -29,6 +29,18 @@ from haa.metrics import annual_returns, performance_metrics, rolling_annualized_
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
+# Streamlit reruns app.py after deployment but can retain imported modules from
+# the previous revision. Refresh both dispatch layers when their API is stale.
+import inspect
+import importlib
+import haa.portfolio_backtest as portfolio_backtest_module
+import haa.mixed_portfolio as mixed_portfolio_module
+if (
+    "sleeve_rebalance_mode" not in inspect.signature(run_portfolio_backtest).parameters
+    or "sleeve_rebalance_mode" not in inspect.signature(mixed_portfolio_module.run_mixed_portfolio).parameters
+):
+    importlib.reload(mixed_portfolio_module)
+    run_portfolio_backtest = importlib.reload(portfolio_backtest_module).run_portfolio_backtest
 from haa.signals import daily_signal_heading, execution_assets, first_trading_day_after, latest_actionable_signal, latest_preview_signal, month_to_date_snapshot
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
