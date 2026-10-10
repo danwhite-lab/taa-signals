@@ -121,6 +121,7 @@ Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update
 **Risk:** high-drawdown leveraged satellite, not a core holding. A monthly signal cannot prevent losses from a fast intramonth crash.""",
 }
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
+MODEL_RULES["A-RVol Shifter V3 Cash-Only Israel"] = """**A-RVol Shifter V3 Cash-Only Israel:** Uses the V3 state-machine thresholds on actual TASE ILS inputs: Nasdaq 1149038, S&P 500 1144385, corporate bonds 1159185, high yield 1159078. TQQQ state holds MTF monthly-reset x3 1187079. QLD state enters 50% 1187079 / 50% 1149038, allows drift, and restores 50/50 on the first session of each new year. Cash holds Ayalon 5117700 (shekels). State changes and annual resets trade at next-session closing/NAV prices. This is a local adaptation, not a replication of US daily-reset TQQQ/QLD. Actual available fund history only; fund expenses are embedded in NAV, not deducted twice. Investor-level fees and realized-sale taxes apply separately. No assumed 1.8-point drift or 0.06% cost is hardcoded."""
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
 
@@ -1126,7 +1127,7 @@ except (ValueError, TypeError) as exc:
 substitution_mode = "Original"
 yahoo_substitutions: dict[str, str] = {}
 tase_substitutions: dict[str, str] = {}
-if page == "Backtest" and backtest_mode == "Single strategy":
+if page == "Backtest" and backtest_mode == "Single strategy" and not getattr(strategy, "execution_timing", "") == "next-session-close":
     substitutable_assets = tuple(asset for asset in data_assets if asset not in (*FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
     with backtest_configuration:
         st.divider()
@@ -1224,7 +1225,7 @@ def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_ben
             if profile is not None:
                 assets.extend(proxy.proxy_asset for proxy in profile.proxy_substitutions)
     if include_spy_benchmark:
-        assets.append("SPY")
+        assets.append("RVOL_SPY_IL" if model_labels and all(definition_for_label(label).execution_currency == "ILS" for label in model_labels) and any(getattr(MODEL_OPTIONS[label], "execution_frequency", "monthly") == "daily" for label in model_labels) else "SPY")
     return tuple(dict.fromkeys(assets))
 
 
@@ -1310,6 +1311,8 @@ try:
     mixed_portfolio_requested = page == "Backtest" and backtest_mode == "Portfolio" and any(getattr(MODEL_OPTIONS[label], "execution_frequency", "monthly") == "daily" for label in active_model_labels)
     needs_open_prices = page == "Backtest" and (mixed_portfolio_requested or (backtest_mode != "Portfolio" and getattr(strategy, "execution_frequency", "monthly") == "daily"))
     needs_open_prices = needs_open_prices or (page == "Compare" and comparison_mode == "Portfolios" and portfolio_drift)
+    if active_model_labels and all(definition_for_label(label).execution_currency == "ILS" for label in active_model_labels):
+        needs_open_prices = False
     if needs_open_prices:
         downloaded, execution_opens = load_daily_bars(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets))
     else:
@@ -1432,19 +1435,20 @@ if page == "Backtest" and backtest_mode == "Portfolio":
         st.stop()
     try:
         portfolio_inputs = {}
+        portfolio_benchmark_asset = "RVOL_SPY_IL" if mixed_portfolio_requested and all(definition_for_label(sleeve["model"]).execution_currency == "ILS" for sleeve in portfolio_sleeves) else "SPY"
         for sleeve in portfolio_sleeves:
             sleeve_name = sleeve["model"]
             sleeve_key = f"{sleeve_name} ({sleeve['id']})"
             sleeve_strategy = MODEL_OPTIONS[sleeve_name]()
             if not getattr(sleeve_strategy, "backtest_available", True):
                 raise ValueError(f"{sleeve_name} is not available for backtesting.")
-            sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), "SPY")))
+            sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), portfolio_benchmark_asset)))
             sleeve_daily = all_prices.loc[:, sleeve_assets]
-            sleeve_market_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "market_data_assets", sleeve_assets), "SPY")))
+            sleeve_market_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "market_data_assets", sleeve_assets), portfolio_benchmark_asset)))
             sleeve_monthly, sleeve_decision_monthly = monthly_strategy_input(sleeve_daily, sleeve_market_assets)
             sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_decision_monthly
             portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
-                sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, "SPY",
+                sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, portfolio_benchmark_asset,
                 execution_opens, definition_for_label(sleeve_name).execution_currency
             ))
         preliminary_portfolio = run_portfolio_backtest(
@@ -1489,12 +1493,12 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     if mixed_daily:
         mode = backtest_extra.get("sleeve_rebalance_mode", "none")
         if mode == "none":
-            st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. A-RVol trades at the next session's open; monthly sleeves trade at the next session's close after their monthly decision. Portfolio values are marked daily at the close.")
+            st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. Israel sleeves execute at next-session closing/NAV prices; US A-RVol executes at the next open. Monthly sleeves execute at next-session close. Portfolio values are marked daily at the close.")
         elif mode == "rvol_cap":
             st.caption("Quarterly RVol-cap review: when the selected sleeve exceeds its cap at quarter-end, it is reset to the chosen target and the other sleeves receive the proceeds in their target proportions.")
         else:
             st.caption("Annual target-weight reset: all sleeves are restored to their starting target weights at each calendar year-end close.")
-        st.caption("Fees apply per actual buy/sell side in this mixed-frequency model. Strategy taxes use each sleeve's own ledger; transfer taxes are a sleeve-level realized-gain approximation, without cross-sleeve loss offsets, FX/indexation, or terminal liquidation. USD/US-calendar sleeves only.")
+        st.caption("Fees apply per actual buy/sell side. Strategy taxes use each sleeve's own ledger; transfer taxes are a sleeve-level realized-gain approximation, without cross-sleeve loss offsets, FX/indexation, or terminal liquidation. All sleeves must share one execution currency and calendar; no USD/ILS conversion is assumed.")
         st.download_button("Download daily portfolio NAV", portfolio_result.daily.to_csv().encode("utf-8"), "mixed_portfolio_daily_nav.csv", "text/csv")
         st.download_button("Download daily sleeve NAV", portfolio_result.sleeve_nav.to_csv().encode("utf-8"), "mixed_portfolio_sleeve_nav.csv", "text/csv")
         st.download_button("Download sleeve executions", portfolio_result.audit.to_csv(index=False).encode("utf-8"), "mixed_portfolio_executions.csv", "text/csv")
@@ -1505,7 +1509,7 @@ if page == "Backtest" and backtest_mode == "Portfolio":
     st.caption(f"Holding periods: {portfolio_result.common_index.min().date()} through {portfolio_result.common_index.max().date()}. SPY is the buy-and-hold benchmark.")
     portfolio_label = "Portfolio pre-tax"
     portfolio_after_tax_label = "Portfolio after-tax"
-    benchmark_label = "SPY buy-and-hold"
+    benchmark_label = "Tachlit S&P 500 (1144385) buy-and-hold" if portfolio_benchmark_asset == "RVOL_SPY_IL" else "SPY buy-and-hold"
     portfolio_metric = lambda column: backtest_result_metrics(portfolio_result, column, initial)
     summary = pd.DataFrame({
         portfolio_label: portfolio_metric("pre_tax_value"),
@@ -1849,8 +1853,9 @@ if page == "Backtest":
     title_column.title(strategy.name)
     st.caption("These settings configure this backtest only.")
     if result.daily is not None:
-        st.caption("Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
-        st.info("Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
+        local_daily = decisions.attrs.get("local_daily_execution", False)
+        st.caption("Israel execution uses next-session closing/NAV prices, not exchange opens. The two-fund QLD substitute drifts until state changes or its annual reset. Fund expenses are already in NAV. Realized-sale tax and broker fees are additional. Drawdown uses daily closes; no terminal liquidation, FX/indexation or legal tax validation is assumed." if local_daily else "Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
+        st.info("Israel also supports same-currency ILS daily-valued portfolio Backtests. Portfolio Compare, generic monthly Research and synthetic Deep History are not available for this local implementation." if local_daily else "Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
     else:
         st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
     if substitution_result is not None:
@@ -2532,18 +2537,19 @@ if page == "Signals":
             preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
     if is_daily_execution:
         title_column.title(daily_signal_heading(signal_status.decision))
-        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-open execution")
+        local_daily = signal_decisions.attrs.get("local_daily_execution", False)
+        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-{'close/NAV' if local_daily else 'open'} execution")
         st.warning(signal_strategy.risk_warning)
         if signal_status.decision is None:
             st.error(signal_status.reason)
         else:
             signal = signal_status.decision
             st.dataframe(pd.DataFrame([{"Decision date": signal.decision_date.date(),
-                "Execution date (scheduled open)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
+                "Execution date (scheduled close/NAV)" if local_daily else "Execution date (scheduled open)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
                 "State transition": signal.transition_reason, "RVol": signal.rvol,
                 "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
                 "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
-            st.caption("This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
+            st.caption("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local_daily else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
         with st.expander("Daily signal history"):
             date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]
             history_columns = date_columns + [column for column in signal_decisions.columns if column not in date_columns]
@@ -2837,7 +2843,7 @@ if page == "Rules":
         st.warning(strategy.risk_warning)
     if getattr(strategy, "execution_frequency", "monthly") == "daily":
         st.warning(strategy.risk_warning)
-        st.caption("Single-strategy and mixed-frequency USD portfolio Backtests are available. Mixed portfolios have initial sleeve weights only, with no transfers between sleeves. Portfolio Compare supports daily valuation; model-only monthly Compare and generic monthly Research remain unsupported.")
+        st.caption("Single-strategy and same-currency portfolio Backtests are available with drift, quarterly RVol cap or annual sleeve reset. Israel uses actual ILS history and next-session closing/NAV execution. Portfolio Compare remains USD-only; generic monthly Research does not support daily strategies.")
         st.dataframe(ranges, use_container_width=True, hide_index=True)
         st.stop()
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":

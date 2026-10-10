@@ -30,7 +30,8 @@ def daily_signal_heading(decision: pd.Series | None) -> str:
     if decision is None:
         return "Signal unavailable"
     action = "Switch" if bool(decision["trade"]) else "Hold"
-    return f"Signal — 100% {decision['selected_asset']} · {action}"
+    prefix = "" if decision.get("model_state") == "QLD" else "100% "
+    return f"Signal — {prefix}{decision['selected_asset']} · {action}"
 
 
 def last_completed_month_end(as_of: pd.Timestamp | None = None) -> pd.Timestamp:
@@ -55,7 +56,11 @@ def latest_actionable_signal(
     completed_month_end = last_completed_month_end(as_of)
     if decisions.attrs.get("execution_frequency") == "daily":
         from .strategies.rvol_shifter import completed_daily_cutoff
-        cutoff = completed_daily_cutoff(as_of)
+        if decisions.attrs.get("local_daily_execution"):
+            from .strategies.rvol_shifter_israel import completed_tase_cutoff
+            cutoff = completed_tase_cutoff(as_of)
+        else:
+            cutoff = completed_daily_cutoff(as_of)
         assets = tuple(required_assets)
         if decisions.empty or any(asset not in monthly_prices.columns for asset in assets):
             return SignalStatus(None, "Required daily data or warm-up history is unavailable.", cutoff)

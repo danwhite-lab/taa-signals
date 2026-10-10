@@ -55,6 +55,13 @@ def run_backtest(
     if execution_delay_business_days < 0:
         raise ValueError("Execution delay must be zero or a positive number of business days.")
     if decisions.attrs.get("execution_frequency") == "daily":
+        if decisions.attrs.get("local_daily_execution"):
+            from .tase_daily_engine import run_tase_daily_backtest
+            if daily_prices is None:
+                raise ValueError("Israel daily execution requires actual TASE daily prices.")
+            return run_tase_daily_backtest(decisions, daily_prices, initial_investment,
+                transaction_cost, tax_enabled, tax_rate, start, end, benchmark_asset,
+                execution_delay_business_days, monthly_contribution, fixed_fee)
         from .daily_engine import run_daily_backtest
         if daily_prices is None:
             raise ValueError("Daily execution requires daily prices, not month-end data.")

@@ -24,6 +24,9 @@ class RVolShifterCashOnly:
     uses_daily_signals = True
     execution_frequency = "daily"
     is_multi_asset = True
+    validate_sessions = staticmethod(validate_us_equity_sessions)
+    completed_cutoff = staticmethod(completed_daily_cutoff)
+    schedule_dates = staticmethod(scheduled_execution_dates)
     backtest_available = True
     research_unavailable_reason = (
         "The generic Research engine supports monthly execution only and does not "
@@ -61,8 +64,9 @@ class RVolShifterCashOnly:
         return state, donchian_lock, "Hold"
 
     def indicators(self, daily_prices: pd.DataFrame) -> pd.DataFrame:
-        market = daily_prices.loc[:, self.signal_assets].sort_index()
-        validate_us_equity_sessions(market)
+        market = daily_prices.loc[:, self.signal_assets].sort_index().copy()
+        market.columns = ("QQQ", "SPY", "HYG", "LQD")
+        self.validate_sessions(market)
         # Do not bridge missing observed sessions with filled or dropped rows.
         rvol = np.log(market.QQQ / market.QQQ.shift(1)).rolling(15, min_periods=15).std(ddof=1) * np.sqrt(252)
         credit_ratio = market.HYG / market.LQD
@@ -83,10 +87,10 @@ class RVolShifterCashOnly:
         prices = daily_prices.loc[:, self.data_assets].sort_index().dropna(how="all")
         if prices.index.has_duplicates:
             raise ValueError("Daily prices contain duplicate dates.")
-        prices = prices.loc[prices.index <= completed_daily_cutoff(as_of)]
+        prices = prices.loc[prices.index <= self.completed_cutoff(as_of)]
         if ((prices <= 0) & prices.notna()).any().any():
             raise ValueError("Daily prices must be positive.")
-        validate_us_equity_sessions(prices)
+        self.validate_sessions(prices)
         indicators = self.indicators(prices)
         indicator_valid = np.isfinite(indicators.to_numpy(dtype=float)).all(axis=1)
         price_valid = np.isfinite(prices.to_numpy(dtype=float)).all(axis=1)
@@ -115,7 +119,7 @@ class RVolShifterCashOnly:
         result = pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
         if not result.empty:
             result["decision_date"] = result.index
-            result["scheduled_execution_date"] = scheduled_execution_dates(result.index)
+            result["scheduled_execution_date"] = self.schedule_dates(result.index)
             result["scheduled_execution_timing"] = "next-session-open"
         result.attrs.update(execution_frequency="daily", completed_through=prices.index.max() if len(prices) else None)
         return result
