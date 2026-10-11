@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TaseDataError, TasePriceSource, select_etf_price_field
+from haa.tase_data import parse_published_eod_closes
 
 
 class FakeSecurity:
@@ -96,3 +97,41 @@ def test_fetch_failure_is_actionable_for_csv_fallback():
     source = TasePriceSource(lambda _: BrokenSecurity())
     with pytest.raises(TaseDataError, match="upload an official CSV replacement"):
         source.fetch_asset("CSPX_IL")
+
+
+@pytest.mark.parametrize("headers", [
+    "Date,Adjusted Closing Price,Closing Price (0.01 ILS),Opening Price,High Price,Low Price,Turnover(ILS)",
+    "תאריך,שער נעילה מתואם,שער נעילה (באגורות),שער פתיחה,שער גבוה,שער נמוך,מחזור",
+])
+def test_published_closes_keep_no_trade_rows_without_filling_missing_adjusted_prices(headers):
+    raw = "title\nrange\n" + headers + "\n" + (
+        "05/01/2025,100,100,100,101,99,1000\n"
+        "06/01/2025,100,100,0,,,0\n"
+        "07/01/2025,,102,102,103,101,1000\n")
+    frame = parse_published_eod_closes(raw)
+    assert frame.loc["2025-01-06", "Adj Close"] == 100.
+    assert pd.isna(frame.loc["2025-01-07", "Adj Close"])
+    assert "Open" not in frame
+    assert list(frame.index) == list(pd.date_range("2025-01-05", periods=3))
+
+
+def test_published_close_parser_rejects_malformed_or_duplicate_dates():
+    with pytest.raises(TaseDataError, match="Cannot parse"):
+        parse_published_eod_closes("title\nrange\nDate,Volume\n05/01/2025,1")
+    with pytest.raises(TaseDataError, match="Duplicate"):
+        parse_published_eod_closes("title\nrange\nDate,Adjusted Closing Price\n05/01/2025,100\n05/01/2025,101")
+
+
+def test_default_rvol_source_uses_published_closes_other_sources_are_unchanged(monkeypatch):
+    import haa.tase_data as module
+    frame = pd.DataFrame({"Adj Close": [100.]}, index=pd.DatetimeIndex(["2025-01-05"]))
+    calls = []
+    monkeypatch.setattr(module, "_default_security_factory", factory_for({"1149038": frame, "1159250": frame}, calls))
+    downloaded = []
+    monkeypatch.setattr(module, "download_published_eod_closes", lambda sid: downloaded.append(sid) or frame)
+    source = TasePriceSource()
+    local = source.fetch_asset("RVOL_QQQ_IL")
+    source.fetch_asset("CSPX_IL")
+    assert downloaded == ["1149038"]
+    assert calls == [("1159250", "history")]
+    assert "no-trade valuations retained" in local.source

@@ -68,7 +68,13 @@ def tase_equity_sessions(start: str, end: str) -> pd.DatetimeIndex:
         sessions = calendar.sessions_in_range(start, end)
     except Exception as exc:
         raise ValueError("TASE exchange calendar unavailable; cannot validate local daily sessions.") from exc
-    return sessions.tz_localize(None) if sessions.tz is not None else sessions
+    sessions = sessions.tz_localize(None) if sessions.tz is not None else sessions
+    # XTAE 4.13 misses the postponed municipal election holiday and has an
+    # off-by-one Sunday at the 2026 trading-week transition. Only verified
+    # closures are removed; unexplained absent quotes remain errors.
+    # https://www.boi.org.il/media/zjsbtpdd/markets-department-business-days-for-2024.pdf
+    # https://www.solactive.com/announcements/56778
+    return sessions.difference(pd.DatetimeIndex(["2024-02-27", "2026-01-04"]), sort=False)
 
 
 def validate_tase_sessions(prices: pd.DataFrame) -> None:
@@ -80,8 +86,10 @@ def validate_tase_sessions(prices: pd.DataFrame) -> None:
     expected = tase_equity_sessions(str(observed.min().date()), str(observed.max().date()))
     if len(observed.difference(expected)):
         raise ValueError("Local quotes contain non-trading TASE dates.")
-    if len(expected.difference(observed)):
-        raise ValueError("Missing TASE trading sessions; refusing to bridge gaps in local daily history.")
+    missing = expected.difference(observed)
+    if len(missing):
+        dates = ', '.join(str(date.date()) for date in missing[:8])
+        raise ValueError(f"Missing TASE trading sessions ({len(missing)}): {dates}; refusing to bridge gaps in local daily history.")
 
 
 def scheduled_tase_execution_dates(decision_dates: pd.DatetimeIndex) -> pd.DatetimeIndex:

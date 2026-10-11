@@ -40,6 +40,16 @@ def test_tase_session_schedule_not_us_calendar():
     assert scheduled_tase_execution_dates(pd.DatetimeIndex(["2025-01-02"]))[0] == pd.Timestamp("2025-01-05")
 
 
+def test_verified_closures_and_2026_transition():
+    assert pd.Timestamp("2024-02-27") not in tase_equity_sessions("2024-02-26", "2024-02-28")
+    assert scheduled_tase_execution_dates(pd.DatetimeIndex(["2024-02-26"]))[0] == pd.Timestamp("2024-02-28")
+    assert scheduled_tase_execution_dates(pd.DatetimeIndex(["2026-01-01"]))[0] == pd.Timestamp("2026-01-05")
+    sessions = tase_equity_sessions("2026-01-01", "2026-01-12")
+    assert pd.Timestamp("2026-01-04") not in sessions
+    assert pd.Timestamp("2026-01-09") in sessions
+    assert pd.Timestamp("2026-01-11") not in sessions
+
+
 def test_indicators_warmup_and_no_future_leak():
     dates = tase_equity_sessions("2022-01-02", "2024-12-31")
     x = np.arange(len(dates))
@@ -52,6 +62,20 @@ def test_indicators_warmup_and_no_future_leak():
     second = model.decisions(changed, as_of="2025-01-01")
     pd.testing.assert_frame_equal(first.loc[:dates[399]], second.loc[:dates[399]])
     assert first.attrs["local_daily_execution"]
+
+
+def test_only_pending_nav_tail_is_trimmed_not_internal_missing_prices():
+    dates = tase_equity_sessions("2023-01-01", "2024-12-31")
+    model = RVolShifterCashOnlyIsrael()
+    x = np.arange(len(dates))
+    prices = pd.DataFrame({a: 100*np.exp(np.cumsum(.001+.005*np.sin(x))) for a in model.data_assets}, index=dates)
+    prices.iloc[-1, prices.columns.get_loc("RVOL_CASH_IL")] = np.nan
+    decisions = model.decisions(prices, as_of="2025-01-01")
+    assert decisions.attrs["completed_through"] == dates[-2]
+    assert decisions.attrs["pending_price_dates"] == [str(dates[-1].date())]
+    prices.iloc[350, prices.columns.get_loc("RVOL_CASH_IL")] = np.nan
+    with pytest.raises(ValueError, match="Missing/invalid daily data"):
+        model.decisions(prices, as_of="2025-01-01")
 
 
 def test_next_close_and_actual_sale_tax_not_daily_rebalancing():

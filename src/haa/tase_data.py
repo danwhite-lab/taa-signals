@@ -7,6 +7,7 @@ only and can be unavailable when those endpoints change or are blocked.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import StringIO
 from typing import Callable, Iterable, Mapping
 
 import pandas as pd
@@ -33,6 +34,7 @@ TASE_ISRAEL_ASSET_IDS = {
 }
 TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
 PUBLIC_HISTORY_YEARS = 5
+RVOL_PUBLISHED_CLOSE_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL"})
 
 # Default locally tradable implementations for the substitution mode. They
 # deliberately represent practical Israeli execution choices, not claims that
@@ -59,6 +61,44 @@ ISRAEL_DEFAULT_TASE_SUBSTITUTIONS = {
 
 class TaseDataError(RuntimeError):
     """Raised when a public TASE/Maya series cannot be safely used."""
+
+
+def parse_published_eod_closes(csv_text: str) -> pd.DataFrame:
+    """Keep actual published closes even when no exchange trade occurred.
+
+    tasekit's OHLC parser drops rows lacking high/low or a positive open.
+    Neither is required for closing valuations. Never forward fill, invent
+    opening prices, or mix adjusted and unadjusted fields on individual dates.
+    """
+    try:
+        raw = pd.read_csv(StringIO(csv_text.lstrip("\ufeff")), skiprows=2)
+        columns = {}
+        for column in raw.columns:
+            label = column.strip()
+            if label.startswith(("Date", "תאריך")):
+                columns["Date"] = column
+            elif label.startswith(("Adjusted Closing Price", "שער נעילה מתואם")):
+                columns["Adj Close"] = column
+            elif label.startswith(("Closing Price", "שער נעילה")):
+                columns["Close"] = column
+        if "Date" not in columns or not {"Close", "Adj Close"}.intersection(columns):
+            raise ValueError("Missing date or closing-price columns")
+        dates = pd.to_datetime(raw[columns["Date"]], format="%d/%m/%Y", errors="raise")
+        result = pd.DataFrame({field: pd.to_numeric(raw[column], errors="coerce").to_numpy()
+                               for field, column in columns.items() if field != "Date"},
+                              index=pd.DatetimeIndex(dates, name="Date")).sort_index()
+        if result.index.has_duplicates or result.empty:
+            raise ValueError("Duplicate dates or empty published history")
+        return result
+    except Exception as exc:
+        raise TaseDataError(f"Cannot parse published TASE closing valuations: {exc}") from exc
+
+
+def download_published_eod_closes(security_id: str) -> pd.DataFrame:
+    from tasekit.api import TaseClient
+    result = parse_published_eod_closes(TaseClient().fetch_eod_csv(security_id.zfill(8), 7))
+    first_date = pd.Timestamp.now(tz="Asia/Jerusalem").tz_localize(None).normalize() - pd.DateOffset(years=PUBLIC_HISTORY_YEARS)
+    return result.loc[first_date:]
 
 
 @dataclass(frozen=True)
@@ -113,6 +153,7 @@ class TasePriceSource:
     """Fetch and cache immutable copies of public TASE/Maya price histories."""
 
     def __init__(self, security_factory: Callable[[str], object] | None = None):
+        self._use_published_closes = security_factory is None
         self._security_factory = security_factory or _default_security_factory
         self._cache: dict[str, TaseSeries] = {}
 
@@ -130,9 +171,11 @@ class TasePriceSource:
                 # ``etf_history`` endpoint is for a different ETF endpoint
                 # and returns no data for them; normal security history is
                 # the supported public series and contains Adj Close.
-                frame = security.history(years=PUBLIC_HISTORY_YEARS)
+                frame = download_published_eod_closes(security_id) if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS else security.history(years=PUBLIC_HISTORY_YEARS)
                 field, label = select_etf_price_field(frame, asset)
                 source = f"TASE via tasekit ({label})"
+                if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS:
+                    source += "; published no-trade valuations retained (not guaranteed fills)"
             else:
                 # tasekit maps a regular mutual fund's Close to Maya's
                 # published redemption price.  Do not replace it with a proxy.

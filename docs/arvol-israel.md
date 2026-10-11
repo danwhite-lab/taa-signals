@@ -41,3 +41,13 @@ drift, quarterly RVol caps and annual sleeve resets. Do not combine USD and ILS
 sleeves without conversion. Portfolio Compare remains USD-only; generic monthly
 Research and synthetic US Deep History do not represent this implementation.
 Daily drawdowns use daily closing NAV, not intraday lows. No trades are placed.
+
+Published no-trade closing valuations are retained for the five A-RVol TASE ETF
+inputs, even when the feed lacks an opening/high/low price. These are actual
+published marks, not filled quotes or guaranteed execution prices. No source
+row or missing adjusted close is fabricated. The XTAE 4.13 calendar is corrected
+for the 27 February 2024 municipal-election closure and the 4 January 2026
+closed Sunday at the trading-week transition. Any other missing session still
+fails with its dates shown.
+An unpublished NAV at the latest session ends the backtest at the last common
+complete session. Only the pending tail is trimmed; internal gaps still fail.
