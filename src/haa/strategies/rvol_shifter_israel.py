@@ -44,6 +44,15 @@ class RVolShifterCashOnlyIsrael(RVolShifterCashOnly):
     }
 
     def decisions(self, daily_prices, include_current_month=False, as_of=None):
+        # Funds may publish NAV after the exchange-priced inputs. Trim only
+        # the pending tail; never remove an incomplete internal session.
+        required = daily_prices.reindex(columns=self.data_assets)
+        complete = required.dropna().index
+        pending = pd.DatetimeIndex([])
+        if len(complete):
+            last_complete = complete.max()
+            pending = required.index[required.index > last_complete]
+            daily_prices = daily_prices.loc[:last_complete]
         result = super().decisions(daily_prices, include_current_month, as_of)
         if not result.empty:
             result["model_state"] = result.selected_asset
@@ -57,4 +66,5 @@ class RVolShifterCashOnlyIsrael(RVolShifterCashOnly):
             result.loc[annual, "trade"] = True
             result.loc[annual, "transition_reason"] = "Annual 50/50 QLD-substitute reset"
         result.attrs.update(local_daily_execution=True, execution_currency="ILS", execution_timing=self.execution_timing)
+        result.attrs["pending_price_dates"] = [str(date.date()) for date in pending]
         return result

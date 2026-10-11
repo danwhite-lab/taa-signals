@@ -1257,7 +1257,7 @@ def selected_sleeve_labels(sleeves: list[dict[str, object]], prefix: str) -> lis
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading public TASE/Maya price history...")
 def load_tase_data(assets: tuple[str, ...]):
-    """Cache successful public-source requests and avoid repeated TASE traffic."""
+    """Cache closing valuations v2, retaining published no-trade rows for A-RVol."""
     return download_tase_israel_prices(assets)
 
 
@@ -1612,6 +1612,8 @@ if page in {"Backtest", "Research", "Rules"}:
             st.stop()
         common_start = first_trading_day_after(prices, daily_available_decisions.index.min(), strategy.data_assets)
         common_end = daily_available_decisions.attrs["completed_through"]
+        if daily_available_decisions.attrs.get("pending_price_dates"):
+            st.caption(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
         if common_start is None or common_start > common_end:
             st.error("No completed post-signal execution session is available.")
             st.stop()
