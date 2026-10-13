@@ -1,7 +1,8 @@
 .venv/
 __pycache__/
 .pytest_cache/
-.streamlit/
+.streamlit/*
+!.streamlit/secrets.toml.example
 *.py[cod]
 *.egg-info/
 .DS_Store

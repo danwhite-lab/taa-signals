@@ -61,6 +61,18 @@ Tax is optional and defaults to 25%. The independent tax module taxes only reali
 
 This is a standard Streamlit project. Create an app at [Streamlit Community Cloud](https://share.streamlit.io/) and point it to `app.py` on the `main` branch. Community Cloud installs the root `requirements.txt`; local development can use `pip install -e '.[dev]'`. The tasekit integration needs no API key. Do not represent the app as an official TASE data distribution service; use the official TASE Data Hub if you need contractual availability or distribution rights.
 
+### Private portfolio sync
+
+The app supports email/password accounts and private sync of named portfolios through Supabase. Add these secrets in the Streamlit deployment's **Advanced settings → Secrets** (the tracked `.streamlit/secrets.toml.example` shows the format):
+
+```toml
+[supabase]
+url = "https://YOUR_PROJECT_REF.supabase.co"
+publishable_key = "sb_publishable_YOUR_KEY"
+```
+
+Use the project URL and publishable key from Supabase's **Connect** panel. Do not add a service-role key anywhere in the app or deployment. In Supabase **Authentication → URL Configuration**, set the app's deployed URL as the Site URL so email confirmation links return to the app. The database allows authenticated users to read and change only rows whose `user_id` matches their own account; this is enforced with row-level security, not merely by the Streamlit interface.
+
 ## Independent checks built into the UI
 
 The Rules tab shows data coverage, common backtest period, first valid signal, raw and month-end price data, and a downloadable audit row per decision. Classic HAA audit rows additionally show all asset scores, offensive ranks, selected basket, current/previous target weights, trade flag, and the following holding-period return. For weighted portfolios, annual turnover is the one-way fraction of portfolio value purchased at each rebalance, annualized.

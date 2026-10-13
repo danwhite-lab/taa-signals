@@ -45,6 +45,7 @@ from haa.signals import daily_signal_heading, execution_assets, first_trading_da
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, research_unavailable_reason, run_deterministic_validation
+from haa.supabase_sync import config_from_secrets, delete_portfolio as delete_cloud_portfolio, list_portfolios as list_cloud_portfolios, save_portfolio as save_cloud_portfolio, sign_in as sign_in_to_supabase, sign_up as sign_up_to_supabase
 
 
 def add_test_dates(table, result):
@@ -557,6 +558,25 @@ def request_browser_portfolio() -> None:
     )
 
 
+def refresh_cloud_portfolios() -> None:
+    """Refresh the signed-in user's remote library, preserving local data."""
+    config = config_from_secrets(st.secrets)
+    session = st.session_state.get("supabase_session")
+    if config is None or session is None:
+        return
+    rows = list_cloud_portfolios(*config, session)
+    st.session_state["cloud_portfolio_rows"] = rows
+    st.session_state["cloud_portfolios_loaded"] = True
+
+
+def restore_cloud_default() -> None:
+    """Make the current user's cloud default available to Today on this device."""
+    for row in st.session_state.get("cloud_portfolio_rows", []):
+        if row.get("is_default") and apply_browser_portfolio(row.get("payload"), as_default=True):
+            st.session_state["browser_portfolio_checked"] = True
+            return
+
+
 for key, value in {
     "model_name": DEFAULT_MODEL,
     "signals_model_name": DEFAULT_MODEL,
@@ -578,6 +598,9 @@ for key, value in {
     "browser_default_portfolio": None,
     "browser_portfolio_library": [],
     "browser_portfolio_checked": False,
+    "supabase_session": None,
+    "cloud_portfolio_rows": [],
+    "cloud_portfolios_loaded": False,
     "backtest_mode": "Single strategy",
     "backtest_sleeves": [{"id": 1, "weight": 100.0, "model": DEFAULT_MODEL}],
     "backtest_next_id": 2,
@@ -648,6 +671,56 @@ if st.session_state["page"] == "Validation":
 if st.session_state["page"] == "Compare Models":
     st.session_state["page"] = "Compare"
 st.session_state["ticker_text"] = append_missing_default_tickers(st.session_state["ticker_text"])
+
+sync_config = config_from_secrets(st.secrets)
+with st.expander("Account & private sync", expanded=False):
+    if sync_config is None:
+        st.caption("Private cloud sync will be available after Supabase settings are added to this deployment.")
+    elif st.session_state["supabase_session"] is None:
+        sign_in_tab, sign_up_tab = st.tabs(("Sign in", "Create account"))
+        with sign_in_tab:
+            with st.form("supabase_sign_in"):
+                sign_in_email = st.text_input("Email", key="supabase_sign_in_email")
+                sign_in_password = st.text_input("Password", type="password", key="supabase_sign_in_password")
+                submit_sign_in = st.form_submit_button("Sign in")
+            if submit_sign_in:
+                try:
+                    st.session_state["supabase_session"] = sign_in_to_supabase(
+                        *sync_config, sign_in_email.strip(), sign_in_password
+                    )
+                    refresh_cloud_portfolios()
+                    restore_cloud_default()
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Sign-in failed: {exc}")
+        with sign_up_tab:
+            with st.form("supabase_sign_up"):
+                sign_up_email = st.text_input("Email", key="supabase_sign_up_email")
+                sign_up_password = st.text_input("Password", type="password", key="supabase_sign_up_password")
+                submit_sign_up = st.form_submit_button("Create account")
+            if submit_sign_up:
+                try:
+                    sign_up_to_supabase(*sync_config, sign_up_email.strip(), sign_up_password)
+                    st.success("Check your email to confirm the account, then sign in here.")
+                except Exception as exc:
+                    st.error(f"Account creation failed: {exc}")
+    else:
+        sync_session = st.session_state["supabase_session"]
+        st.caption(f"Signed in as {sync_session['email']}. Your synced portfolios are private to this account.")
+        refresh_column, sign_out_column = st.columns(2)
+        with refresh_column:
+            if st.button("Refresh synced portfolios", key="refresh_cloud_portfolios"):
+                try:
+                    refresh_cloud_portfolios()
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not refresh portfolios: {exc}")
+        with sign_out_column:
+            if st.button("Sign out", key="supabase_sign_out"):
+                st.session_state["supabase_session"] = None
+                st.session_state["cloud_portfolio_rows"] = []
+                st.session_state["cloud_portfolios_loaded"] = False
+                st.rerun()
 
 with st.container(key="primary-navigation"):
     page = st.radio("Primary navigation", ("Today", "Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
@@ -2289,6 +2362,39 @@ if page == "Portfolio":
                 st.rerun()
         else:
             st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
+        cloud_rows = st.session_state.get("cloud_portfolio_rows", [])
+        if st.session_state.get("supabase_session") is not None:
+            st.divider()
+            st.caption("Synced portfolios")
+            if cloud_rows:
+                cloud_by_name = {row["name"]: row for row in cloud_rows}
+                selected_cloud_name = st.selectbox(
+                    "Saved privately in your account",
+                    tuple(cloud_by_name),
+                    key="cloud_portfolio_selection",
+                )
+                cloud_load_column, cloud_delete_column = st.columns(2)
+                with cloud_load_column:
+                    load_cloud = st.button("Load synced", key="portfolio_load_cloud")
+                with cloud_delete_column:
+                    delete_cloud = st.button("Delete synced", key="portfolio_delete_cloud")
+                if load_cloud:
+                    if apply_browser_portfolio(cloud_by_name[selected_cloud_name]["payload"]):
+                        st.rerun()
+                    st.error("The selected synced portfolio is no longer valid for this version of the app.")
+                if delete_cloud:
+                    try:
+                        delete_cloud_portfolio(
+                            *sync_config,
+                            st.session_state["supabase_session"],
+                            cloud_by_name[selected_cloud_name]["id"],
+                        )
+                        refresh_cloud_portfolios()
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not delete the synced portfolio: {exc}")
+            else:
+                st.caption("No synced portfolios yet. Save the current portfolio to add one.")
     with portfolio_inputs:
         fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
         st.session_state.setdefault("portfolio_total_ils", 100_000.0)
@@ -2373,11 +2479,17 @@ if page == "Portfolio":
             st.caption("Current allocations from your strategy signals")
         with actions_column:
             portfolio_actions = st.container(key="portfolio-actions")
-    save_column, default_column = portfolio_actions.columns([1, 1.7])
+    save_column, default_column, cloud_save_column = portfolio_actions.columns([1, 1.7, 1.25])
     with save_column:
         save_named = st.button("Save portfolio", type="primary", use_container_width=True)
     with default_column:
         save_as_default = st.button("Use as Today default", use_container_width=True)
+    with cloud_save_column:
+        save_to_cloud = st.button(
+            "Save to cloud",
+            disabled=st.session_state.get("supabase_session") is None,
+            use_container_width=True,
+        )
     valid_portfolio = abs(sleeve_total - 100.0) <= 1e-9 and all(sleeve["weight"] > 0 for sleeve in updated_sleeves)
     current_payload = portfolio_payload(updated_sleeves, total_ils, ils_per_usd, portfolio_name)
     with portfolio_setup, st.expander("Default & export"):
@@ -2405,6 +2517,50 @@ if page == "Portfolio":
                 st.session_state["browser_portfolio_checked"] = True
                 store_portfolio_in_browser(current_payload)
                 st.success("Saved in this browser and set as Today’s default portfolio.")
+                if st.session_state.get("supabase_session") is not None:
+                    try:
+                        existing_id = next(
+                            (
+                                row["id"]
+                                for row in st.session_state.get("cloud_portfolio_rows", [])
+                                if row["name"].casefold() == current_payload["name"].casefold()
+                            ),
+                            None,
+                        )
+                        save_cloud_portfolio(
+                            *sync_config,
+                            st.session_state["supabase_session"],
+                            current_payload,
+                            is_default=True,
+                            existing_id=existing_id,
+                        )
+                        refresh_cloud_portfolios()
+                        st.caption("Also saved as your private cloud default.")
+                    except Exception as exc:
+                        st.warning(f"The local default was saved, but cloud sync failed: {exc}")
+        if save_to_cloud:
+            if not valid_portfolio:
+                st.error("Set one or more positive sleeve weights totaling exactly 100% before saving a portfolio.")
+            else:
+                try:
+                    existing_id = next(
+                        (
+                            row["id"]
+                            for row in st.session_state.get("cloud_portfolio_rows", [])
+                            if row["name"].casefold() == current_payload["name"].casefold()
+                        ),
+                        None,
+                    )
+                    save_cloud_portfolio(
+                        *sync_config,
+                        st.session_state["supabase_session"],
+                        current_payload,
+                        existing_id=existing_id,
+                    )
+                    refresh_cloud_portfolios()
+                    st.success(f"Saved {current_payload['name']} privately to your account.")
+                except Exception as exc:
+                    st.error(f"Could not save the synced portfolio: {exc}")
         if clear_default:
             st.session_state["browser_default_portfolio"] = None
             store_portfolio_in_browser(None)
