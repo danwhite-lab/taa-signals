@@ -2123,75 +2123,132 @@ if page == "Today":
 
 
 if page == "Portfolio":
-    title_column.title("Portfolio")
-    title_column.caption("Combine existing actionable strategy signals from your brokerage's total ILS account value. Currency amounts are informational; no conversion or trade is executed by the app.")
-    library = st.session_state["browser_portfolio_library"]
-    if library:
-        library_by_name = {portfolio["name"]: portfolio for portfolio in library}
-        picker_column, load_column, delete_column, library_spacer = st.columns([2.3, 0.8, 0.8, 5.1])
-        with picker_column:
-            selected_saved_name = st.selectbox("Saved portfolios", tuple(library_by_name), key="portfolio_library_selection")
-        with load_column:
-            load_saved = st.button("Load", key="portfolio_load_saved")
-        with delete_column:
-            delete_saved = st.button("Delete", key="portfolio_delete_saved")
-        if load_saved:
-            apply_browser_portfolio(library_by_name[selected_saved_name])
-            st.rerun()
-        if delete_saved:
-            st.session_state["browser_portfolio_library"] = [portfolio for portfolio in library if portfolio["name"] != selected_saved_name]
-            store_portfolio_library_in_browser(st.session_state["browser_portfolio_library"])
-            st.rerun()
-    else:
-        st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
-    fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
-    st.session_state.setdefault("portfolio_total_ils", 100_000.0)
-    st.session_state.setdefault("portfolio_capital_text", f"{st.session_state['portfolio_total_ils']:,.2f}".rstrip("0").rstrip("."))
-    with st.form("portfolio-investment-settings"):
-        name_column, base_column, rate_column = st.columns([1.15, 1, 1])
-        with name_column:
-            portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
-        with base_column:
-            st.text_input("Total available capital (ILS)", key="portfolio_capital_text")
-            total_ils = st.session_state["portfolio_total_ils"]
-        with rate_column:
-            ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.2f", key="portfolio_fx_rate")
-        st.form_submit_button("Update portfolio inputs", on_click=update_portfolio_capital)
-    if st.session_state.get("portfolio_capital_error"):
-        st.error(st.session_state["portfolio_capital_error"])
-    if fx_error:
-        st.info(fx_error)
-    elif fx_quote_timestamp is not None:
-        st.caption(
-            f"Latest USD/ILS from Yahoo Finance (quote time: {fx_quote_timestamp:%Y-%m-%d %H:%M UTC}; cached for up to 6 hours). "
-            "Edit the rate above to use a manual override for this session."
-        )
-
+    st.markdown("""
+<style>
+.st-key-portfolio-workspace { --portfolio-accent: #17645f; }
+.st-key-portfolio-workspace [data-testid="stVerticalBlock"] { gap: 0.8rem; }
+.st-key-portfolio-setup {
+  background: color-mix(in srgb, var(--text-color) 4%, var(--background-color));
+  padding: 1.3rem; border-radius: 0.6rem;
+}
+.st-key-portfolio-setup [data-testid="stForm"] { border: 0; padding: 0; }
+.st-key-portfolio-setup [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+.st-key-portfolio-setup [data-testid="stWidgetLabel"] p { font-size: 0.8rem; }
+.st-key-portfolio-setup [data-testid="stNumberInput"] input,
+.st-key-portfolio-setup [data-testid="stTextInput"] input { background: var(--background-color); }
+[class*="-compact-sleeve"] {
+  padding: 0.85rem; background: var(--background-color);
+  border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent); border-radius: 0.5rem;
+}
+[class*="-compact-sleeve"] [data-testid="stExpander"] details { border: 0; }
+[class*="-compact-sleeve"] [data-testid="stExpander"] summary { padding: 0.25rem 0; }
+.st-key-portfolio-main h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.06rem; padding-top: 0; }
+.st-key-portfolio-main h3 { font-size: 1.1rem; font-weight: 600; }
+.st-key-portfolio-main [data-testid="stMetricValue"] { font-size: 2rem; font-weight: 500; }
+.st-key-portfolio-actions button[kind="primary"] {
+  background: var(--portfolio-accent); border-color: var(--portfolio-accent); color: white;
+}
+.st-key-portfolio-summary { padding: 1.25rem 0; }
+.st-key-portfolio-funding-summary {
+  padding: 1rem; background: color-mix(in srgb, var(--portfolio-accent) 8%, var(--background-color));
+  border-radius: 0.5rem;
+}
+.st-key-portfolio-funding-summary [data-testid="stMetricValue"] { font-size: 1.25rem; }
+.st-key-portfolio-main [data-baseweb="tab-highlight"] { background-color: var(--portfolio-accent); }
+.st-key-portfolio-main [data-baseweb="tab"] { padding-left: 0; padding-right: 1.1rem; }
+@media (max-width: 800px) {
+  .st-key-portfolio-workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+  .st-key-portfolio-workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width: 100% !important; flex: 1 1 100% !important; min-width: 0 !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+    with st.container(key="portfolio-workspace"):
+        setup_column, results_column = st.columns([1, 2.65], gap="large")
+        with setup_column:
+            portfolio_setup = st.container(key="portfolio-setup")
+        with results_column:
+            portfolio_main = st.container(key="portfolio-main")
+    with portfolio_setup:
+        st.caption("PORTFOLIO SETUP")
+        portfolio_inputs = st.container()
+        portfolio_saved = st.container()
+    with portfolio_saved, st.expander("Saved portfolios"):
+        library = st.session_state["browser_portfolio_library"]
+        if library:
+            library_by_name = {portfolio["name"]: portfolio for portfolio in library}
+            picker_column = st.container()
+            load_column, delete_column = st.columns(2)
+            with picker_column:
+                selected_saved_name = st.selectbox("Saved portfolios", tuple(library_by_name), key="portfolio_library_selection")
+            with load_column:
+                load_saved = st.button("Load", key="portfolio_load_saved")
+            with delete_column:
+                delete_saved = st.button("Delete", key="portfolio_delete_saved")
+            if load_saved:
+                apply_browser_portfolio(library_by_name[selected_saved_name])
+                st.rerun()
+            if delete_saved:
+                st.session_state["browser_portfolio_library"] = [portfolio for portfolio in library if portfolio["name"] != selected_saved_name]
+                store_portfolio_library_in_browser(st.session_state["browser_portfolio_library"])
+                st.rerun()
+        else:
+            st.caption("Save named portfolios in this browser, then load or delete them here. They are not uploaded anywhere.")
+    with portfolio_inputs:
+        fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
+        st.session_state.setdefault("portfolio_total_ils", 100_000.0)
+        st.session_state.setdefault("portfolio_capital_text", f"{st.session_state['portfolio_total_ils']:,.2f}".rstrip("0").rstrip("."))
+        with st.form("portfolio-investment-settings"):
+            name_column = st.container()
+            base_column = st.container()
+            rate_column = st.container()
+            with name_column:
+                portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
+            with base_column:
+                st.text_input("Total available capital (ILS)", key="portfolio_capital_text")
+                total_ils = st.session_state["portfolio_total_ils"]
+            with rate_column:
+                ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.2f", key="portfolio_fx_rate")
+            st.form_submit_button("Update portfolio inputs", on_click=update_portfolio_capital)
+        if st.session_state.get("portfolio_capital_error"):
+            st.error(st.session_state["portfolio_capital_error"])
+        if fx_error:
+            st.info(fx_error)
+        elif fx_quote_timestamp is not None:
+            st.caption(
+                f"Latest USD/ILS from Yahoo Finance (quote time: {fx_quote_timestamp:%Y-%m-%d %H:%M UTC}; cached for up to 6 hours). "
+                "Edit the rate above to use a manual override for this session."
+            )
     sleeves = st.session_state["portfolio_sleeves"]
-    with st.container(key="portfolio-sleeve-heading"):
-        sleeve_title_column, sleeve_add_column, sleeve_remove_column, sleeve_spacer = st.columns([2.4, 0.35, 0.35, 9])
-        with sleeve_title_column:
-            st.subheader("Strategy sleeves")
+    with portfolio_setup:
+        st.divider()
+        st.markdown("**Strategy sleeves**")
+        sleeve_add_column, sleeve_remove_column = st.columns(2)
         with sleeve_add_column:
-            add_sleeve = st.button("+", key="portfolio_add_sleeve", help="Add sleeve")
+            add_sleeve = st.button("+ Add sleeve", key="portfolio_add_sleeve", help="Add sleeve", use_container_width=True)
         with sleeve_remove_column:
-            remove_sleeve = st.button("-", key="portfolio_remove_sleeve", help="Remove the last sleeve", disabled=len(sleeves) == 1)
+            remove_sleeve = st.button("− Remove", key="portfolio_remove_sleeve", help="Remove the last sleeve", disabled=len(sleeves) == 1, use_container_width=True)
     updated_sleeves = []
     for sleeve in sleeves:
         sleeve_id = sleeve["id"]
         prefix = f"portfolio_{sleeve_id}"
         previous_model = sleeve.get("model", st.session_state.get(f"{prefix}_model", DEFAULT_MODEL))
         seed_model_selection(prefix, previous_model)
-        with st.container(key=f"{prefix}-sleeve-row"):
-            strategy_column, variant_column, implementation_column, weight_column, currency_column = st.columns([1.1, 1.25, 1.45, 0.65, 0.55])
-            model_label = model_selector(prefix, columns=(strategy_column, variant_column, implementation_column), implementation_dropdown=True)
-            with weight_column:
-                weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, step=1.0, value=float(sleeve["weight"]), key=f"{prefix}_weight")
-            execution_currency = definition_for_label(model_label).execution_currency
-            with currency_column:
-                st.selectbox("Currency", (execution_currency,), key=f"{prefix}_currency_{execution_currency}", disabled=True)
-            st.session_state[f"{prefix}_model"] = model_label
-            updated_sleeves.append({"id": sleeve_id, "weight": float(weight), "model": model_label, "currency": execution_currency})
+        with portfolio_setup, st.container(key=f"{prefix}-compact-sleeve"):
+            sleeve_summary = st.container()
+            with st.expander("Edit sleeve", expanded=False):
+                model_label = model_selector(prefix, implementation_dropdown=True)
+                weight_column, currency_column = st.columns(2)
+                with weight_column:
+                    weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, step=1.0, value=float(sleeve["weight"]), key=f"{prefix}_weight")
+                execution_currency = definition_for_label(model_label).execution_currency
+                with currency_column:
+                    st.selectbox("Currency", (execution_currency,), key=f"{prefix}_currency_{execution_currency}", disabled=True)
+                st.session_state[f"{prefix}_model"] = model_label
+                updated_sleeves.append({"id": sleeve_id, "weight": float(weight), "model": model_label, "currency": execution_currency})
+            definition = definition_for_label(model_label)
+            with sleeve_summary:
+                st.markdown(f"**{definition.strategy}{' · ' + definition.variant if definition.variant else ''}**")
+                st.caption(f"{definition.implementation} · {weight:g}% · {execution_currency}")
     st.session_state["portfolio_sleeves"] = updated_sleeves
     if add_sleeve:
         next_id = st.session_state["portfolio_next_id"]
@@ -2201,78 +2258,61 @@ if page == "Portfolio":
     if remove_sleeve:
         st.session_state["portfolio_sleeves"] = updated_sleeves[:-1]
         st.rerun()
-
-    sleeve_total = total_weight(updated_sleeves)
-    plan = funding_plan(updated_sleeves, total_ils, ils_per_usd)
-    for sleeve in updated_sleeves:
-        definition = definition_for_label(sleeve["model"])
-        if definition.suggested_max_weight is not None and sleeve["weight"] > definition.suggested_max_weight * 100:
-            st.info(f"{sleeve['model']} is above its suggested {definition.suggested_max_weight:.0%} portfolio maximum. This is guidance only; the allocation remains available.")
-    if abs(sleeve_total - 100.0) > 1e-9:
-        st.warning(f"Sleeve weights total {sleeve_total:.2f}%. Set them to exactly 100% before using the combined allocation.")
-    else:
-        st.success("Sleeve weights total 100%.")
-
-    save_column, default_column, clear_column, save_spacer = st.columns([1.35, 2.0, 1.5, 5.15])
+    with portfolio_setup:
+        sleeve_total = total_weight(updated_sleeves)
+        plan = funding_plan(updated_sleeves, total_ils, ils_per_usd)
+        for sleeve in updated_sleeves:
+            definition = definition_for_label(sleeve["model"])
+            if definition.suggested_max_weight is not None and sleeve["weight"] > definition.suggested_max_weight * 100:
+                st.info(f"{sleeve['model']} is above its suggested {definition.suggested_max_weight:.0%} portfolio maximum. This is guidance only; the allocation remains available.")
+        if abs(sleeve_total - 100.0) > 1e-9:
+            st.warning(f"Sleeve weights total {sleeve_total:.2f}%. Set them to exactly 100% before using the combined allocation.")
+        else:
+            st.caption("✓ Sleeve weights total 100%.")
+    with portfolio_main:
+        heading_column, actions_column = st.columns([1.25, 1.7], vertical_alignment="center")
+        with heading_column:
+            st.caption("PORTFOLIO")
+            st.title(portfolio_name or "My portfolio")
+            st.caption("Current allocations from your strategy signals")
+        with actions_column:
+            portfolio_actions = st.container(key="portfolio-actions")
+    save_column, default_column = portfolio_actions.columns([1, 1.7])
     with save_column:
-        save_named = st.button("Save portfolio")
+        save_named = st.button("Save portfolio", type="primary", use_container_width=True)
     with default_column:
-        save_as_default = st.button("Use as Today default", type="primary")
-    with clear_column:
-        clear_default = st.button("Clear saved default", disabled=st.session_state.get("browser_default_portfolio") is None)
+        save_as_default = st.button("Use as Today default", use_container_width=True)
     valid_portfolio = abs(sleeve_total - 100.0) <= 1e-9 and all(sleeve["weight"] > 0 for sleeve in updated_sleeves)
     current_payload = portfolio_payload(updated_sleeves, total_ils, ils_per_usd, portfolio_name)
-    st.download_button("Download portfolio JSON", json.dumps(current_payload, indent=2).encode("utf-8"), "portfolio.json", "application/json", key="portfolio_export_json")
-    if save_named:
-        if not valid_portfolio:
-            st.error("Set one or more positive sleeve weights totaling exactly 100% before saving a portfolio.")
-        else:
-            updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
-            updated_library.append(current_payload)
-            st.session_state["browser_portfolio_library"] = updated_library
-            store_portfolio_library_in_browser(updated_library)
-            st.success(f"Saved {current_payload['name']} in this browser.")
-    if save_as_default:
-        if not valid_portfolio:
-            st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
-        else:
-            updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
-            updated_library.append(current_payload)
-            st.session_state["browser_portfolio_library"] = updated_library
-            store_portfolio_library_in_browser(updated_library)
-            st.session_state["browser_default_portfolio"] = current_payload
-            st.session_state["browser_portfolio_checked"] = True
-            store_portfolio_in_browser(current_payload)
-            st.success("Saved in this browser and set as Today’s default portfolio.")
-    if clear_default:
-        st.session_state["browser_default_portfolio"] = None
-        store_portfolio_in_browser(None)
-        st.success("Removed the saved default portfolio from this browser.")
-
-    st.subheader("Funding and FX")
-    total_ils_column, total_usd_column = st.columns(2)
-    with total_ils_column:
-        st.metric("Total portfolio value (ILS)", f"{plan['total_ils']:,.2f}")
-    with total_usd_column:
-        st.metric("Total portfolio value (USD)", f"{plan['total_usd']:,.2f}")
-    funding_rows = [
-        {
-            "Execution currency": currency,
-            "Required allocation": plan["required"][currency],
-            "ILS equivalent": convert_currency(plan["required"][currency], currency, "ILS", ils_per_usd),
-        }
-        for currency in ("USD", "ILS")
-    ]
-    st.dataframe(
-        pd.DataFrame(funding_rows).style.format({"Required allocation": "{:,.2f}", "ILS equivalent": "{:,.2f}"}),
-        use_container_width=True,
-        hide_index=True,
-    )
-    if plan["total_ils"] == 0:
-        st.info("Enter your total available ILS capital to calculate sleeve funding requirements.")
-    else:
-        st.caption("Required native-currency amounts show what the selected sleeves need. Your broker determines whether any conversion is needed to fund those purchases.")
-
+    with portfolio_setup, st.expander("Default & export"):
+        clear_default = st.button("Clear saved default", disabled=st.session_state.get("browser_default_portfolio") is None)
+        st.download_button("Download portfolio JSON", json.dumps(current_payload, indent=2).encode("utf-8"), "portfolio.json", "application/json", key="portfolio_export_json")
+    with portfolio_main:
+        if save_named:
+            if not valid_portfolio:
+                st.error("Set one or more positive sleeve weights totaling exactly 100% before saving a portfolio.")
+            else:
+                updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
+                updated_library.append(current_payload)
+                st.session_state["browser_portfolio_library"] = updated_library
+                store_portfolio_library_in_browser(updated_library)
+                st.success(f"Saved {current_payload['name']} in this browser.")
+        if save_as_default:
+            if not valid_portfolio:
+                st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
+            else:
+                updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
+                updated_library.append(current_payload)
+                st.session_state["browser_portfolio_library"] = updated_library
+                store_portfolio_library_in_browser(updated_library)
+                st.session_state["browser_default_portfolio"] = current_payload
+                st.session_state["browser_portfolio_checked"] = True
+                store_portfolio_in_browser(current_payload)
+                st.success("Saved in this browser and set as Today’s default portfolio.")
+        if clear_default:
+            st.session_state["browser_default_portfolio"] = None
+            store_portfolio_in_browser(None)
+            st.success("Removed the saved default portfolio from this browser.")
     sleeve_rows, sleeve_detail_rows, valid_sleeves = [], [], []
     allocations_by_id = {int(item["id"]): item for item in plan["sleeves"]}
     for sleeve in updated_sleeves:
@@ -2303,37 +2343,70 @@ if page == "Portfolio":
             valid_sleeves.append({"name": sleeve["model"], "weight": sleeve["weight"], "currency": sleeve["currency"], "target_weights": signal["weights"]})
         sleeve_rows.append(base_row)
         sleeve_detail_rows.append(detail_row)
-    st.subheader("Current sleeve signals")
-    sleeve_table = pd.DataFrame(sleeve_rows)
-    st.dataframe(sleeve_table.style.format({"Weight": "{:.2%}", "Allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
-    with st.expander("Sleeve configuration details", expanded=False):
-        st.dataframe(pd.DataFrame(sleeve_detail_rows).style.format({"Weight": "{:.2%}", "Target allocation (ILS)": "{:,.2f}", "Native allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
-
-    st.subheader("Combined actionable holdings")
-    if len(valid_sleeves) != len(updated_sleeves):
-        st.info("Combined holdings are unavailable until every sleeve has a valid current signal.")
-        unavailable = [f"{row['Model']}: {row['Status']}" for row in sleeve_rows if row["Current holding"] == "Unavailable"]
-        st.caption(" · ".join(unavailable))
-    elif abs(sleeve_total - 100.0) > 1e-9:
-        st.info("Combined holdings are unavailable until sleeve weights total exactly 100%.")
-    else:
-        grouped_holdings = aggregate_holdings_by_currency(valid_sleeves)
-        for currency, holdings in grouped_holdings.items():
-            st.markdown(f"**{currency} holdings**")
-            holding_rows, holding_detail_rows = [], []
-            for asset, values in sorted(holdings.items()):
-                ils_allocation = plan["total_ils"] * values["weight"]
-                holding_row = {
-                    "Holding": execution_security_label(asset, currency),
-                    "Combined weight": values["weight"],
-                    f"Allocation ({currency})": convert_currency(ils_allocation, "ILS", currency, ils_per_usd),
-                    "ILS equivalent": ils_allocation,
+    with portfolio_main:
+        with st.container(key="portfolio-summary"):
+            value_column, funding_column = st.columns([1.2, 1])
+            with value_column:
+                st.metric("Total portfolio value (ILS)", f"₪{plan['total_ils']:,.2f}")
+                st.caption(f"Equivalent to ${plan['total_usd']:,.2f} at {ils_per_usd:.2f} ILS / USD")
+            with funding_column, st.container(key="portfolio-funding-summary"):
+                st.caption("FUNDING REQUIRED")
+                usd_column, ils_column = st.columns(2)
+                usd_column.metric("USD allocation", f"${plan['required']['USD']:,.2f}")
+                ils_column.metric("ILS allocation", f"₪{plan['required']['ILS']:,.2f}")
+        allocations_tab, funding_tab = st.tabs(["Allocations", "Funding & FX"])
+        with allocations_tab:
+            st.subheader("Combined actionable holdings")
+            if len(valid_sleeves) != len(updated_sleeves):
+                st.info("Combined holdings are unavailable until every sleeve has a valid current signal.")
+                unavailable = [f"{row['Model']}: {row['Status']}" for row in sleeve_rows if row["Current holding"] == "Unavailable"]
+                st.caption(" · ".join(unavailable))
+            elif abs(sleeve_total - 100.0) > 1e-9:
+                st.info("Combined holdings are unavailable until sleeve weights total exactly 100%.")
+            else:
+                grouped_holdings = aggregate_holdings_by_currency(valid_sleeves)
+                for currency, holdings in grouped_holdings.items():
+                    st.markdown(f"**{currency} holdings**")
+                    holding_rows, holding_detail_rows = [], []
+                    for asset, values in sorted(holdings.items()):
+                        ils_allocation = plan["total_ils"] * values["weight"]
+                        holding_row = {
+                            "Holding": execution_security_label(asset, currency),
+                            "Combined weight": values["weight"],
+                            f"Allocation ({currency})": convert_currency(ils_allocation, "ILS", currency, ils_per_usd),
+                            "ILS equivalent": ils_allocation,
+                        }
+                        holding_rows.append(holding_row)
+                        holding_detail_rows.append({**holding_row, "Contributing sleeves": ", ".join(values["sleeves"])})
+                    st.dataframe(pd.DataFrame(holding_rows).style.format({"Combined weight": "{:.2%}", f"Allocation ({currency})": "{:,.2f}", "ILS equivalent": "{:,.2f}"}), use_container_width=True, hide_index=True)
+                    with st.expander(f"{currency} holding sources", expanded=False):
+                        st.dataframe(pd.DataFrame(holding_detail_rows), use_container_width=True, hide_index=True)
+            st.divider()
+            st.subheader("Current sleeve signals")
+            sleeve_table = pd.DataFrame(sleeve_rows)
+            st.dataframe(sleeve_table.style.format({"Weight": "{:.2%}", "Allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
+            with st.expander("Sleeve configuration details", expanded=False):
+                st.dataframe(pd.DataFrame(sleeve_detail_rows).style.format({"Weight": "{:.2%}", "Target allocation (ILS)": "{:,.2f}", "Native allocation": "{:,.2f}"}), use_container_width=True, hide_index=True)
+        with funding_tab:
+            st.subheader("Funding and FX")
+            funding_rows = [
+                {
+                    "Execution currency": currency,
+                    "Required allocation": plan["required"][currency],
+                    "ILS equivalent": convert_currency(plan["required"][currency], currency, "ILS", ils_per_usd),
                 }
-                holding_rows.append(holding_row)
-                holding_detail_rows.append({**holding_row, "Contributing sleeves": ", ".join(values["sleeves"])})
-            st.dataframe(pd.DataFrame(holding_rows).style.format({"Combined weight": "{:.2%}", f"Allocation ({currency})": "{:,.2f}", "ILS equivalent": "{:,.2f}"}), use_container_width=True, hide_index=True)
-            with st.expander(f"{currency} holding sources", expanded=False):
-                st.dataframe(pd.DataFrame(holding_detail_rows), use_container_width=True, hide_index=True)
+                for currency in ("USD", "ILS")
+            ]
+            st.dataframe(
+                pd.DataFrame(funding_rows).style.format({"Required allocation": "{:,.2f}", "ILS equivalent": "{:,.2f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            if plan["total_ils"] == 0:
+                st.info("Enter your total available ILS capital to calculate sleeve funding requirements.")
+            else:
+                st.caption("Required native-currency amounts show what the selected sleeves need. Your broker determines whether any conversion is needed to fund those purchases.")
+        st.caption("Currency amounts are informational. No conversions or trades are executed by the app.")
 
 if page == "Compare":
     title_column.title("Compare")
