@@ -343,6 +343,20 @@ def model_selector(prefix: str, heading: str | None = None, columns=None, implem
     return resolve(selected_strategy, selected_variant, st.session_state[implementation_key]).label
 
 
+def render_analysis_chart(figure, **kwargs):
+    """Style an existing chart without changing its traces or source values."""
+    figure.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        colorway=["#17645f", "#6488a3", "#b58a52", "#7b799c", "#89969b", "#ad6971"],
+        margin=dict(l=12, r=12, t=50, b=65),
+        title=dict(font=dict(size=16), x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0),
+    )
+    figure.update_xaxes(showgrid=False)
+    figure.update_yaxes(gridcolor="rgba(128,128,128,0.15)", zerolinecolor="rgba(128,128,128,0.15)")
+    st.plotly_chart(figure, **kwargs)
+
+
 def render_deep_history_rolling_returns(monthly_returns: pd.DataFrame, key_prefix: str) -> None:
     """Render comparable rolling CAGRs from Deep History's exact holding returns."""
     available_years = tuple(years for years in (1, 3, 5, 10) if len(monthly_returns) >= years * 12)
@@ -637,7 +651,63 @@ st.session_state["ticker_text"] = append_missing_default_tickers(st.session_stat
 
 with st.container(key="primary-navigation"):
     page = st.radio("Primary navigation", ("Today", "Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
-title_column = st.container()
+if page in {"Signals", "Backtest", "Research", "Compare"}:
+    st.markdown("""
+<style>
+.st-key-analysis-workspace { --analysis-accent: #17645f; }
+.st-key-analysis-workspace [data-testid="stVerticalBlock"] { gap: 0.85rem; }
+.st-key-analysis-setup {
+  padding: 1.25rem; border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--text-color) 4%, var(--background-color));
+}
+.st-key-analysis-setup [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+.st-key-analysis-setup [data-testid="stWidgetLabel"] p { font-size: 0.8rem; }
+.st-key-analysis-setup h2, .st-key-analysis-setup h3 { font-size: 0.95rem; padding-top: 0.4rem; }
+.st-key-analysis-setup .st-key-backtest-configuration,
+.st-key-analysis-setup .st-key-signals-model-selector,
+.st-key-analysis-setup .st-key-backtest-model-selector,
+.st-key-analysis-setup .st-key-research-model-selector {
+  border: 0; padding: 0; background: transparent; margin: 0;
+}
+.st-key-analysis-setup [data-testid="stButton"] button[kind="primary"] {
+  background: var(--analysis-accent); border-color: var(--analysis-accent); color: white;
+}
+.st-key-analysis-results h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.05rem; padding-top: 0; }
+.st-key-analysis-results h3 { font-size: 1.05rem; font-weight: 600; }
+.st-key-analysis-results [data-testid="stMetric"] { padding: 0.9rem 0; }
+.st-key-analysis-results [data-testid="stMetricValue"] { font-size: 1.65rem; font-weight: 500; }
+.st-key-analysis-results [data-baseweb="tab-highlight"] { background-color: var(--analysis-accent); }
+.st-key-analysis-results [data-baseweb="tab"] { padding-left: 0; padding-right: 0.9rem; }
+.st-key-signal-current-allocation {
+  padding: 1.25rem; border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--analysis-accent) 8%, var(--background-color));
+}
+.st-key-signal-current-allocation h3 { font-size: 1.45rem; }
+.st-key-analysis-results [data-testid="stDataFrame"] { border-radius: 0.4rem; }
+.st-key-analysis-setup [class*="-compact-editor"] {
+  padding: 0.8rem; background: var(--background-color); border-radius: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--text-color) 12%, transparent);
+}
+.st-key-analysis-setup [class*="-compact-editor"] [data-testid="stExpander"] details { border: 0; }
+@media (max-width: 800px) {
+  .st-key-analysis-workspace > [data-testid="stHorizontalBlock"],
+  .st-key-analysis-workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+  .st-key-analysis-workspace > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
+  .st-key-analysis-workspace > [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width: 100% !important; flex: 1 1 100% !important; min-width: 0 !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+    with st.container(key="analysis-workspace"):
+        setup_column, results_column = st.columns([1, 2.65], gap="large")
+        with setup_column:
+            workspace_setup = st.container(key="analysis-setup")
+            workspace_setup.caption(f"{page.upper()} SETUP")
+        with results_column:
+            workspace_results = st.container(key="analysis-results")
+            workspace_results.caption(page.upper())
+            title_column = workspace_results.container()
+else:
+    title_column = st.container()
 
 # Signals has its own selector.  Use its saved selection for the early data
 # validation below; otherwise an unavailable *Backtest* selection can prevent
@@ -652,24 +722,10 @@ uploads = []
 backtest_configuration = None
 
 if page == "Backtest":
-    backtest_configuration = st.container(key="backtest-configuration")
+    backtest_configuration = workspace_setup.container(key="backtest-configuration")
     with backtest_configuration:
-        st.header("Backtest configuration")
-        st.caption("Choose a model and assumptions, then review the summary below. Advanced data controls are optional.")
-        investment_column, cost_column = st.columns(2)
-        with investment_column:
-            st.number_input("Initial investment", min_value=1.0, key="initial", step=1_000.0)
-        with cost_column:
-            fee_mode = st.selectbox("Trading fee type", ("Percentage", "Fixed amount"), key="backtest_fee_mode")
-            if fee_mode == "Percentage":
-                st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, step=0.01, key="settings_cost_pct")
-            else:
-                st.number_input("Fee per buy/sell order (backtest currency)", min_value=0.0, value=5.0, step=1.0, key="backtest_fixed_fee")
-        st.toggle("Monthly DCA contributions", key="backtest_dca_enabled")
-        if st.session_state["backtest_dca_enabled"]:
-            st.number_input("Monthly contribution (backtest currency)", min_value=0.0, value=1000.0, step=100.0, key="backtest_dca_amount")
-            st.caption("Starts in the month after initial funding. Contributions buy at the next monthly execution boundary, or the first session's open for daily strategies. Synthetic proxies invest at the start of each complete reporting month. CAGR and drawdown exclude deposits; benchmarks receive the same deposits and are shown without trading fees.")
-        backtest_mode = st.radio("Backtest mode", ("Single strategy", "Portfolio", "Deep History / Proxy"), horizontal=True, key="backtest_mode")
+        st.caption("Choose your model and assumptions.")
+        backtest_mode = st.selectbox("Backtest mode", ("Single strategy", "Portfolio", "Deep History / Proxy"), key="backtest_mode")
         if backtest_mode == "Single strategy":
             model_name = model_selector("backtest", "Model")
             st.session_state["model_name"] = model_name
@@ -699,7 +755,7 @@ if page == "Backtest":
             st.subheader("Portfolio sleeves")
             st.caption("Choose sleeves and starting weights. With A-RVol, weights drift without transfers between sleeves; monthly-only portfolios retain their monthly weight reset.")
             configured_sleeves = st.session_state["backtest_sleeves"]
-            controls, add_column, remove_column = st.columns([7, 0.5, 0.5])
+            add_column, remove_column = st.columns(2)
             with add_column:
                 add_backtest_sleeve = st.button("+", key="backtest_add_sleeve", help="Add sleeve")
             with remove_column:
@@ -709,11 +765,14 @@ if page == "Backtest":
                 sleeve_id = sleeve["id"]
                 prefix = f"backtest_sleeve_{sleeve_id}"
                 seed_model_selection(prefix, sleeve.get("model", DEFAULT_MODEL))
-                with st.container(key=f"{prefix}-row"):
-                    strategy_column, variant_column, implementation_column, weight_column = st.columns([1.15, 1.3, 1.6, 0.7])
-                    sleeve_model = model_selector(prefix, columns=(strategy_column, variant_column, implementation_column), implementation_dropdown=True)
-                    with weight_column:
+                with st.container(key=f"{prefix}-compact-editor"):
+                    sleeve_heading = st.container()
+                    with st.expander("Edit sleeve"):
+                        sleeve_model = model_selector(prefix, implementation_dropdown=True)
                         sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"{prefix}_weight")
+                    sleeve_definition = definition_for_label(sleeve_model)
+                    sleeve_heading.markdown(f"**{sleeve_definition.strategy}{' · ' + sleeve_definition.variant if sleeve_definition.variant else ''}**")
+                    sleeve_heading.caption(f"{sleeve_definition.implementation} · {sleeve_weight:g}%")
                 updated_backtest_sleeves.append({"id": sleeve_id, "weight": float(sleeve_weight), "model": sleeve_model})
             st.session_state["backtest_sleeves"] = updated_backtest_sleeves
             if add_backtest_sleeve:
@@ -777,7 +836,7 @@ if page == "Backtest":
             proxy_options = deep_history_options(len(configured_proxy_sleeves))
             proxy_labels = {key: spec.label for key, spec in ALL_DEEP_HISTORY_SPECS.items()}
             configured_daily_proxy = any(st.session_state.get(f"deep_proxy_sleeve_{sleeve['id']}_model", sleeve["model"]) == "rvol_daily" for sleeve in configured_proxy_sleeves)
-            _, add_column, remove_column = st.columns([7, 0.5, 0.5])
+            add_column, remove_column = st.columns(2)
             with add_column:
                 add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve; long synthetic A-RVol supports monthly blends", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(deep_history_options(2)))
             with remove_column:
@@ -826,6 +885,21 @@ if page == "Backtest":
                 st.caption(f"Tax is applied using the existing realized-gain engine. Because these files contain strategy-level returns rather than security-level prices, tax realization at allocation changes is an explicit proxy approximation. Benchmark: {deep_history_benchmark.label}.")
                 if any(s["model"] == "rvol_synthetic" for s in updated_proxy_sleeves):
                     st.warning("Synthetic tax estimate: A-RVol's daily sales are reconstructed from frozen inputs; other sleeves use monthly allocation-change proxies. Monthly weight-reset sales are taxed too. Average cost and separate loss carryforwards by sleeve; no cross-sleeve loss offsets, FX/indexation or terminal liquidation. Modeled cash gains are taxed on sale, not as interest. Extra trading fees remain unsupported.")
+        with st.expander("Capital, fees & contributions", expanded=True):
+            investment_column = st.container()
+            cost_column = st.container()
+            with investment_column:
+                st.number_input("Initial investment", min_value=1.0, key="initial", step=1_000.0)
+            with cost_column:
+                fee_mode = st.selectbox("Trading fee type", ("Percentage", "Fixed amount"), key="backtest_fee_mode")
+                if fee_mode == "Percentage":
+                    st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, step=0.01, key="settings_cost_pct")
+                else:
+                    st.number_input("Fee per buy/sell order (backtest currency)", min_value=0.0, value=5.0, step=1.0, key="backtest_fixed_fee")
+            st.toggle("Monthly DCA contributions", key="backtest_dca_enabled")
+            if st.session_state["backtest_dca_enabled"]:
+                st.number_input("Monthly contribution (backtest currency)", min_value=0.0, value=1000.0, step=100.0, key="backtest_dca_amount")
+                st.caption("Starts in the month after initial funding. Contributions buy at the next monthly execution boundary, or the first session's open for daily strategies. Synthetic proxies invest at the start of each complete reporting month. CAGR and drawdown exclude deposits; benchmarks receive the same deposits and are shown without trading fees.")
         with st.expander("Advanced data controls", expanded=False):
             ticker_text = st.text_area("Yahoo Finance ticker sources", value=ticker_text, help="One asset role per line. Israeli roles CSPX_IL, IEF_IL, and AYALON_KASPIT always use public TASE/Maya data via tasekit; TIP and all other roles use Yahoo Finance.")
             uploads = st.file_uploader("Upload replacement CSV files", type="csv", accept_multiple_files=True, help=f"Upload one or more files named with one valid asset: {', '.join(ALL_MODEL_ASSETS)}.")
@@ -851,251 +925,262 @@ if page == "Backtest":
 tax_rate = st.session_state["tax_rate"]
 
 if page == "Backtest" and backtest_mode == "Deep History / Proxy":
-    proxy_specs = ALL_DEEP_HISTORY_SPECS
-    try:
-        proxy_sleeves = st.session_state["deep_proxy_sleeves"]
-        if any(proxy_specs[s["model"]].daily_signal_history for s in proxy_sleeves):
-            if any(s["model"] == "rvol_daily" for s in proxy_sleeves) and len(proxy_sleeves) != 1:
-                raise ValueError("Daily supplied proxies support a single strategy only, not blends.")
-            if backtest_extra.get("fixed_fee") or cost_pct:
-                st.info("Additional trading-fee assumptions are not supported for this daily proxy import and are not applied. DCA remains available; the long synthetic option also supports modeled CGT.")
-            if any(s["model"] == "rvol_daily" for s in proxy_sleeves):
-                tax_enabled = False
-            cost_pct = 0.0
-            backtest_extra["fixed_fee"] = 0.
-        for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
-            if proxy_specs[selected_proxy].caveat:
-                st.warning(proxy_specs[selected_proxy].caveat)
-        proxy_weight_total = total_weight(proxy_sleeves)
-        if abs(proxy_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in proxy_sleeves):
-            raise ValueError("Set one or more positive proxy sleeve weights totaling exactly 100%.")
-        if len({sleeve["model"] for sleeve in proxy_sleeves}) != len(proxy_sleeves):
-            raise ValueError("Choose each proxy strategy at most once.")
-        if len(proxy_sleeves) == 1:
-            spec = proxy_specs[proxy_sleeves[0]["model"]]
-            proxy_input = deep_history_model_input(spec, benchmark=deep_history_benchmark)
-            full_result = run_backtest(
-                proxy_input.decisions,
-                proxy_input.monthly_prices,
-                initial,
-                daily_prices=proxy_input.daily_prices,
-                **backtest_extra,
-                transaction_cost=cost_pct,
-                tax_enabled=tax_enabled,
-                tax_rate=tax_rate,
-                benchmark_asset=proxy_input.benchmark_asset,
-            )
-            proxy_min = full_result.monthly.index.min().date()
-            proxy_max = full_result.monthly.index.max().date()
-            proxy_start = min(max(pd.Timestamp(st.session_state.get("deep_proxy_start", proxy_min)).date(), proxy_min), proxy_max)
-            proxy_end = min(max(pd.Timestamp(st.session_state.get("deep_proxy_end", proxy_max)).date(), proxy_min), proxy_max)
-            if proxy_start > proxy_end:
-                proxy_start, proxy_end = proxy_min, proxy_max
-            st.session_state["deep_proxy_start"] = proxy_start
-            st.session_state["deep_proxy_end"] = proxy_end
-            with backtest_configuration:
-                st.caption(f"Available proxy holding periods: {proxy_min} to {proxy_max}.")
-                proxy_start = st.date_input("Proxy backtest start", value=proxy_start, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_start")
-                proxy_end = st.date_input("Proxy backtest end", value=proxy_end, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_end")
-            result = run_backtest(
-                proxy_input.decisions,
-                proxy_input.monthly_prices,
-                initial,
-                daily_prices=proxy_input.daily_prices,
-                **backtest_extra,
-                transaction_cost=cost_pct,
-                tax_enabled=tax_enabled,
-                tax_rate=tax_rate,
-                start=pd.Timestamp(proxy_start),
-                end=pd.Timestamp(proxy_end),
-                benchmark_asset=proxy_input.benchmark_asset,
-            )
-            title_column.title(f"{spec.label} — Deep History / Proxy")
-            if not spec.daily_signal_history:
-                st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
-            st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
-            proxy_label = f"{spec.label} proxy pre-tax"
-            proxy_after_label = f"{spec.label} proxy after-tax"
-            benchmark_label = deep_history_benchmark.label
-            summary = pd.DataFrame({proxy_label: backtest_result_metrics(result, "pre_tax_value", initial)})
-            if tax_enabled:
-                summary[proxy_after_label] = backtest_result_metrics(result, "after_tax_value", initial)
-            # Keep the benchmark at the far right, after the comparable tax views.
-            summary[benchmark_label] = backtest_result_metrics(result, "benchmark_value", initial)
-            if spec.daily_nav_history:
-                daily_values = result.daily["pre_tax_value"]
-                daily_units = initial*(1+result.daily.pre_tax_daily_return).cumprod()
-                daily_drawdown = daily_units / daily_units.cummax().clip(lower=initial) - 1
-                summary.loc["Daily maximum drawdown", proxy_label] = daily_drawdown.min()
-                if tax_enabled:
-                    after_units=initial*(1+result.daily.after_tax_daily_return).cumprod()
-                    summary.loc["Daily maximum drawdown", proxy_after_label]=(after_units/after_units.cummax().clip(lower=initial)-1).min()
-                summary.loc["Daily maximum drawdown", benchmark_label] = float("nan")
-            summary.loc["Worst 5-year rolling CAGR", proxy_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
-            summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
-            if tax_enabled:
-                summary.loc["Worst 5-year rolling CAGR", proxy_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
-            st.subheader("Results")
-            result_columns = st.columns(5 if tax_enabled else 3)
-            result_columns[0].metric("Proxy CAGR", f"{summary.loc['CAGR', proxy_label]:.2%}")
-            if tax_enabled:
-                result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', proxy_after_label]:.2%}", delta=f"{summary.loc['CAGR', proxy_after_label] - summary.loc['CAGR', proxy_label]:+.2%}")
-                result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
-                result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', proxy_after_label]:,.0f}")
-                result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
-            else:
-                result_columns[1].metric("Final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
-                result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
-            curves = pd.DataFrame({proxy_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
-            if tax_enabled:
-                curves[proxy_after_label] = result.monthly["after_tax_value"]
-            st.plotly_chart(px.line(curves, title="Proxy equity curve"), use_container_width=True)
-            units = unit_curves(result, {proxy_label:"pre_tax_value", benchmark_label:"benchmark_value", **({proxy_after_label:"after_tax_value"} if tax_enabled else {})}, initial)
-            st.plotly_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Proxy drawdown"), use_container_width=True)
-            if spec.daily_nav_history:
-                st.plotly_chart(px.line(daily_values.rename(proxy_label), title="Synthetic daily equity curve"), use_container_width=True)
-                st.plotly_chart(px.line(daily_drawdown.rename(proxy_label), title="Synthetic daily drawdown"), use_container_width=True)
-            with st.container():
-                st.subheader("Performance and tax details")
-                add_test_dates(summary, result)
-                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Daily maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
-                proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
-                st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
+    with workspace_results:
+        proxy_specs = ALL_DEEP_HISTORY_SPECS
+        try:
+            proxy_sleeves = st.session_state["deep_proxy_sleeves"]
+            if any(proxy_specs[s["model"]].daily_signal_history for s in proxy_sleeves):
+                if any(s["model"] == "rvol_daily" for s in proxy_sleeves) and len(proxy_sleeves) != 1:
+                    raise ValueError("Daily supplied proxies support a single strategy only, not blends.")
+                if backtest_extra.get("fixed_fee") or cost_pct:
+                    st.info("Additional trading-fee assumptions are not supported for this daily proxy import and are not applied. DCA remains available; the long synthetic option also supports modeled CGT.")
+                if any(s["model"] == "rvol_daily" for s in proxy_sleeves):
+                    tax_enabled = False
+                cost_pct = 0.0
+                backtest_extra["fixed_fee"] = 0.
+            for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
+                if proxy_specs[selected_proxy].caveat:
+                    st.warning(proxy_specs[selected_proxy].caveat)
+            proxy_weight_total = total_weight(proxy_sleeves)
+            if abs(proxy_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in proxy_sleeves):
+                raise ValueError("Set one or more positive proxy sleeve weights totaling exactly 100%.")
+            if len({sleeve["model"] for sleeve in proxy_sleeves}) != len(proxy_sleeves):
+                raise ValueError("Choose each proxy strategy at most once.")
+            if len(proxy_sleeves) == 1:
+                spec = proxy_specs[proxy_sleeves[0]["model"]]
+                proxy_input = deep_history_model_input(spec, benchmark=deep_history_benchmark)
+                full_result = run_backtest(
+                    proxy_input.decisions,
+                    proxy_input.monthly_prices,
+                    initial,
+                    daily_prices=proxy_input.daily_prices,
+                    **backtest_extra,
+                    transaction_cost=cost_pct,
+                    tax_enabled=tax_enabled,
+                    tax_rate=tax_rate,
+                    benchmark_asset=proxy_input.benchmark_asset,
+                )
+                proxy_min = full_result.monthly.index.min().date()
+                proxy_max = full_result.monthly.index.max().date()
+                proxy_start = min(max(pd.Timestamp(st.session_state.get("deep_proxy_start", proxy_min)).date(), proxy_min), proxy_max)
+                proxy_end = min(max(pd.Timestamp(st.session_state.get("deep_proxy_end", proxy_max)).date(), proxy_min), proxy_max)
+                if proxy_start > proxy_end:
+                    proxy_start, proxy_end = proxy_min, proxy_max
+                st.session_state["deep_proxy_start"] = proxy_start
+                st.session_state["deep_proxy_end"] = proxy_end
+                with backtest_configuration:
+                    st.caption(f"Available proxy holding periods: {proxy_min} to {proxy_max}.")
+                    proxy_start = st.date_input("Proxy backtest start", value=proxy_start, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_start")
+                    proxy_end = st.date_input("Proxy backtest end", value=proxy_end, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_end")
+                result = run_backtest(
+                    proxy_input.decisions,
+                    proxy_input.monthly_prices,
+                    initial,
+                    daily_prices=proxy_input.daily_prices,
+                    **backtest_extra,
+                    transaction_cost=cost_pct,
+                    tax_enabled=tax_enabled,
+                    tax_rate=tax_rate,
+                    start=pd.Timestamp(proxy_start),
+                    end=pd.Timestamp(proxy_end),
+                    benchmark_asset=proxy_input.benchmark_asset,
+                )
+                title_column.title(f"{spec.label} — Deep History / Proxy")
                 if not spec.daily_signal_history:
-                    st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
-                elif spec.daily_nav_history:
-                    st.caption(f"Comparable metrics use complete monthly periods; daily drawdown uses every synthetic daily NAV. No daily benchmark observations are invented. Modeled sale events: {len(result.tax_events)}. Tax is a simplified USD realized-gain estimate; extra fees are unsupported.")
-                else:
-                    st.caption("Monthly return statistics. Daily maximum drawdown and realized-gain tax are unavailable from this import.")
-                if tax_enabled and spec.daily_nav_history:
-                    st.download_button("Download modeled tax ledger", result.tax_events.to_csv(index=False).encode(), "arvol_synthetic_tax_ledger.csv", "text/csv", key="synthetic_single_tax_download")
-                    st.download_button("Download daily pre-tax / after-tax NAV", result.daily.to_csv().encode(), "arvol_synthetic_funded_nav.csv", "text/csv", key="synthetic_single_funded_download")
-                    st.download_button("Download modeled transactions", result.audit.to_csv(index=False).encode(), "arvol_synthetic_transactions.csv", "text/csv", key="synthetic_single_audit_download")
-            annual = pd.DataFrame({proxy_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
-            monthly_returns = pd.DataFrame({proxy_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
-            if tax_enabled:
-                annual[proxy_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
-                monthly_returns[proxy_after_label] = result.monthly["after_tax_monthly_return"]
-            with st.expander("Return history", expanded=False):
-                annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
-                with annual_tab:
-                    st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-                with monthly_tab:
-                    st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
-            render_deep_history_rolling_returns(monthly_returns, "deep_proxy_single")
-            if spec.daily_signal_history:
-                with st.expander("Supplied daily signal changes (not monthly execution dates)"):
-                    source_signals, _ = load_deep_history(spec)
-                    visible = source_signals.copy()
-                    if spec.daily_nav_history:
-                        st.caption("Positions before and after each day's execution are source holdings, not today's live signal. Open trade-day returns combine old-position overnight and new-position intraday returns. The full source includes partial first and last months, excluded from benchmark comparisons.")
-                        st.download_button("Download synthetic daily history", visible.to_csv().encode("utf-8"), "arvol_synthetic_daily.csv", "text/csv", key="arvol_synthetic_source")
-                        visible = visible.loc[visible.position != visible.position_end_of_day]
-                    else:
-                        visible["target_weights"] = visible["target_weights"].map(lambda weights: ", ".join(f"{a} {w:.0%}" for a, w in weights.items()))
-                    st.dataframe(visible.sort_index(ascending=False), use_container_width=True)
-                    if not spec.daily_nav_history:
-                        st.download_button("Download supplied daily signal history", visible.to_csv().encode("utf-8"), "rvol_daily_signal_history.csv", "text/csv", key="rvol_proxy_source_signals")
-        else:
-            portfolio_inputs = {}
-            selected_sleeves = []
-            for sleeve in proxy_sleeves:
-                spec = proxy_specs[sleeve["model"]]
-                sleeve_key = f"{spec.label} ({sleeve['id']})"
-                weight = float(sleeve["weight"]) / 100
-                portfolio_inputs[sleeve_key] = (weight, monthly_blend_input(deep_history_model_input(spec, benchmark=deep_history_benchmark)))
-                selected_sleeves.append(f"{weight:.0%} {spec.label}")
-            preliminary = run_portfolio_backtest(portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra)
-            proxy_min = preliminary.common_index.min().date()
-            proxy_max = preliminary.common_index.max().date()
-            proxy_start = min(max(pd.Timestamp(st.session_state.get("deep_proxy_start", proxy_min)).date(), proxy_min), proxy_max)
-            proxy_end = min(max(pd.Timestamp(st.session_state.get("deep_proxy_end", proxy_max)).date(), proxy_min), proxy_max)
-            if proxy_start > proxy_end:
-                proxy_start, proxy_end = proxy_min, proxy_max
-            st.session_state["deep_proxy_start"] = proxy_start
-            st.session_state["deep_proxy_end"] = proxy_end
-            with backtest_configuration:
-                st.caption(f"Common proxy holding periods: {proxy_min} to {proxy_max}.")
-                proxy_start = st.date_input("Proxy blend start", value=proxy_start, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_start")
-                proxy_end = st.date_input("Proxy blend end", value=proxy_end, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_end")
-            result = run_portfolio_backtest(
-                portfolio_inputs,
-                initial,
-                transaction_cost=cost_pct,
-                tax_enabled=tax_enabled,
-                tax_rate=tax_rate,
-                start=pd.Timestamp(proxy_start),
-                end=pd.Timestamp(proxy_end),
-                **backtest_extra,
-            )
-            title_column.title("Deep History / Proxy portfolio blend")
-            st.warning("Proxy blend: exact monthly returns are combined over shared history, with monthly sleeve weight resets. Daily portfolio drawdown is unavailable. When tax is enabled, A-RVol uses reconstructed daily sales and other sleeves use monthly allocation-change approximations; reset sales are included. Extra fees remain unsupported with synthetic A-RVol.")
-            st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
-            blend_label = "Proxy blend pre-tax"
-            blend_after_label = "Proxy blend after-tax"
-            benchmark_label = deep_history_benchmark.label
-            summary = pd.DataFrame({blend_label: backtest_result_metrics(result, "pre_tax_value", initial)})
-            if tax_enabled:
-                summary[blend_after_label] = backtest_result_metrics(result, "after_tax_value", initial)
-            # Keep the benchmark at the far right, after the comparable tax views.
-            summary[benchmark_label] = backtest_result_metrics(result, "benchmark_value", initial)
-            summary.loc["Worst 5-year rolling CAGR", blend_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
-            summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
-            if tax_enabled:
-                summary.loc["Worst 5-year rolling CAGR", blend_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
-            st.subheader("Results")
-            result_columns = st.columns(5 if tax_enabled else 3)
-            result_columns[0].metric("Blend CAGR", f"{summary.loc['CAGR', blend_label]:.2%}")
-            if tax_enabled:
-                result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', blend_after_label]:.2%}", delta=f"{summary.loc['CAGR', blend_after_label] - summary.loc['CAGR', blend_label]:+.2%}")
-                result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', blend_label]:,.0f}")
-                result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', blend_after_label]:,.0f}")
-                result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
-            else:
-                result_columns[1].metric("Final value", f"{summary.loc['Final value', blend_label]:,.0f}")
-                result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
-            curves = pd.DataFrame({blend_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
-            if tax_enabled:
-                curves[blend_after_label] = result.monthly["after_tax_value"]
-            st.plotly_chart(px.line(curves, title="Proxy blend equity curve"), use_container_width=True)
-            units = unit_curves(result, {blend_label:"pre_tax_value", benchmark_label:"benchmark_value", **({blend_after_label:"after_tax_value"} if tax_enabled else {})}, initial)
-            st.plotly_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Proxy blend drawdown"), use_container_width=True)
-            with st.container():
-                st.subheader("Performance and tax details")
-                add_test_dates(summary, result)
-                proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
-                proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
-                st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
-                st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                    st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
+                st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
+                proxy_label = f"{spec.label} proxy pre-tax"
+                proxy_after_label = f"{spec.label} proxy after-tax"
+                benchmark_label = deep_history_benchmark.label
+                summary = pd.DataFrame({proxy_label: backtest_result_metrics(result, "pre_tax_value", initial)})
                 if tax_enabled:
-                    st.download_button("Download portfolio tax ledger", result.tax_events.to_csv(index=False).encode(), "deep_history_portfolio_tax_ledger.csv", "text/csv", key="deep_blend_tax_download")
-                    if result.audit is not None:
-                        st.download_button("Download modeled portfolio transactions", result.audit.to_csv(index=False).encode(), "deep_history_portfolio_transactions.csv", "text/csv", key="deep_blend_audit_download")
-            annual = pd.DataFrame({blend_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
-            monthly_returns = pd.DataFrame({blend_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
-            if tax_enabled:
-                annual[blend_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
-                monthly_returns[blend_after_label] = result.monthly["after_tax_monthly_return"]
-            with st.expander("Return history", expanded=False):
-                annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
-                with annual_tab:
-                    st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-                with monthly_tab:
-                    st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
-            render_deep_history_rolling_returns(monthly_returns, "deep_proxy_blend")
-    except (ValueError, KeyError, OSError) as exc:
-        title_column.title("Deep History / Proxy backtest")
-        st.error(str(exc))
-    st.stop()
+                    summary[proxy_after_label] = backtest_result_metrics(result, "after_tax_value", initial)
+                # Keep the benchmark at the far right, after the comparable tax views.
+                summary[benchmark_label] = backtest_result_metrics(result, "benchmark_value", initial)
+                if spec.daily_nav_history:
+                    daily_values = result.daily["pre_tax_value"]
+                    daily_units = initial*(1+result.daily.pre_tax_daily_return).cumprod()
+                    daily_drawdown = daily_units / daily_units.cummax().clip(lower=initial) - 1
+                    summary.loc["Daily maximum drawdown", proxy_label] = daily_drawdown.min()
+                    if tax_enabled:
+                        after_units=initial*(1+result.daily.after_tax_daily_return).cumprod()
+                        summary.loc["Daily maximum drawdown", proxy_after_label]=(after_units/after_units.cummax().clip(lower=initial)-1).min()
+                    summary.loc["Daily maximum drawdown", benchmark_label] = float("nan")
+                summary.loc["Worst 5-year rolling CAGR", proxy_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
+                summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
+                if tax_enabled:
+                    summary.loc["Worst 5-year rolling CAGR", proxy_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
+                st.subheader("Results")
+                result_columns = st.columns(5 if tax_enabled else 3)
+                result_columns[0].metric("Proxy CAGR", f"{summary.loc['CAGR', proxy_label]:.2%}")
+                if tax_enabled:
+                    result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', proxy_after_label]:.2%}", delta=f"{summary.loc['CAGR', proxy_after_label] - summary.loc['CAGR', proxy_label]:+.2%}")
+                    result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
+                    result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', proxy_after_label]:,.0f}")
+                    result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+                else:
+                    result_columns[1].metric("Final value", f"{summary.loc['Final value', proxy_label]:,.0f}")
+                    result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+                curves = pd.DataFrame({proxy_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
+                if tax_enabled:
+                    curves[proxy_after_label] = result.monthly["after_tax_value"]
+                performance_tab, drawdown_tab, details_tab, returns_tab = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+                with performance_tab:
+                    render_analysis_chart(px.line(curves, title="Proxy equity curve"), use_container_width=True)
+                units = unit_curves(result, {proxy_label:"pre_tax_value", benchmark_label:"benchmark_value", **({proxy_after_label:"after_tax_value"} if tax_enabled else {})}, initial)
+                with drawdown_tab:
+                    render_analysis_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Proxy drawdown"), use_container_width=True)
+                if spec.daily_nav_history:
+                    with performance_tab:
+                        render_analysis_chart(px.line(daily_values.rename(proxy_label), title="Synthetic daily equity curve"), use_container_width=True)
+                    with drawdown_tab:
+                        render_analysis_chart(px.line(daily_drawdown.rename(proxy_label), title="Synthetic daily drawdown"), use_container_width=True)
+                with details_tab:
+                    st.subheader("Performance and tax details")
+                    add_test_dates(summary, result)
+                    proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Daily maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
+                    proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
+                    st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
+                    if not spec.daily_signal_history:
+                        st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                    elif spec.daily_nav_history:
+                        st.caption(f"Comparable metrics use complete monthly periods; daily drawdown uses every synthetic daily NAV. No daily benchmark observations are invented. Modeled sale events: {len(result.tax_events)}. Tax is a simplified USD realized-gain estimate; extra fees are unsupported.")
+                    else:
+                        st.caption("Monthly return statistics. Daily maximum drawdown and realized-gain tax are unavailable from this import.")
+                    if tax_enabled and spec.daily_nav_history:
+                        st.download_button("Download modeled tax ledger", result.tax_events.to_csv(index=False).encode(), "arvol_synthetic_tax_ledger.csv", "text/csv", key="synthetic_single_tax_download")
+                        st.download_button("Download daily pre-tax / after-tax NAV", result.daily.to_csv().encode(), "arvol_synthetic_funded_nav.csv", "text/csv", key="synthetic_single_funded_download")
+                        st.download_button("Download modeled transactions", result.audit.to_csv(index=False).encode(), "arvol_synthetic_transactions.csv", "text/csv", key="synthetic_single_audit_download")
+                annual = pd.DataFrame({proxy_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
+                monthly_returns = pd.DataFrame({proxy_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
+                if tax_enabled:
+                    annual[proxy_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
+                    monthly_returns[proxy_after_label] = result.monthly["after_tax_monthly_return"]
+                with returns_tab:
+                    annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+                    with annual_tab:
+                        st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+                    with monthly_tab:
+                        st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+                render_deep_history_rolling_returns(monthly_returns, "deep_proxy_single")
+                if spec.daily_signal_history:
+                    with st.expander("Supplied daily signal changes (not monthly execution dates)"):
+                        source_signals, _ = load_deep_history(spec)
+                        visible = source_signals.copy()
+                        if spec.daily_nav_history:
+                            st.caption("Positions before and after each day's execution are source holdings, not today's live signal. Open trade-day returns combine old-position overnight and new-position intraday returns. The full source includes partial first and last months, excluded from benchmark comparisons.")
+                            st.download_button("Download synthetic daily history", visible.to_csv().encode("utf-8"), "arvol_synthetic_daily.csv", "text/csv", key="arvol_synthetic_source")
+                            visible = visible.loc[visible.position != visible.position_end_of_day]
+                        else:
+                            visible["target_weights"] = visible["target_weights"].map(lambda weights: ", ".join(f"{a} {w:.0%}" for a, w in weights.items()))
+                        st.dataframe(visible.sort_index(ascending=False), use_container_width=True)
+                        if not spec.daily_nav_history:
+                            st.download_button("Download supplied daily signal history", visible.to_csv().encode("utf-8"), "rvol_daily_signal_history.csv", "text/csv", key="rvol_proxy_source_signals")
+
+            else:
+                portfolio_inputs = {}
+                selected_sleeves = []
+                for sleeve in proxy_sleeves:
+                    spec = proxy_specs[sleeve["model"]]
+                    sleeve_key = f"{spec.label} ({sleeve['id']})"
+                    weight = float(sleeve["weight"]) / 100
+                    portfolio_inputs[sleeve_key] = (weight, monthly_blend_input(deep_history_model_input(spec, benchmark=deep_history_benchmark)))
+                    selected_sleeves.append(f"{weight:.0%} {spec.label}")
+                preliminary = run_portfolio_backtest(portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra)
+                proxy_min = preliminary.common_index.min().date()
+                proxy_max = preliminary.common_index.max().date()
+                proxy_start = min(max(pd.Timestamp(st.session_state.get("deep_proxy_start", proxy_min)).date(), proxy_min), proxy_max)
+                proxy_end = min(max(pd.Timestamp(st.session_state.get("deep_proxy_end", proxy_max)).date(), proxy_min), proxy_max)
+                if proxy_start > proxy_end:
+                    proxy_start, proxy_end = proxy_min, proxy_max
+                st.session_state["deep_proxy_start"] = proxy_start
+                st.session_state["deep_proxy_end"] = proxy_end
+                with backtest_configuration:
+                    st.caption(f"Common proxy holding periods: {proxy_min} to {proxy_max}.")
+                    proxy_start = st.date_input("Proxy blend start", value=proxy_start, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_start")
+                    proxy_end = st.date_input("Proxy blend end", value=proxy_end, min_value=proxy_min, max_value=proxy_max, key="deep_proxy_end")
+                result = run_portfolio_backtest(
+                    portfolio_inputs,
+                    initial,
+                    transaction_cost=cost_pct,
+                    tax_enabled=tax_enabled,
+                    tax_rate=tax_rate,
+                    start=pd.Timestamp(proxy_start),
+                    end=pd.Timestamp(proxy_end),
+                    **backtest_extra,
+                )
+                title_column.title("Deep History / Proxy portfolio blend")
+                st.warning("Proxy blend: exact monthly returns are combined over shared history, with monthly sleeve weight resets. Daily portfolio drawdown is unavailable. When tax is enabled, A-RVol uses reconstructed daily sales and other sleeves use monthly allocation-change approximations; reset sales are included. Extra fees remain unsupported with synthetic A-RVol.")
+                st.caption(f"{' / '.join(selected_sleeves)}. Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
+                blend_label = "Proxy blend pre-tax"
+                blend_after_label = "Proxy blend after-tax"
+                benchmark_label = deep_history_benchmark.label
+                summary = pd.DataFrame({blend_label: backtest_result_metrics(result, "pre_tax_value", initial)})
+                if tax_enabled:
+                    summary[blend_after_label] = backtest_result_metrics(result, "after_tax_value", initial)
+                # Keep the benchmark at the far right, after the comparable tax views.
+                summary[benchmark_label] = backtest_result_metrics(result, "benchmark_value", initial)
+                summary.loc["Worst 5-year rolling CAGR", blend_label] = worst_rolling_annualized_return(result.monthly["pre_tax_monthly_return"], 5)
+                summary.loc["Worst 5-year rolling CAGR", benchmark_label] = worst_rolling_annualized_return(result.monthly["benchmark_monthly_return"], 5)
+                if tax_enabled:
+                    summary.loc["Worst 5-year rolling CAGR", blend_after_label] = worst_rolling_annualized_return(result.monthly["after_tax_monthly_return"], 5)
+                st.subheader("Results")
+                result_columns = st.columns(5 if tax_enabled else 3)
+                result_columns[0].metric("Blend CAGR", f"{summary.loc['CAGR', blend_label]:.2%}")
+                if tax_enabled:
+                    result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', blend_after_label]:.2%}", delta=f"{summary.loc['CAGR', blend_after_label] - summary.loc['CAGR', blend_label]:+.2%}")
+                    result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', blend_label]:,.0f}")
+                    result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', blend_after_label]:,.0f}")
+                    result_columns[4].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+                else:
+                    result_columns[1].metric("Final value", f"{summary.loc['Final value', blend_label]:,.0f}")
+                    result_columns[2].metric("Benchmark CAGR", f"{summary.loc['CAGR', benchmark_label]:.2%}")
+                curves = pd.DataFrame({blend_label: result.monthly["pre_tax_value"], benchmark_label: result.monthly["benchmark_value"]})
+                if tax_enabled:
+                    curves[blend_after_label] = result.monthly["after_tax_value"]
+                performance_tab, drawdown_tab, details_tab, returns_tab = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+                with performance_tab:
+                    render_analysis_chart(px.line(curves, title="Proxy blend equity curve"), use_container_width=True)
+                units = unit_curves(result, {blend_label:"pre_tax_value", benchmark_label:"benchmark_value", **({blend_after_label:"after_tax_value"} if tax_enabled else {})}, initial)
+                with drawdown_tab:
+                    render_analysis_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Proxy blend drawdown"), use_container_width=True)
+                with details_tab:
+                    st.subheader("Performance and tax details")
+                    add_test_dates(summary, result)
+                    proxy_percentage_rows = [row for row in ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Worst 5-year rolling CAGR", "Best month", "Worst month"] if row in summary.index]
+                    proxy_numeric_rows = [row for row in ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"] if row in summary.index]
+                    st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[proxy_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[proxy_numeric_rows, :]), use_container_width=True)
+                    st.caption(f"Realized-gain tax events recorded: {len(result.tax_events)}.")
+                    if tax_enabled:
+                        st.download_button("Download portfolio tax ledger", result.tax_events.to_csv(index=False).encode(), "deep_history_portfolio_tax_ledger.csv", "text/csv", key="deep_blend_tax_download")
+                        if result.audit is not None:
+                            st.download_button("Download modeled portfolio transactions", result.audit.to_csv(index=False).encode(), "deep_history_portfolio_transactions.csv", "text/csv", key="deep_blend_audit_download")
+                annual = pd.DataFrame({blend_label: annual_returns(result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(result.monthly["benchmark_monthly_return"])})
+                monthly_returns = pd.DataFrame({blend_label: result.monthly["pre_tax_monthly_return"], benchmark_label: result.monthly["benchmark_monthly_return"]})
+                if tax_enabled:
+                    annual[blend_after_label] = annual_returns(result.monthly["after_tax_monthly_return"])
+                    monthly_returns[blend_after_label] = result.monthly["after_tax_monthly_return"]
+                with returns_tab:
+                    annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+                    with annual_tab:
+                        st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+                    with monthly_tab:
+                        st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+                render_deep_history_rolling_returns(monthly_returns, "deep_proxy_blend")
+        except (ValueError, KeyError, OSError) as exc:
+            title_column.title("Deep History / Proxy backtest")
+            st.error(str(exc))
+        st.stop()
 
 if page == "Signals":
-    with st.container(key="signals-model-selector"):
-        model_name = model_selector("signals", columns=st.columns([1.1, 1.25, 1.45]), implementation_dropdown=True)
+    with workspace_setup:
+        model_name = model_selector("signals", implementation_dropdown=True)
     st.session_state["signals_model_name"] = model_name
 if page == "Rules":
     model_name = model_selector("rules", "Choose model")
 if page == "Research":
-    model_name = model_selector("research", "Model")
+    with workspace_setup:
+        model_name = model_selector("research", "Model", implementation_dropdown=True)
     st.session_state["research_model_name"] = model_name
 
 backtest_mode = st.session_state["backtest_mode"]
@@ -1273,8 +1358,8 @@ elif page == "Today":
 elif page == "Backtest" and backtest_mode == "Portfolio":
     active_model_labels = selected_sleeve_labels(st.session_state["backtest_sleeves"], "backtest_sleeve")
 elif page == "Compare":
-    with title_column:
-        comparison_mode = st.radio("Compare", ("Models", "Portfolios"), horizontal=True, key="comparison_mode")
+    with workspace_setup:
+        comparison_mode = st.selectbox("Compare", ("Models", "Portfolios"), key="comparison_mode")
         if comparison_mode == "Portfolios":
             library = st.session_state["browser_portfolio_library"]
             selected_portfolio_indices = st.multiselect("Load portfolios saved in this browser", range(len(library)), format_func=lambda i: library[i]["name"], key="comparison_saved_portfolios")
@@ -1424,150 +1509,155 @@ for asset in replacements:
     source_metadata.loc[asset] = {"source": "User CSV replacement", "identifier": asset, "price_field": "Adj Close or Close"}
 
 if page == "Backtest" and backtest_mode == "Portfolio":
-    percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
-    ratio_rows = ["Sharpe", "Sortino", "Calmar"]
-    numeric_rows = ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"]
-    portfolio_sleeves = st.session_state["backtest_sleeves"]
-    portfolio_weight_total = total_weight(portfolio_sleeves)
-    if abs(portfolio_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in portfolio_sleeves):
-        title_column.title("Portfolio backtest")
-        st.info("Set one or more positive sleeve weights totaling exactly 100% to run the portfolio backtest.")
-        st.stop()
-    try:
-        portfolio_inputs = {}
-        portfolio_benchmark_asset = "RVOL_SPY_IL" if mixed_portfolio_requested and all(definition_for_label(sleeve["model"]).execution_currency == "ILS" for sleeve in portfolio_sleeves) else "SPY"
-        for sleeve in portfolio_sleeves:
-            sleeve_name = sleeve["model"]
-            sleeve_key = f"{sleeve_name} ({sleeve['id']})"
-            sleeve_strategy = MODEL_OPTIONS[sleeve_name]()
-            if not getattr(sleeve_strategy, "backtest_available", True):
-                raise ValueError(f"{sleeve_name} is not available for backtesting.")
-            sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), portfolio_benchmark_asset)))
-            sleeve_daily = all_prices.loc[:, sleeve_assets]
-            sleeve_market_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "market_data_assets", sleeve_assets), portfolio_benchmark_asset)))
-            sleeve_monthly, sleeve_decision_monthly = monthly_strategy_input(sleeve_daily, sleeve_market_assets)
-            sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_decision_monthly
-            portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
-                sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, portfolio_benchmark_asset,
-                execution_opens, definition_for_label(sleeve_name).execution_currency
-            ))
-        preliminary_portfolio = run_portfolio_backtest(
-            portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra
-        )
-    except (ValueError, KeyError) as exc:
-        title_column.title("Portfolio backtest")
-        st.error(str(exc))
-        st.stop()
+    with workspace_results:
+        percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
+        ratio_rows = ["Sharpe", "Sortino", "Calmar"]
+        numeric_rows = ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"]
+        portfolio_sleeves = st.session_state["backtest_sleeves"]
+        portfolio_weight_total = total_weight(portfolio_sleeves)
+        if abs(portfolio_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in portfolio_sleeves):
+            title_column.title("Portfolio backtest")
+            st.info("Set one or more positive sleeve weights totaling exactly 100% to run the portfolio backtest.")
+            st.stop()
+        try:
+            portfolio_inputs = {}
+            portfolio_benchmark_asset = "RVOL_SPY_IL" if mixed_portfolio_requested and all(definition_for_label(sleeve["model"]).execution_currency == "ILS" for sleeve in portfolio_sleeves) else "SPY"
+            for sleeve in portfolio_sleeves:
+                sleeve_name = sleeve["model"]
+                sleeve_key = f"{sleeve_name} ({sleeve['id']})"
+                sleeve_strategy = MODEL_OPTIONS[sleeve_name]()
+                if not getattr(sleeve_strategy, "backtest_available", True):
+                    raise ValueError(f"{sleeve_name} is not available for backtesting.")
+                sleeve_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "data_assets", ASSETS), portfolio_benchmark_asset)))
+                sleeve_daily = all_prices.loc[:, sleeve_assets]
+                sleeve_market_assets = tuple(dict.fromkeys((*getattr(sleeve_strategy, "market_data_assets", sleeve_assets), portfolio_benchmark_asset)))
+                sleeve_monthly, sleeve_decision_monthly = monthly_strategy_input(sleeve_daily, sleeve_market_assets)
+                sleeve_decision_prices = sleeve_daily if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_decision_monthly
+                portfolio_inputs[sleeve_key] = (float(sleeve["weight"]) / 100, ModelInput(
+                    sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, portfolio_benchmark_asset,
+                    execution_opens, definition_for_label(sleeve_name).execution_currency
+                ))
+            preliminary_portfolio = run_portfolio_backtest(
+                portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra
+            )
+        except (ValueError, KeyError) as exc:
+            title_column.title("Portfolio backtest")
+            st.error(str(exc))
+            st.stop()
 
-    portfolio_start_min = preliminary_portfolio.common_index.min().date()
-    portfolio_end_max = preliminary_portfolio.common_index.max().date()
-    saved_portfolio_start = st.session_state.get("portfolio_backtest_start", portfolio_start_min)
-    saved_portfolio_end = st.session_state.get("portfolio_backtest_end", portfolio_end_max)
-    portfolio_start = min(max(saved_portfolio_start, portfolio_start_min), portfolio_end_max)
-    portfolio_end = min(max(saved_portfolio_end, portfolio_start_min), portfolio_end_max)
-    if portfolio_start > portfolio_end:
-        portfolio_start = portfolio_start_min
-    with backtest_configuration:
-        st.caption(f"Common executable holding periods: {portfolio_start_min} to {portfolio_end_max}. The start date reflects the shortest available sleeve history.")
-        portfolio_start = st.date_input("Portfolio backtest start", value=portfolio_start, min_value=portfolio_start_min, max_value=portfolio_end_max)
-        portfolio_end = st.date_input("Portfolio backtest end", value=portfolio_end, min_value=portfolio_start_min, max_value=portfolio_end_max)
-    st.session_state.update({"portfolio_backtest_start": portfolio_start, "portfolio_backtest_end": portfolio_end})
-    try:
-        portfolio_result = run_portfolio_backtest(
-            portfolio_inputs,
-            initial,
-            transaction_cost=cost_pct,
-            tax_enabled=tax_enabled,
-            tax_rate=tax_rate,
-            start=pd.Timestamp(portfolio_start),
-            end=pd.Timestamp(portfolio_end),
-            **backtest_extra,
-        )
-    except ValueError as exc:
-        title_column.title("Portfolio backtest")
-        st.error(str(exc))
-        st.stop()
+        portfolio_start_min = preliminary_portfolio.common_index.min().date()
+        portfolio_end_max = preliminary_portfolio.common_index.max().date()
+        saved_portfolio_start = st.session_state.get("portfolio_backtest_start", portfolio_start_min)
+        saved_portfolio_end = st.session_state.get("portfolio_backtest_end", portfolio_end_max)
+        portfolio_start = min(max(saved_portfolio_start, portfolio_start_min), portfolio_end_max)
+        portfolio_end = min(max(saved_portfolio_end, portfolio_start_min), portfolio_end_max)
+        if portfolio_start > portfolio_end:
+            portfolio_start = portfolio_start_min
+        with backtest_configuration:
+            st.caption(f"Common executable holding periods: {portfolio_start_min} to {portfolio_end_max}. The start date reflects the shortest available sleeve history.")
+            portfolio_start = st.date_input("Portfolio backtest start", value=portfolio_start, min_value=portfolio_start_min, max_value=portfolio_end_max)
+            portfolio_end = st.date_input("Portfolio backtest end", value=portfolio_end, min_value=portfolio_start_min, max_value=portfolio_end_max)
+        st.session_state.update({"portfolio_backtest_start": portfolio_start, "portfolio_backtest_end": portfolio_end})
+        try:
+            portfolio_result = run_portfolio_backtest(
+                portfolio_inputs,
+                initial,
+                transaction_cost=cost_pct,
+                tax_enabled=tax_enabled,
+                tax_rate=tax_rate,
+                start=pd.Timestamp(portfolio_start),
+                end=pd.Timestamp(portfolio_end),
+                **backtest_extra,
+            )
+        except ValueError as exc:
+            title_column.title("Portfolio backtest")
+            st.error(str(exc))
+            st.stop()
 
-    title_column.title("Portfolio backtest")
-    mixed_daily = portfolio_result.daily is not None
-    if mixed_daily:
-        mode = backtest_extra.get("sleeve_rebalance_mode", "none")
-        if mode == "none":
-            st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. Israel sleeves execute at next-session closing/NAV prices; US A-RVol executes at the next open. Monthly sleeves execute at next-session close. Portfolio values are marked daily at the close.")
-        elif mode == "rvol_cap":
-            st.caption("Quarterly RVol-cap review: when the selected sleeve exceeds its cap at quarter-end, it is reset to the chosen target and the other sleeves receive the proceeds in their target proportions.")
+        title_column.title("Portfolio backtest")
+        mixed_daily = portfolio_result.daily is not None
+        if mixed_daily:
+            mode = backtest_extra.get("sleeve_rebalance_mode", "none")
+            if mode == "none":
+                st.caption("Initial sleeve weights only: no transfers or monthly resets between sleeves. Israel sleeves execute at next-session closing/NAV prices; US A-RVol executes at the next open. Monthly sleeves execute at next-session close. Portfolio values are marked daily at the close.")
+            elif mode == "rvol_cap":
+                st.caption("Quarterly RVol-cap review: when the selected sleeve exceeds its cap at quarter-end, it is reset to the chosen target and the other sleeves receive the proceeds in their target proportions.")
+            else:
+                st.caption("Annual target-weight reset: all sleeves are restored to their starting target weights at each calendar year-end close.")
+            st.caption("Fees apply per actual buy/sell side. Strategy taxes use each sleeve's own ledger; transfer taxes are a sleeve-level realized-gain approximation, without cross-sleeve loss offsets, FX/indexation, or terminal liquidation. All sleeves must share one execution currency and calendar; no USD/ILS conversion is assumed.")
+            st.download_button("Download daily portfolio NAV", portfolio_result.daily.to_csv().encode("utf-8"), "mixed_portfolio_daily_nav.csv", "text/csv")
+            st.download_button("Download daily sleeve NAV", portfolio_result.sleeve_nav.to_csv().encode("utf-8"), "mixed_portfolio_sleeve_nav.csv", "text/csv")
+            st.download_button("Download sleeve executions", portfolio_result.audit.to_csv(index=False).encode("utf-8"), "mixed_portfolio_executions.csv", "text/csv")
+            if tax_enabled:
+                st.download_button("Download sleeve tax events", portfolio_result.tax_events.to_csv(index=False).encode("utf-8"), "mixed_portfolio_tax_events.csv", "text/csv")
         else:
-            st.caption("Annual target-weight reset: all sleeves are restored to their starting target weights at each calendar year-end close.")
-        st.caption("Fees apply per actual buy/sell side. Strategy taxes use each sleeve's own ledger; transfer taxes are a sleeve-level realized-gain approximation, without cross-sleeve loss offsets, FX/indexation, or terminal liquidation. All sleeves must share one execution currency and calendar; no USD/ILS conversion is assumed.")
-        st.download_button("Download daily portfolio NAV", portfolio_result.daily.to_csv().encode("utf-8"), "mixed_portfolio_daily_nav.csv", "text/csv")
-        st.download_button("Download daily sleeve NAV", portfolio_result.sleeve_nav.to_csv().encode("utf-8"), "mixed_portfolio_sleeve_nav.csv", "text/csv")
-        st.download_button("Download sleeve executions", portfolio_result.audit.to_csv(index=False).encode("utf-8"), "mixed_portfolio_executions.csv", "text/csv")
+            st.caption("Monthly sleeve rebalancing resets sleeve weights to targets at each month-end and uses only shared available history.")
+        st.caption(f"Holding periods: {portfolio_result.common_index.min().date()} through {portfolio_result.common_index.max().date()}. SPY is the buy-and-hold benchmark.")
+        portfolio_label = "Portfolio pre-tax"
+        portfolio_after_tax_label = "Portfolio after-tax"
+        benchmark_label = "Tachlit S&P 500 (1144385) buy-and-hold" if portfolio_benchmark_asset == "RVOL_SPY_IL" else "SPY buy-and-hold"
+        portfolio_metric = lambda column: backtest_result_metrics(portfolio_result, column, initial)
+        summary = pd.DataFrame({
+            portfolio_label: portfolio_metric("pre_tax_value"),
+            benchmark_label: portfolio_metric("benchmark_value"),
+        })
         if tax_enabled:
-            st.download_button("Download sleeve tax events", portfolio_result.tax_events.to_csv(index=False).encode("utf-8"), "mixed_portfolio_tax_events.csv", "text/csv")
-    else:
-        st.caption("Monthly sleeve rebalancing resets sleeve weights to targets at each month-end and uses only shared available history.")
-    st.caption(f"Holding periods: {portfolio_result.common_index.min().date()} through {portfolio_result.common_index.max().date()}. SPY is the buy-and-hold benchmark.")
-    portfolio_label = "Portfolio pre-tax"
-    portfolio_after_tax_label = "Portfolio after-tax"
-    benchmark_label = "Tachlit S&P 500 (1144385) buy-and-hold" if portfolio_benchmark_asset == "RVOL_SPY_IL" else "SPY buy-and-hold"
-    portfolio_metric = lambda column: backtest_result_metrics(portfolio_result, column, initial)
-    summary = pd.DataFrame({
-        portfolio_label: portfolio_metric("pre_tax_value"),
-        benchmark_label: portfolio_metric("benchmark_value"),
-    })
-    if tax_enabled:
-        summary.insert(1, portfolio_after_tax_label, portfolio_metric("after_tax_value"))
-    portfolio_percentage_rows = [row for row in percentage_rows if row in summary.index]
-    portfolio_numeric_rows = [row for row in ratio_rows + numeric_rows if row in summary.index]
-    styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[portfolio_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[portfolio_numeric_rows, :])
-    st.subheader("Results")
-    result_columns = st.columns(4 if tax_enabled else 3)
-    result_columns[0].metric("Portfolio CAGR", f"{summary.loc['CAGR', portfolio_label]:.2%}")
-    if tax_enabled:
-        result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', portfolio_after_tax_label]:.2%}", delta=f"{summary.loc['CAGR', portfolio_after_tax_label] - summary.loc['CAGR', portfolio_label]:+.2%}")
-        result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
-        result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', portfolio_after_tax_label]:,.0f}")
-    else:
-        result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', portfolio_label]:.2%}")
-        result_columns[2].metric("Final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
-    portfolio_nav = portfolio_result.daily if mixed_daily else portfolio_result.monthly
-    curves = pd.DataFrame({portfolio_label: portfolio_nav["pre_tax_value"], benchmark_label: portfolio_nav["benchmark_value"]})
-    if tax_enabled:
-        curves.insert(1, portfolio_after_tax_label, portfolio_nav["after_tax_value"])
-    st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
-    units = unit_curves(portfolio_result, {portfolio_label:"pre_tax_value", benchmark_label:"benchmark_value", **({portfolio_after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
-    st.plotly_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Drawdown"), use_container_width=True)
-    with st.container():
-        st.subheader("Full performance table")
-        add_test_dates(summary, portfolio_result)
-        st.dataframe(styled_summary, use_container_width=True)
-    st.subheader("Selected sleeves")
-    if backtest_extra.get("monthly_contribution") or backtest_extra.get("fixed_fee"):
-        st.caption("Aggregate returns exclude deposits and include order fees. Monthly-only per-sleeve statistics are before portfolio-level fees; orders are counted separately by sleeve, even when sleeves hold the same ETF.")
-    sleeve_summary = pd.DataFrame([
-        {"Sleeve": sleeve["model"], "Initial weight" if mixed_daily else "Target weight": sleeve["weight"] / 100,
-         "CAGR": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("CAGR"),
-         "Total return": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("Total return")}
-        for sleeve in portfolio_sleeves
-    ])
-    if mixed_daily:
-        sleeve_summary["Ending weight (pre-tax)"] = [portfolio_result.sleeve_nav[f"{s['model']} ({s['id']})"].iloc[-1] / portfolio_result.daily.pre_tax_value.iloc[-1] for s in portfolio_sleeves]
-        elapsed_years = max((portfolio_result.daily.index[-1] - portfolio_result.daily.index[0]).days + 6.5 / 24, 6.5 / 24) / 365.25
-        if not backtest_extra.get("monthly_contribution"):
-            sleeve_summary["CAGR"] = [(portfolio_result.sleeve_nav[f"{s['model']} ({s['id']})"].iloc[-1] / (initial * float(s['weight']) / 100)) ** (1 / elapsed_years) - 1 for s in portfolio_sleeves]
-    st.dataframe(sleeve_summary.style.format({"Initial weight" if mixed_daily else "Target weight": "{:.2%}", "Ending weight (pre-tax)": "{:.2%}", "CAGR": "{:.2%}", "Total return": "{:.2%}"}), use_container_width=True, hide_index=True)
-    annual = pd.DataFrame({portfolio_label: annual_returns(portfolio_result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(portfolio_result.monthly["benchmark_monthly_return"])})
-    monthly_returns = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_monthly_return"], benchmark_label: portfolio_result.monthly["benchmark_monthly_return"]})
-    if tax_enabled:
-        annual.insert(1, portfolio_after_tax_label, annual_returns(portfolio_result.monthly["after_tax_monthly_return"]))
-        monthly_returns.insert(1, portfolio_after_tax_label, portfolio_result.monthly["after_tax_monthly_return"])
-    with st.expander("Return history", expanded=False):
-        history_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
-        with history_tab:
-            st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-        with monthly_tab:
-            st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
-    st.stop()
+            summary.insert(1, portfolio_after_tax_label, portfolio_metric("after_tax_value"))
+        portfolio_percentage_rows = [row for row in percentage_rows if row in summary.index]
+        portfolio_numeric_rows = [row for row in ratio_rows + numeric_rows if row in summary.index]
+        styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[portfolio_percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[portfolio_numeric_rows, :])
+        st.subheader("Results")
+        result_columns = st.columns(4 if tax_enabled else 3)
+        result_columns[0].metric("Portfolio CAGR", f"{summary.loc['CAGR', portfolio_label]:.2%}")
+        if tax_enabled:
+            result_columns[1].metric("After-tax CAGR", f"{summary.loc['CAGR', portfolio_after_tax_label]:.2%}", delta=f"{summary.loc['CAGR', portfolio_after_tax_label] - summary.loc['CAGR', portfolio_label]:+.2%}")
+            result_columns[2].metric("Pre-tax final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
+            result_columns[3].metric("After-tax final value", f"{summary.loc['Final value', portfolio_after_tax_label]:,.0f}")
+        else:
+            result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', portfolio_label]:.2%}")
+            result_columns[2].metric("Final value", f"{summary.loc['Final value', portfolio_label]:,.0f}")
+        portfolio_nav = portfolio_result.daily if mixed_daily else portfolio_result.monthly
+        curves = pd.DataFrame({portfolio_label: portfolio_nav["pre_tax_value"], benchmark_label: portfolio_nav["benchmark_value"]})
+        if tax_enabled:
+            curves.insert(1, portfolio_after_tax_label, portfolio_nav["after_tax_value"])
+        performance_tab, drawdown_tab, details_tab, returns_tab = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+        with performance_tab:
+            render_analysis_chart(px.line(curves, title="Equity curve"), use_container_width=True)
+        units = unit_curves(portfolio_result, {portfolio_label:"pre_tax_value", benchmark_label:"benchmark_value", **({portfolio_after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
+        with drawdown_tab:
+            render_analysis_chart(px.line(units.div(units.cummax().clip(lower=initial)).sub(1), title="Drawdown"), use_container_width=True)
+        with details_tab:
+            st.subheader("Full performance table")
+            add_test_dates(summary, portfolio_result)
+            st.dataframe(styled_summary, use_container_width=True)
+        with details_tab:
+            st.subheader("Selected sleeves")
+            if backtest_extra.get("monthly_contribution") or backtest_extra.get("fixed_fee"):
+                st.caption("Aggregate returns exclude deposits and include order fees. Monthly-only per-sleeve statistics are before portfolio-level fees; orders are counted separately by sleeve, even when sleeves hold the same ETF.")
+            sleeve_summary = pd.DataFrame([
+                {"Sleeve": sleeve["model"], "Initial weight" if mixed_daily else "Target weight": sleeve["weight"] / 100,
+                 "CAGR": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("CAGR"),
+                 "Total return": performance_metrics((1 + portfolio_result.sleeve_returns[f"{sleeve['model']} ({sleeve['id']})"]).cumprod() * initial, initial).get("Total return")}
+                for sleeve in portfolio_sleeves
+            ])
+            if mixed_daily:
+                sleeve_summary["Ending weight (pre-tax)"] = [portfolio_result.sleeve_nav[f"{s['model']} ({s['id']})"].iloc[-1] / portfolio_result.daily.pre_tax_value.iloc[-1] for s in portfolio_sleeves]
+                elapsed_years = max((portfolio_result.daily.index[-1] - portfolio_result.daily.index[0]).days + 6.5 / 24, 6.5 / 24) / 365.25
+                if not backtest_extra.get("monthly_contribution"):
+                    sleeve_summary["CAGR"] = [(portfolio_result.sleeve_nav[f"{s['model']} ({s['id']})"].iloc[-1] / (initial * float(s['weight']) / 100)) ** (1 / elapsed_years) - 1 for s in portfolio_sleeves]
+            st.dataframe(sleeve_summary.style.format({"Initial weight" if mixed_daily else "Target weight": "{:.2%}", "Ending weight (pre-tax)": "{:.2%}", "CAGR": "{:.2%}", "Total return": "{:.2%}"}), use_container_width=True, hide_index=True)
+        annual = pd.DataFrame({portfolio_label: annual_returns(portfolio_result.monthly["pre_tax_monthly_return"]), benchmark_label: annual_returns(portfolio_result.monthly["benchmark_monthly_return"])})
+        monthly_returns = pd.DataFrame({portfolio_label: portfolio_result.monthly["pre_tax_monthly_return"], benchmark_label: portfolio_result.monthly["benchmark_monthly_return"]})
+        if tax_enabled:
+            annual.insert(1, portfolio_after_tax_label, annual_returns(portfolio_result.monthly["after_tax_monthly_return"]))
+            monthly_returns.insert(1, portfolio_after_tax_label, portfolio_result.monthly["after_tax_monthly_return"])
+        with returns_tab:
+            history_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+            with history_tab:
+                st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+            with monthly_tab:
+                st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+        st.stop()
 if page in {"Backtest", "Research", "Rules"}:
     prices = all_prices.loc[:, data_assets]
     market_data_assets = tuple(dict.fromkeys((*getattr(strategy, "market_data_assets", data_assets), benchmark_asset)))
@@ -1691,272 +1781,278 @@ ratio_rows = ["Sharpe", "Sortino", "Calmar"]
 numeric_rows = ["Final value", "Total contributed", "Investment gain", "Allocation changes", "Average changes/year"]
 
 if page == "Research":
-    title_column.title("Research")
-    title_column.caption("Stress-test the selected strategy to see whether its historical result remains broadly credible when timing, costs, parameters, periods, data, and return sequences change. Validation runs are research-only and never modify live strategy rules.")
-    with st.expander("How to read this page", expanded=False):
-        st.markdown("""- **Summary** compares the published backtest with every completed stress-test scenario.
-- **Parameters & Execution** asks whether nearby settings, small timing changes, costs, tax, or minor input-price changes materially alter the result.
-- **Periods** shows whether the strategy worked across rolling 5-, 10-, and 20-year windows and named market eras, rather than only across one favourable start date.
-- **Proxies & Data** checks practical implementation substitutes where declared and flags missing, stale, invalid, or potentially look-ahead-biased data.
-- **Monte Carlo** reorders blocks of the strategy's actual monthly returns into many plausible paths. It is scenario analysis, not a forecast.
-- **Robustness Scorecard** condenses the completed evidence. A stronger grade means the worst completed tests stayed closer to the published baseline; it is not an investment recommendation.
+    with workspace_results:
+        title_column.title("Research")
+        title_column.caption("Stress-test the selected strategy to see whether its historical result remains broadly credible when timing, costs, parameters, periods, data, and return sequences change. Validation runs are research-only and never modify live strategy rules.")
+        with st.expander("How to read this page", expanded=False):
+            st.markdown("""- **Summary** compares the published backtest with every completed stress-test scenario.
+    - **Parameters & Execution** asks whether nearby settings, small timing changes, costs, tax, or minor input-price changes materially alter the result.
+    - **Periods** shows whether the strategy worked across rolling 5-, 10-, and 20-year windows and named market eras, rather than only across one favourable start date.
+    - **Proxies & Data** checks practical implementation substitutes where declared and flags missing, stale, invalid, or potentially look-ahead-biased data.
+    - **Monte Carlo** reorders blocks of the strategy's actual monthly returns into many plausible paths. It is scenario analysis, not a forecast.
+    - **Robustness Scorecard** condenses the completed evidence. A stronger grade means the worst completed tests stayed closer to the published baseline; it is not an investment recommendation.
 
-The useful question is not which strategy has the highest historical CAGR. It is whether a strategy remains reasonably similar when realistic assumptions change.""")
-    st.info(f"Profile: **{research_profile.profile_id}** · Data confidence: **{research_profile.data_confidence.title()}**")
-    with st.expander("Published baseline and declared research scope"):
-        parameters = pd.DataFrame([
-            {
-                "Parameter": item.key,
-                "Published value": item.published_value,
-                "Research candidates": ", ".join(map(str, item.candidate_values)) or "None — immutable",
-                "Description": item.description,
-            }
-            for item in research_profile.published_parameters
-        ])
-        st.dataframe(parameters, use_container_width=True, hide_index=True)
-        st.caption(research_profile.notes or "Only the tests declared by this profile are run.")
+    The useful question is not which strategy has the highest historical CAGR. It is whether a strategy remains reasonably similar when realistic assumptions change.""")
+        workspace_setup.caption(f"Profile: {research_profile.profile_id} · Data confidence: {research_profile.data_confidence.title()}")
+        with st.expander("Published baseline and declared research scope"):
+            parameters = pd.DataFrame([
+                {
+                    "Parameter": item.key,
+                    "Published value": item.published_value,
+                    "Research candidates": ", ".join(map(str, item.candidate_values)) or "None — immutable",
+                    "Description": item.description,
+                }
+                for item in research_profile.published_parameters
+            ])
+            st.dataframe(parameters, use_container_width=True, hide_index=True)
+            st.caption(research_profile.notes or "Only the tests declared by this profile are run.")
 
-    proxy_monthly_prices = {}
-    proxy_daily_prices = {}
-    for proxy in research_profile.proxy_substitutions:
-        if proxy.proxy_asset in all_prices:
-            proxy_monthly_prices[proxy.proxy_asset] = to_month_end(all_prices.loc[:, [proxy.proxy_asset]])[proxy.proxy_asset]
-            proxy_daily_prices[proxy.proxy_asset] = all_prices[proxy.proxy_asset]
-    research_input = ValidationInput(
-        model_name,
-        decisions,
-        monthly,
-        prices,
-        benchmark_asset,
-        research_profile,
-        proxy_monthly_prices,
-        proxy_daily_prices,
-        strategy,
-        decision_prices,
-    )
-    history_start, history_end = result.monthly.index.min(), result.monthly.index.max()
-    history_years = len(result.monthly) / 12
-    st.subheader("Quick confidence check")
-    st.caption(
-        f"History examined: {history_start:%B %Y}–{history_end:%B %Y} ({history_years:.1f} years). "
-        "This is the shared period with usable data for every asset this model needs."
-    )
-    st.info("This checks whether the historical result stays broadly similar after realistic timing delays, costs, and different periods. It is not a prediction or a guarantee.")
-    if st.button("Run confidence check", type="primary", key="run_full_validation"):
-        with st.spinner("Running deterministic validation and block-bootstrap scenarios…"):
-            st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
-        st.session_state["research_report_model"] = model_name
-        st.session_state["research_report_completed"] = model_name
+        proxy_monthly_prices = {}
+        proxy_daily_prices = {}
+        for proxy in research_profile.proxy_substitutions:
+            if proxy.proxy_asset in all_prices:
+                proxy_monthly_prices[proxy.proxy_asset] = to_month_end(all_prices.loc[:, [proxy.proxy_asset]])[proxy.proxy_asset]
+                proxy_daily_prices[proxy.proxy_asset] = all_prices[proxy.proxy_asset]
+        research_input = ValidationInput(
+            model_name,
+            decisions,
+            monthly,
+            prices,
+            benchmark_asset,
+            research_profile,
+            proxy_monthly_prices,
+            proxy_daily_prices,
+            strategy,
+            decision_prices,
+        )
+        history_start, history_end = result.monthly.index.min(), result.monthly.index.max()
+        history_years = len(result.monthly) / 12
+        st.subheader("Quick confidence check")
+        st.caption(
+            f"History examined: {history_start:%B %Y}–{history_end:%B %Y} ({history_years:.1f} years). "
+            "This is the shared period with usable data for every asset this model needs."
+        )
+        st.info("This checks whether the historical result stays broadly similar after realistic timing delays, costs, and different periods. It is not a prediction or a guarantee.")
+        with workspace_setup:
+            run_confidence_check = st.button("Run confidence check", type="primary", key="run_full_validation", use_container_width=True)
+        if run_confidence_check:
+            with st.spinner("Running deterministic validation and block-bootstrap scenarios…"):
+                st.session_state["research_report"] = run_deterministic_validation(research_input, initial)
+            st.session_state["research_report_model"] = model_name
+            st.session_state["research_report_completed"] = model_name
 
-    report = st.session_state.get("research_report") if st.session_state.get("research_report_model") == model_name else None
-    if report is None:
-        st.caption("Run the confidence check to see a plain-English summary. Advanced technical results remain optional below.")
-    else:
-        if st.session_state.get("research_report_completed") == model_name:
-            st.success("Confidence check completed for the currently selected model and data.")
-        complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
-        baseline_row = complete.loc[complete["test"] == "baseline"]
-        overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
-        grade = str(overall.iloc[0]["Grade"]) if not overall.empty else "Not assessed"
-        plain_verdict = {
-            "A": "Reasonably robust", "B+": "Reasonably robust", "B": "Reasonably robust",
-            "C": "Mixed", "D": "Fragile", "Not assessed": "Not enough evidence yet",
-        }.get(grade, "Mixed")
-        verdict_column, cagr_column, drawdown_column = st.columns(3)
-        verdict_column.metric("Historical confidence", plain_verdict)
-        if not baseline_row.empty:
-            baseline_metrics = baseline_row.iloc[0]
-            cagr_column.metric("Historical CAGR", f"{baseline_metrics['CAGR']:.2%}")
-            drawdown_column.metric("Historical max drawdown", f"{baseline_metrics['Maximum drawdown']:.2%}")
+        report = st.session_state.get("research_report") if st.session_state.get("research_report_model") == model_name else None
+        if report is None:
+            st.caption("Run the confidence check to see a plain-English summary. Advanced technical results remain optional below.")
         else:
-            cagr_column.metric("Historical CAGR", "Unavailable")
-            drawdown_column.metric("Historical max drawdown", "Unavailable")
-        evidence = report.scorecard.set_index("Category")["Evidence"] if not report.scorecard.empty else pd.Series(dtype=str)
-        simple_rows = [
-            {"Check": "Trading delays", "What it asks": "Would small delays in trading materially change the result?", "Result": evidence.get("Execution robustness", "Not assessed")},
-            {"Check": "Trading costs", "What it asks": "Would realistic costs materially reduce the result?", "Result": evidence.get("Costs and tax resilience", "Not assessed")},
-            {"Check": "Different periods", "What it asks": "Did it work across different historical windows, not only one lucky start?", "Result": evidence.get("Rolling-period resilience", "Not assessed")},
-        ]
-        st.subheader("The three checks that matter most")
-        st.dataframe(pd.DataFrame(simple_rows), use_container_width=True, hide_index=True)
-        st.subheader("What this means for me")
-        if plain_verdict == "Reasonably robust":
-            st.write("The available historical tests did not show a large dependence on one exact timing or assumption. That supports further consideration, but does not predict future returns.")
-        elif plain_verdict == "Mixed":
-            st.write("Some historical checks were less convincing. Treat the strategy as an idea to diversify with, rather than evidence that it will reliably perform on its own.")
-        elif plain_verdict == "Fragile":
-            st.write("The historical result changed materially in at least some realistic checks. Be cautious about relying on the published backtest alone.")
-        else:
-            st.write("There is not enough completed evidence to give a useful robustness verdict. The date range and available scenarios are shown above.")
-        st.caption("Limits: this uses the price and macro histories available to the app. It cannot know future market conditions, your exact execution, or data revisions that were not available in real time.")
-        with st.expander("Advanced research details", expanded=False):
+            if st.session_state.get("research_report_completed") == model_name:
+                st.success("Confidence check completed for the currently selected model and data.")
+            complete = report.scenarios.loc[report.scenarios["status"] == "complete"].copy()
+            baseline_row = complete.loc[complete["test"] == "baseline"]
+            overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
+            grade = str(overall.iloc[0]["Grade"]) if not overall.empty else "Not assessed"
+            plain_verdict = {
+                "A": "Reasonably robust", "B+": "Reasonably robust", "B": "Reasonably robust",
+                "C": "Mixed", "D": "Fragile", "Not assessed": "Not enough evidence yet",
+            }.get(grade, "Mixed")
+            verdict_column, cagr_column, drawdown_column = st.columns(3)
+            verdict_column.metric("Historical confidence", plain_verdict)
+            if not baseline_row.empty:
+                baseline_metrics = baseline_row.iloc[0]
+                cagr_column.metric("Historical CAGR", f"{baseline_metrics['CAGR']:.2%}")
+                drawdown_column.metric("Historical max drawdown", f"{baseline_metrics['Maximum drawdown']:.2%}")
+            else:
+                cagr_column.metric("Historical CAGR", "Unavailable")
+                drawdown_column.metric("Historical max drawdown", "Unavailable")
+            evidence = report.scorecard.set_index("Category")["Evidence"] if not report.scorecard.empty else pd.Series(dtype=str)
+            simple_rows = [
+                {"Check": "Trading delays", "What it asks": "Would small delays in trading materially change the result?", "Result": evidence.get("Execution robustness", "Not assessed")},
+                {"Check": "Trading costs", "What it asks": "Would realistic costs materially reduce the result?", "Result": evidence.get("Costs and tax resilience", "Not assessed")},
+                {"Check": "Different periods", "What it asks": "Did it work across different historical windows, not only one lucky start?", "Result": evidence.get("Rolling-period resilience", "Not assessed")},
+            ]
+            st.subheader("The three checks that matter most")
+            st.dataframe(pd.DataFrame(simple_rows), use_container_width=True, hide_index=True)
+            st.subheader("What this means for me")
+            if plain_verdict == "Reasonably robust":
+                st.write("The available historical tests did not show a large dependence on one exact timing or assumption. That supports further consideration, but does not predict future returns.")
+            elif plain_verdict == "Mixed":
+                st.write("Some historical checks were less convincing. Treat the strategy as an idea to diversify with, rather than evidence that it will reliably perform on its own.")
+            elif plain_verdict == "Fragile":
+                st.write("The historical result changed materially in at least some realistic checks. Be cautious about relying on the published backtest alone.")
+            else:
+                st.write("There is not enough completed evidence to give a useful robustness verdict. The date range and available scenarios are shown above.")
+            st.caption("Limits: this uses the price and macro histories available to the app. It cannot know future market conditions, your exact execution, or data revisions that were not available in real time.")
             summary_tab, execution_tab, periods_tab, proxy_data_tab, monte_carlo_tab, scorecard_tab = st.tabs(["Summary", "Parameters & Execution", "Periods", "Proxies & Data", "Monte Carlo", "Robustness Scorecard"])
             with summary_tab:
                 st.dataframe(report.scenarios, use_container_width=True, hide_index=True)
                 if not complete.empty:
-                    st.plotly_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
+                    render_analysis_chart(px.bar(complete, x="scenario", y="CAGR", color="test", title="CAGR across completed validation scenarios"), use_container_width=True)
                 st.download_button("Download validation scenarios CSV", report.scenarios.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_validation_scenarios.csv", "text/csv")
-        with execution_tab:
-            execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["parameter_sweep", "execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift", "signal_perturbation"])]
-            st.dataframe(execution_tests, use_container_width=True, hide_index=True)
-            st.caption("Parameter and shifted-date scenarios recompute a copied research instance only. Daily-signal strategies remain explicitly unavailable for generic rebalance shifts, rather than treating a later trade as a shifted signal.")
-        with periods_tab:
-            st.subheader("Rolling periods")
-            st.dataframe(report.rolling_periods, use_container_width=True, hide_index=True)
-            if not report.rolling_periods.empty and "CAGR" in report.rolling_periods:
-                completed_rolling = report.rolling_periods.loc[report.rolling_periods["status"] == "complete"]
-                if not completed_rolling.empty:
-                    st.plotly_chart(px.box(completed_rolling, x="scenario", y="CAGR", title="Distribution of rolling-period CAGR"), use_container_width=True)
-            st.subheader("Named subperiods")
-            st.dataframe(report.subperiods, use_container_width=True, hide_index=True)
-        with proxy_data_tab:
-            proxy_rows = report.scenarios.loc[report.scenarios["test"] == "proxy_substitution"]
-            st.subheader("Declared execution proxies")
-            st.dataframe(proxy_rows, use_container_width=True, hide_index=True)
-            st.caption("A proxy result is available only when the proxy's actual monthly and daily history is available. It replaces the executed holding, not the strategy's published signal input.")
-            st.subheader("Data quality and timing")
-            st.caption("Raw gaps can reflect ordinary exchange holidays, different publication schedules, or pre-inception history. They are shown for transparency, but do not lower the robustness score unless a price required for an actual execution path is missing.")
-            st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
-            st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
-        with monte_carlo_tab:
-            st.caption("Circular block bootstrap of realised monthly strategy returns. It preserves short return sequences from history, uses a fixed seed for reproducibility, and is scenario analysis—not a forecast.")
-            if report.monte_carlo.empty:
-                st.info("This strategy has no declared block-bootstrap analysis.")
-            else:
-                st.dataframe(report.monte_carlo, use_container_width=True, hide_index=True)
-                complete_bootstrap = report.monte_carlo.loc[report.monte_carlo["status"] == "complete"]
-                if not complete_bootstrap.empty:
-                    bootstrap_chart = complete_bootstrap.melt(id_vars="horizon", value_vars=["CAGR p10", "CAGR median", "CAGR p90"], var_name="Outcome", value_name="CAGR")
-                    st.plotly_chart(px.bar(bootstrap_chart, x="horizon", y="CAGR", color="Outcome", barmode="group", title="Bootstrap CAGR range by horizon"), use_container_width=True)
-                st.download_button("Download Monte Carlo CSV", report.monte_carlo.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_block_bootstrap.csv", "text/csv")
-        with scorecard_tab:
-            overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
-            if not overall.empty:
-                st.metric("Overall robustness", str(overall.iloc[0]["Grade"]))
-            st.caption("This is an evidence summary, not an investment rating or forecast. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
-            with st.expander("How the final robustness score is calculated", expanded=False):
-                st.markdown("""
-                Each completed evidence category is graded from its weakest completed result relative to the published baseline CAGR:
+            with execution_tab:
+                execution_tests = report.scenarios.loc[report.scenarios["test"].isin(["parameter_sweep", "execution_delay", "transaction_cost", "israeli_tax", "alternate_start", "rebalance_shift", "signal_perturbation"])]
+                st.dataframe(execution_tests, use_container_width=True, hide_index=True)
+                st.caption("Parameter and shifted-date scenarios recompute a copied research instance only. Daily-signal strategies remain explicitly unavailable for generic rebalance shifts, rather than treating a later trade as a shifted signal.")
+            with periods_tab:
+                st.subheader("Rolling periods")
+                st.dataframe(report.rolling_periods, use_container_width=True, hide_index=True)
+                if not report.rolling_periods.empty and "CAGR" in report.rolling_periods:
+                    completed_rolling = report.rolling_periods.loc[report.rolling_periods["status"] == "complete"]
+                    if not completed_rolling.empty:
+                        render_analysis_chart(px.box(completed_rolling, x="scenario", y="CAGR", title="Distribution of rolling-period CAGR"), use_container_width=True)
+                st.subheader("Named subperiods")
+                st.dataframe(report.subperiods, use_container_width=True, hide_index=True)
+            with proxy_data_tab:
+                proxy_rows = report.scenarios.loc[report.scenarios["test"] == "proxy_substitution"]
+                st.subheader("Declared execution proxies")
+                st.dataframe(proxy_rows, use_container_width=True, hide_index=True)
+                st.caption("A proxy result is available only when the proxy's actual monthly and daily history is available. It replaces the executed holding, not the strategy's published signal input.")
+                st.subheader("Data quality and timing")
+                st.caption("Raw gaps can reflect ordinary exchange holidays, different publication schedules, or pre-inception history. They are shown for transparency, but do not lower the robustness score unless a price required for an actual execution path is missing.")
+                st.dataframe(report.data_quality, use_container_width=True, hide_index=True)
+                st.download_button("Download data-quality CSV", report.data_quality.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_data_quality.csv", "text/csv")
+            with monte_carlo_tab:
+                st.caption("Circular block bootstrap of realised monthly strategy returns. It preserves short return sequences from history, uses a fixed seed for reproducibility, and is scenario analysis—not a forecast.")
+                if report.monte_carlo.empty:
+                    st.info("This strategy has no declared block-bootstrap analysis.")
+                else:
+                    st.dataframe(report.monte_carlo, use_container_width=True, hide_index=True)
+                    complete_bootstrap = report.monte_carlo.loc[report.monte_carlo["status"] == "complete"]
+                    if not complete_bootstrap.empty:
+                        bootstrap_chart = complete_bootstrap.melt(id_vars="horizon", value_vars=["CAGR p10", "CAGR median", "CAGR p90"], var_name="Outcome", value_name="CAGR")
+                        render_analysis_chart(px.bar(bootstrap_chart, x="horizon", y="CAGR", color="Outcome", barmode="group", title="Bootstrap CAGR range by horizon"), use_container_width=True)
+                    st.download_button("Download Monte Carlo CSV", report.monte_carlo.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_block_bootstrap.csv", "text/csv")
+            with scorecard_tab:
+                overall = report.scorecard.loc[report.scorecard["Category"] == "Overall robustness"]
+                if not overall.empty:
+                    st.metric("Overall robustness", str(overall.iloc[0]["Grade"]))
+                st.caption("This is an evidence summary, not an investment rating or forecast. Its fixed bands compare the worst completed scenario CAGR with the published baseline; unrun or unavailable tests are shown as not assessed.")
+                with st.expander("How the final robustness score is calculated", expanded=False):
+                    st.markdown("""
+                    Each completed evidence category is graded from its weakest completed result relative to the published baseline CAGR:
 
-                - **Good (3 points):** no more than 2 percentage points below the baseline.
-                - **Moderate (2 points):** more than 2, but no more than 5 percentage points below.
-                - **Weak (1 point):** more than 5 percentage points below, or a failed data-integrity check.
-                - **Not assessed:** the test was not declared, could not run, or lacked enough history. It does not count for or against the result.
+                    - **Good (3 points):** no more than 2 percentage points below the baseline.
+                    - **Moderate (2 points):** more than 2, but no more than 5 percentage points below.
+                    - **Weak (1 point):** more than 5 percentage points below, or a failed data-integrity check.
+                    - **Not assessed:** the test was not declared, could not run, or lacked enough history. It does not count for or against the result.
 
-                The overall grade is the average of the assessed categories, and needs at least four assessed categories. A is 2.75–3.00 points, B+ is 2.40–2.74, B is 2.00–2.39, C is 1.50–1.99, and D is below 1.50.
+                    The overall grade is the average of the assessed categories, and needs at least four assessed categories. A is 2.75–3.00 points, B+ is 2.40–2.74, B is 2.00–2.39, C is 1.50–1.99, and D is below 1.50.
 
-                **Data confidence is different:** ordinary calendar, holiday, and pre-inception gaps are reported but are not penalised. It is marked down only when a price needed at an actual entry, exit, or benchmark comparison is missing or invalid, or when the timing check cannot rule out look-ahead.
-                """)
-            st.dataframe(report.scorecard, use_container_width=True, hide_index=True)
-            st.download_button("Download robustness scorecard CSV", report.scorecard.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_robustness_scorecard.csv", "text/csv")
-    st.stop()
+                    **Data confidence is different:** ordinary calendar, holiday, and pre-inception gaps are reported but are not penalised. It is marked down only when a price needed at an actual entry, exit, or benchmark comparison is missing or invalid, or when the timing check cannot rule out look-ahead.
+                    """)
+                st.dataframe(report.scorecard, use_container_width=True, hide_index=True)
+                st.download_button("Download robustness scorecard CSV", report.scorecard.to_csv(index=False).encode("utf-8"), f"{strategy.name.lower().replace(' ', '_')}_robustness_scorecard.csv", "text/csv")
+        st.stop()
 
 if page == "Backtest":
-    title_column.title(strategy.name)
-    st.caption("These settings configure this backtest only.")
-    if result.daily is not None:
-        local_daily = decisions.attrs.get("local_daily_execution", False)
-        st.caption("Israel execution uses next-session closing/NAV prices, not exchange opens. The two-fund QLD substitute drifts until state changes or its annual reset. Fund expenses are already in NAV. Realized-sale tax and broker fees are additional. Drawdown uses daily closes; no terminal liquidation, FX/indexation or legal tax validation is assumed." if local_daily else "Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
-        st.info("Israel also supports same-currency ILS daily-valued portfolio Backtests. Portfolio Compare, generic monthly Research and synthetic Deep History are not available for this local implementation." if local_daily else "Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
-    else:
-        st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
-    if substitution_result is not None:
-        st.caption(
-            f"{substitution_mode} comparison: both runs use the same strategy rules, costs, tax settings, and shared available holding periods."
-        )
-    if hasattr(strategy, "risk_warning"):
-        st.warning(strategy.risk_warning)
-    report_nav = result.daily if result.daily is not None else result.monthly
-    report_frequency = "daily sessions" if result.daily is not None else "monthly periods"
-    st.caption(f"Holding periods: {report_nav.index.min().date()} through {report_nav.index.max().date()}. {benchmark_label} uses these same {report_frequency}.")
-    pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
-    after_tax_label = f"Published {strategy.name} after-tax" if substitution_result is not None else f"{strategy.name} after-tax"
-    substitution_pre_tax_label = "Substituted strategy pre-tax"
-    substitution_after_tax_label = "Substituted strategy after-tax"
-    result_metrics = lambda column: backtest_result_metrics(result, column, initial)
-    comparison = {pre_tax_label: result_metrics("pre_tax_value")}
-    if tax_enabled:
-        comparison[after_tax_label] = result_metrics("after_tax_value")
-    if substitution_result is not None:
-        comparison[substitution_pre_tax_label] = backtest_result_metrics(substitution_result, "pre_tax_value", initial)
+    with workspace_results:
+        title_column.title(strategy.name)
+        st.caption("These settings configure this backtest only.")
+        if result.daily is not None:
+            local_daily = decisions.attrs.get("local_daily_execution", False)
+            st.caption("Israel execution uses next-session closing/NAV prices, not exchange opens. The two-fund QLD substitute drifts until state changes or its annual reset. Fund expenses are already in NAV. Realized-sale tax and broker fees are additional. Drawdown uses daily closes; no terminal liquidation, FX/indexation or legal tax validation is assumed." if local_daily else "Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
+            st.info("Israel also supports same-currency ILS daily-valued portfolio Backtests. Portfolio Compare, generic monthly Research and synthetic Deep History are not available for this local implementation." if local_daily else "Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
+        else:
+            st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
+        if substitution_result is not None:
+            st.caption(
+                f"{substitution_mode} comparison: both runs use the same strategy rules, costs, tax settings, and shared available holding periods."
+            )
+        if hasattr(strategy, "risk_warning"):
+            st.warning(strategy.risk_warning)
+        report_nav = result.daily if result.daily is not None else result.monthly
+        report_frequency = "daily sessions" if result.daily is not None else "monthly periods"
+        st.caption(f"Holding periods: {report_nav.index.min().date()} through {report_nav.index.max().date()}. {benchmark_label} uses these same {report_frequency}.")
+        pre_tax_label = f"Published {strategy.name} pre-tax" if substitution_result is not None else f"{strategy.name} pre-tax"
+        after_tax_label = f"Published {strategy.name} after-tax" if substitution_result is not None else f"{strategy.name} after-tax"
+        substitution_pre_tax_label = "Substituted strategy pre-tax"
+        substitution_after_tax_label = "Substituted strategy after-tax"
+        result_metrics = lambda column: backtest_result_metrics(result, column, initial)
+        comparison = {pre_tax_label: result_metrics("pre_tax_value")}
         if tax_enabled:
-            comparison[substitution_after_tax_label] = backtest_result_metrics(substitution_result, "after_tax_value", initial)
-    # Keep the benchmark at the far right; the after-tax strategy result sits
-    # beside its pre-tax counterpart for direct capital-gains comparison.
-    comparison[benchmark_label] = result_metrics("benchmark_value")
-    summary = pd.DataFrame(comparison)
-    changes = int(result.monthly["allocation_change"].sum())
-    years = len(result.monthly) / 12
-    if result.daily is not None:
-        years = max((result.daily.index[-1] - result.daily.index[0]).days, 1) / 365.25
-        st.download_button("Download daily NAV and executions CSV", result.daily.to_csv().encode("utf-8"), "rvol_shifter_daily_nav.csv", "text/csv")
-        st.download_button("Download realized-gain tax events CSV", result.tax_events.to_csv(index=False).encode("utf-8"), "rvol_shifter_tax_events.csv", "text/csv")
-    annual_turnover = result.monthly["turnover"].sum() / years if "turnover" in result.monthly and years else changes / years if years else 0
-    summary.loc["Allocation changes", pre_tax_label] = changes
-    summary.loc["Average changes/year", pre_tax_label] = changes / years if years else 0
-    summary.loc["Annual turnover", pre_tax_label] = annual_turnover
-    if substitution_result is not None:
-        substitution_changes = int(substitution_result.monthly["allocation_change"].sum())
-        substitution_years = len(substitution_result.monthly) / 12
-        substitution_turnover = substitution_result.monthly["turnover"].sum() / substitution_years if "turnover" in substitution_result.monthly and substitution_years else substitution_changes / substitution_years if substitution_years else 0
-        summary.loc["Allocation changes", substitution_pre_tax_label] = substitution_changes
-        summary.loc["Average changes/year", substitution_pre_tax_label] = substitution_changes / substitution_years if substitution_years else 0
-        summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_turnover
-    st.subheader("Results")
-    styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :])
-    result_columns = st.columns(4)
-    if substitution_result is None:
-        result_columns[0].metric("CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
-        result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
-        result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
-        result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
-    else:
-        cagr_delta = summary.loc["CAGR", substitution_pre_tax_label] - summary.loc["CAGR", pre_tax_label]
-        result_columns[0].metric("Published CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
-        result_columns[1].metric("Substituted CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{cagr_delta:+.2%}")
-        result_columns[2].metric("Published maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
-        result_columns[3].metric("Substituted maximum drawdown", f"{summary.loc['Maximum drawdown', substitution_pre_tax_label]:.2%}")
-    curves = pd.DataFrame({pre_tax_label: report_nav["pre_tax_value"]})
-    if tax_enabled:
-        curves[after_tax_label] = report_nav["after_tax_value"]
-    if substitution_result is not None:
-        curves[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_value"]
+            comparison[after_tax_label] = result_metrics("after_tax_value")
+        if substitution_result is not None:
+            comparison[substitution_pre_tax_label] = backtest_result_metrics(substitution_result, "pre_tax_value", initial)
+            if tax_enabled:
+                comparison[substitution_after_tax_label] = backtest_result_metrics(substitution_result, "after_tax_value", initial)
+        # Keep the benchmark at the far right; the after-tax strategy result sits
+        # beside its pre-tax counterpart for direct capital-gains comparison.
+        comparison[benchmark_label] = result_metrics("benchmark_value")
+        summary = pd.DataFrame(comparison)
+        changes = int(result.monthly["allocation_change"].sum())
+        years = len(result.monthly) / 12
+        if result.daily is not None:
+            years = max((result.daily.index[-1] - result.daily.index[0]).days, 1) / 365.25
+            st.download_button("Download daily NAV and executions CSV", result.daily.to_csv().encode("utf-8"), "rvol_shifter_daily_nav.csv", "text/csv")
+            st.download_button("Download realized-gain tax events CSV", result.tax_events.to_csv(index=False).encode("utf-8"), "rvol_shifter_tax_events.csv", "text/csv")
+        annual_turnover = result.monthly["turnover"].sum() / years if "turnover" in result.monthly and years else changes / years if years else 0
+        summary.loc["Allocation changes", pre_tax_label] = changes
+        summary.loc["Average changes/year", pre_tax_label] = changes / years if years else 0
+        summary.loc["Annual turnover", pre_tax_label] = annual_turnover
+        if substitution_result is not None:
+            substitution_changes = int(substitution_result.monthly["allocation_change"].sum())
+            substitution_years = len(substitution_result.monthly) / 12
+            substitution_turnover = substitution_result.monthly["turnover"].sum() / substitution_years if "turnover" in substitution_result.monthly and substitution_years else substitution_changes / substitution_years if substitution_years else 0
+            summary.loc["Allocation changes", substitution_pre_tax_label] = substitution_changes
+            summary.loc["Average changes/year", substitution_pre_tax_label] = substitution_changes / substitution_years if substitution_years else 0
+            summary.loc["Annual turnover", substitution_pre_tax_label] = substitution_turnover
+        st.subheader("Results")
+        styled_summary = summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[[row for row in ratio_rows + numeric_rows if row in summary.index], :])
+        result_columns = st.columns(4)
+        if substitution_result is None:
+            result_columns[0].metric("CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
+            result_columns[1].metric("Maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
+            result_columns[2].metric("Final value", f"{summary.loc['Final value', pre_tax_label]:,.0f}")
+            result_columns[3].metric("Changes / year", f"{changes / years:.1f}" if years else "—")
+        else:
+            cagr_delta = summary.loc["CAGR", substitution_pre_tax_label] - summary.loc["CAGR", pre_tax_label]
+            result_columns[0].metric("Published CAGR", f"{summary.loc['CAGR', pre_tax_label]:.2%}")
+            result_columns[1].metric("Substituted CAGR", f"{summary.loc['CAGR', substitution_pre_tax_label]:.2%}", delta=f"{cagr_delta:+.2%}")
+            result_columns[2].metric("Published maximum drawdown", f"{summary.loc['Maximum drawdown', pre_tax_label]:.2%}")
+            result_columns[3].metric("Substituted maximum drawdown", f"{summary.loc['Maximum drawdown', substitution_pre_tax_label]:.2%}")
+        curves = pd.DataFrame({pre_tax_label: report_nav["pre_tax_value"]})
         if tax_enabled:
-            curves[substitution_after_tax_label] = substitution_result.monthly["after_tax_value"]
-    curves[benchmark_label] = report_nav["benchmark_value"]
-    st.plotly_chart(px.line(curves, title="Equity curve"), use_container_width=True)
-    units = unit_curves(result, {pre_tax_label:"pre_tax_value", benchmark_label:"benchmark_value", **({after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
-    if substitution_result is not None:
-        extra_units = unit_curves(substitution_result, {substitution_pre_tax_label:"pre_tax_value", **({substitution_after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
-        units = units.join(extra_units)
-    drawdowns = units.div(units.cummax().clip(lower=initial)).sub(1)
-    st.plotly_chart(px.line(drawdowns, title="Drawdown"), use_container_width=True)
-    with st.container():
-        st.subheader("Full performance table")
-        add_test_dates(summary, result)
-        st.dataframe(styled_summary, use_container_width=True)
-    annual = pd.DataFrame({pre_tax_label: annual_returns(result.monthly["pre_tax_monthly_return"])})
-    if tax_enabled:
-        annual[after_tax_label] = annual_returns(result.monthly["after_tax_monthly_return"])
-    if substitution_result is not None:
-        annual[substitution_pre_tax_label] = annual_returns(substitution_result.monthly["pre_tax_monthly_return"])
+            curves[after_tax_label] = report_nav["after_tax_value"]
+        if substitution_result is not None:
+            curves[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_value"]
+            if tax_enabled:
+                curves[substitution_after_tax_label] = substitution_result.monthly["after_tax_value"]
+        curves[benchmark_label] = report_nav["benchmark_value"]
+        performance_tab, drawdown_tab, details_tab, returns_tab = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+        with performance_tab:
+            render_analysis_chart(px.line(curves, title="Equity curve"), use_container_width=True)
+        units = unit_curves(result, {pre_tax_label:"pre_tax_value", benchmark_label:"benchmark_value", **({after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
+        if substitution_result is not None:
+            extra_units = unit_curves(substitution_result, {substitution_pre_tax_label:"pre_tax_value", **({substitution_after_tax_label:"after_tax_value"} if tax_enabled else {})}, initial)
+            units = units.join(extra_units)
+        drawdowns = units.div(units.cummax().clip(lower=initial)).sub(1)
+        with drawdown_tab:
+            render_analysis_chart(px.line(drawdowns, title="Drawdown"), use_container_width=True)
+        with details_tab:
+            st.subheader("Full performance table")
+            add_test_dates(summary, result)
+            st.dataframe(styled_summary, use_container_width=True)
+        annual = pd.DataFrame({pre_tax_label: annual_returns(result.monthly["pre_tax_monthly_return"])})
         if tax_enabled:
-            annual[substitution_after_tax_label] = annual_returns(substitution_result.monthly["after_tax_monthly_return"])
-    annual[benchmark_label] = annual_returns(result.monthly["benchmark_monthly_return"])
-    monthly_returns = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_monthly_return"]})
-    if tax_enabled:
-        monthly_returns[after_tax_label] = result.monthly["after_tax_monthly_return"]
-    if substitution_result is not None:
-        monthly_returns[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_monthly_return"]
+            annual[after_tax_label] = annual_returns(result.monthly["after_tax_monthly_return"])
+        if substitution_result is not None:
+            annual[substitution_pre_tax_label] = annual_returns(substitution_result.monthly["pre_tax_monthly_return"])
+            if tax_enabled:
+                annual[substitution_after_tax_label] = annual_returns(substitution_result.monthly["after_tax_monthly_return"])
+        annual[benchmark_label] = annual_returns(result.monthly["benchmark_monthly_return"])
+        monthly_returns = pd.DataFrame({pre_tax_label: result.monthly["pre_tax_monthly_return"]})
         if tax_enabled:
-            monthly_returns[substitution_after_tax_label] = substitution_result.monthly["after_tax_monthly_return"]
-    monthly_returns[benchmark_label] = result.monthly["benchmark_monthly_return"]
-    with st.expander("Return history", expanded=False):
-        annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
-        with annual_tab:
-            st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
-        with monthly_tab:
-            st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
+            monthly_returns[after_tax_label] = result.monthly["after_tax_monthly_return"]
+        if substitution_result is not None:
+            monthly_returns[substitution_pre_tax_label] = substitution_result.monthly["pre_tax_monthly_return"]
+            if tax_enabled:
+                monthly_returns[substitution_after_tax_label] = substitution_result.monthly["after_tax_monthly_return"]
+        monthly_returns[benchmark_label] = result.monthly["benchmark_monthly_return"]
+        with returns_tab:
+            annual_tab, monthly_tab = st.tabs(["Annual", "Monthly"])
+            with annual_tab:
+                st.dataframe(annual.style.format("{:.2%}"), use_container_width=True)
+            with monthly_tab:
+                st.dataframe(monthly_returns.style.format("{:.2%}"), use_container_width=True)
 
 
 def current_portfolio_signal(model_label: str):
@@ -2409,506 +2505,552 @@ if page == "Portfolio":
         st.caption("Currency amounts are informational. No conversions or trades are executed by the app.")
 
 if page == "Compare":
-    title_column.title("Compare")
-    if comparison_mode == "Portfolios":
-        try:
-            portfolios = {}
-            for i in selected_portfolio_indices:
-                payload = library[i]
-                sleeves, _ = backtest_portfolio_config(payload, BACKTEST_MODEL_OPTIONS)
-                inputs = {}
-                for sleeve in sleeves:
-                    label = sleeve["model"]
-                    model = BACKTEST_MODEL_OPTIONS[label]()
-                    currency = definition_for_label(label).execution_currency
-                    if currency != "USD": raise ValueError(f"{label}: portfolio comparison requires USD sleeves.")
-                    model_assets = getattr(model, "data_assets", ASSETS)
-                    daily = all_prices.loc[:, list(dict.fromkeys((*model_assets, "SPY")))]
-                    monthly, decision_monthly = monthly_strategy_input(daily, tuple(dict.fromkeys((*getattr(model, "market_data_assets", model_assets), "SPY"))))
-                    decision_prices = daily if getattr(model, "uses_daily_signals", False) else decision_monthly
-                    key = f"{label} ({sleeve['id']})"
-                    inputs[key] = (sleeve["weight"] / 100, ModelInput(key, model.decisions(decision_prices), monthly, daily, "SPY", execution_opens, currency))
-                portfolios[f"{payload['name']} ({i+1})"] = inputs
-            compare_initial = st.number_input("Initial investment per portfolio (USD)", min_value=1., value=100000., key="portfolio_compare_initial")
-            compare_fee = st.number_input("Trading fee (%)", min_value=0., max_value=10., value=0., key="portfolio_compare_fee") / 100
-            compare_tax = st.toggle("Israeli capital-gains tax", key="portfolio_compare_tax")
-            compare_tax_rate = st.number_input("Tax rate (%)", min_value=0., max_value=100., value=25., disabled=not compare_tax, key="portfolio_compare_tax_rate") / 100
-            preliminary = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, drift=portfolio_drift)
-            minimum, maximum = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
-            start_date = st.date_input("Compare portfolios from", value=minimum, min_value=minimum, max_value=maximum)
-            end_date = st.date_input("Compare portfolios through", value=maximum, min_value=minimum, max_value=maximum)
-            if start_date > end_date: raise ValueError("Start must not be after end.")
-            comparison = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, pd.Timestamp(start_date), pd.Timestamp(end_date), portfolio_drift)
-            st.dataframe(comparison.available_periods, hide_index=True, use_container_width=True)
-            summary = pd.DataFrame({name: backtest_result_metrics(r, "after_tax_value" if compare_tax else "pre_tax_value", compare_initial) for name, r in comparison.results.items()})
-            first = next(iter(comparison.results.values()))
-            summary["SPY buy-and-hold"] = backtest_result_metrics(first, "benchmark_value", compare_initial)
-            add_test_dates(summary, first)
-            st.subheader("Full performance table — after tax" if compare_tax else "Full performance table — pre tax")
-            st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[[r for r in percentage_rows if r in summary.index], :]).format("{:.2f}", subset=pd.IndexSlice[[r for r in ratio_rows + numeric_rows if r in summary.index], :]), use_container_width=True)
-            column = "after_tax_value" if compare_tax else "pre_tax_value"
-            curves = pd.DataFrame({name: (r.daily if portfolio_drift else r.monthly)[column] for name, r in comparison.results.items()})
-            curves["SPY buy-and-hold"] = (first.daily if portfolio_drift else first.monthly).benchmark_value
-            st.plotly_chart(px.line(curves, title="Portfolio comparison"), use_container_width=True)
-            st.plotly_chart(px.line(curves.div(curves.cummax().clip(lower=compare_initial)).sub(1), title="Drawdown"), use_container_width=True)
-            returns = pd.DataFrame({name: r.monthly["after_tax_monthly_return" if compare_tax else "pre_tax_monthly_return"] for name, r in comparison.results.items()})
-            returns["SPY buy-and-hold"] = first.monthly.benchmark_monthly_return
-            st.download_button("Download portfolio comparison returns", returns.to_csv().encode(), "portfolio_comparison.csv", "text/csv")
-            st.caption("Every portfolio restarts with equal capital over the same observed dates. Fees and tax are computed independently. Tax is simplified; cross-sleeve loss offsets and terminal liquidation are not modeled in daily valuation.")
-        except (ValueError, KeyError, TypeError) as exc:
-            st.error(str(exc))
-        st.stop()
-    st.caption("Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.")
-    default_model = model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))
-    default_comparison = [default_model, next(name for name in BACKTEST_MODEL_OPTIONS if name != default_model)]
-    selected_models = st.multiselect("Models", tuple(sorted(BACKTEST_MODEL_OPTIONS, key=str.casefold)), default=default_comparison, key="compare_models")
-    if len(selected_models) < 2:
-        st.info("Select at least two models to compare.")
-    else:
-        try:
-            comparison_inputs = {}
-            comparison_bounds = []
-            for selected_name in selected_models:
-                selected_strategy = BACKTEST_MODEL_OPTIONS[selected_name]()
-                selected_assets = getattr(selected_strategy, "data_assets", ASSETS)
-                selected_daily = all_prices.loc[:, selected_assets]
-                selected_market_assets = getattr(selected_strategy, "market_data_assets", selected_assets)
-                selected_monthly = to_month_end(selected_daily.loc[:, list(selected_market_assets)])
-                selected_decision_prices = selected_daily if getattr(selected_strategy, "uses_daily_signals", False) else selected_monthly
-                comparison_inputs[selected_name] = ModelInput(selected_name, selected_strategy.decisions(selected_decision_prices), selected_monthly, selected_daily, getattr(selected_strategy, "benchmark_asset", "SPY"))
-                first_date, last_date = common_monthly_period(selected_monthly)
-                if first_date is None or last_date is None:
-                    raise ValueError(f"{selected_name} has no common monthly data.")
-                comparison_bounds.append((first_date, last_date))
-            if len({model.benchmark_asset for model in comparison_inputs.values()}) != 1:
-                raise ValueError("Compare only models with the same buy-and-hold benchmark. The selected models use different benchmark assets or currencies.")
-            comparison_start_min = max(first for first, _ in comparison_bounds).date()
-            comparison_end_max = min(last for _, last in comparison_bounds).date()
-            compare_start = min(max(st.session_state.get("compare_start", comparison_start_min), comparison_start_min), comparison_end_max)
-            compare_end = min(max(st.session_state.get("compare_end", comparison_end_max), comparison_start_min), comparison_end_max)
-            if compare_start > compare_end:
-                compare_start = comparison_start_min
-            with st.expander("Comparison configuration", expanded=True):
-                config_left, config_right = st.columns(2)
-                with config_left:
-                    compare_initial = st.number_input("Initial investment", min_value=1.0, value=100_000.0, step=1_000.0, key="comparison_initial")
-                    compare_cost_pct = st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, value=0.0, step=0.01, key="comparison_cost_pct") / 100
-                    compare_tax_enabled = st.toggle("Israeli capital-gains tax", value=False, key="comparison_tax_enabled")
-                    compare_tax_rate = st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, value=DEFAULT_TAX_RATE * 100, step=0.1, key="comparison_tax_rate", disabled=not compare_tax_enabled) / 100
-                with config_right:
-                    st.caption(f"Shared source-data window: {comparison_start_min} through {comparison_end_max}")
-                    compare_start = st.date_input("Comparison start (holding-period end)", value=compare_start, min_value=comparison_start_min, max_value=comparison_end_max, key="compare_start")
-                    compare_end = st.date_input("Comparison end (holding-period end)", value=compare_end, min_value=comparison_start_min, max_value=comparison_end_max, key="compare_end")
-                    if compare_start > compare_end:
-                        st.error("Comparison start must not be after comparison end.")
-                        st.stop()
-            model_comparison = compare_models(
-                comparison_inputs,
-                compare_initial,
-                compare_cost_pct,
-                compare_tax_enabled,
-                compare_tax_rate,
-                pd.Timestamp(compare_start),
-                pd.Timestamp(compare_end),
-            )
-        except ValueError as exc:
-            st.error(str(exc))
+    with workspace_results:
+        title_column.title("Compare")
+        if comparison_mode == "Portfolios":
+            try:
+                portfolios = {}
+                for i in selected_portfolio_indices:
+                    payload = library[i]
+                    sleeves, _ = backtest_portfolio_config(payload, BACKTEST_MODEL_OPTIONS)
+                    inputs = {}
+                    for sleeve in sleeves:
+                        label = sleeve["model"]
+                        model = BACKTEST_MODEL_OPTIONS[label]()
+                        currency = definition_for_label(label).execution_currency
+                        if currency != "USD": raise ValueError(f"{label}: portfolio comparison requires USD sleeves.")
+                        model_assets = getattr(model, "data_assets", ASSETS)
+                        daily = all_prices.loc[:, list(dict.fromkeys((*model_assets, "SPY")))]
+                        monthly, decision_monthly = monthly_strategy_input(daily, tuple(dict.fromkeys((*getattr(model, "market_data_assets", model_assets), "SPY"))))
+                        decision_prices = daily if getattr(model, "uses_daily_signals", False) else decision_monthly
+                        key = f"{label} ({sleeve['id']})"
+                        inputs[key] = (sleeve["weight"] / 100, ModelInput(key, model.decisions(decision_prices), monthly, daily, "SPY", execution_opens, currency))
+                    portfolios[f"{payload['name']} ({i+1})"] = inputs
+                with workspace_setup:
+                    compare_initial = st.number_input("Initial investment per portfolio (USD)", min_value=1., value=100000., key="portfolio_compare_initial")
+                    compare_fee = st.number_input("Trading fee (%)", min_value=0., max_value=10., value=0., key="portfolio_compare_fee") / 100
+                    compare_tax = st.toggle("Israeli capital-gains tax", key="portfolio_compare_tax")
+                    compare_tax_rate = st.number_input("Tax rate (%)", min_value=0., max_value=100., value=25., disabled=not compare_tax, key="portfolio_compare_tax_rate") / 100
+                preliminary = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, drift=portfolio_drift)
+                minimum, maximum = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
+                with workspace_setup:
+                    start_date = st.date_input("Compare portfolios from", value=minimum, min_value=minimum, max_value=maximum)
+                    end_date = st.date_input("Compare portfolios through", value=maximum, min_value=minimum, max_value=maximum)
+                if start_date > end_date: raise ValueError("Start must not be after end.")
+                comparison = compare_portfolios(portfolios, compare_initial, compare_fee, compare_tax, compare_tax_rate, pd.Timestamp(start_date), pd.Timestamp(end_date), portfolio_drift)
+                with workspace_setup, st.expander("Shared data coverage"):
+                    st.dataframe(comparison.available_periods, hide_index=True, use_container_width=True)
+                summary = pd.DataFrame({name: backtest_result_metrics(r, "after_tax_value" if compare_tax else "pre_tax_value", compare_initial) for name, r in comparison.results.items()})
+                first = next(iter(comparison.results.values()))
+                summary["SPY buy-and-hold"] = backtest_result_metrics(first, "benchmark_value", compare_initial)
+                add_test_dates(summary, first)
+                compare_performance, compare_risk, compare_details, compare_returns = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+                with compare_details:
+                    st.subheader("Full performance table — after tax" if compare_tax else "Full performance table — pre tax")
+                with compare_details:
+                    st.dataframe(summary.style.format("{:.2%}", subset=pd.IndexSlice[[r for r in percentage_rows if r in summary.index], :]).format("{:.2f}", subset=pd.IndexSlice[[r for r in ratio_rows + numeric_rows if r in summary.index], :]), use_container_width=True)
+                column = "after_tax_value" if compare_tax else "pre_tax_value"
+                curves = pd.DataFrame({name: (r.daily if portfolio_drift else r.monthly)[column] for name, r in comparison.results.items()})
+                curves["SPY buy-and-hold"] = (first.daily if portfolio_drift else first.monthly).benchmark_value
+                with compare_performance:
+                    render_analysis_chart(px.line(curves, title="Portfolio comparison"), use_container_width=True)
+                with compare_risk:
+                    render_analysis_chart(px.line(curves.div(curves.cummax().clip(lower=compare_initial)).sub(1), title="Drawdown"), use_container_width=True)
+                returns = pd.DataFrame({name: r.monthly["after_tax_monthly_return" if compare_tax else "pre_tax_monthly_return"] for name, r in comparison.results.items()})
+                returns["SPY buy-and-hold"] = first.monthly.benchmark_monthly_return
+                with compare_returns:
+                    st.download_button("Download portfolio comparison returns", returns.to_csv().encode(), "portfolio_comparison.csv", "text/csv")
+                st.caption("Every portfolio restarts with equal capital over the same observed dates. Fees and tax are computed independently. Tax is simplified; cross-sleeve loss offsets and terminal liquidation are not modeled in daily valuation.")
+            except (ValueError, KeyError, TypeError) as exc:
+                st.error(str(exc))
+            st.stop()
+        st.caption("Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.")
+        default_model = model_name if model_name in BACKTEST_MODEL_OPTIONS else next(iter(BACKTEST_MODEL_OPTIONS))
+        default_comparison = [default_model, next(name for name in BACKTEST_MODEL_OPTIONS if name != default_model)]
+        with workspace_setup:
+            selected_models = st.multiselect("Models", tuple(sorted(BACKTEST_MODEL_OPTIONS, key=str.casefold)), default=default_comparison, key="compare_models")
+        if len(selected_models) < 2:
+            st.info("Select at least two models to compare.")
         else:
-            st.subheader("Comparable period")
-            st.dataframe(model_comparison.available_periods, use_container_width=True)
-            st.success(f"All results below use **{model_comparison.common_index.min().date()} through {model_comparison.common_index.max().date()}** ({len(model_comparison.common_index)} complete monthly holding periods).")
-            comparison_pre = {name: performance_metrics(backtest.monthly["pre_tax_value"], compare_initial) for name, backtest in model_comparison.results.items()}
-            first_comparison = next(iter(model_comparison.results.values()))
-            comparison_benchmark_label = f"{next(iter(comparison_inputs.values())).benchmark_asset} buy-and-hold"
-            comparison_pre[comparison_benchmark_label] = performance_metrics(first_comparison.monthly["benchmark_value"], compare_initial)
-            comparison_summary = pd.DataFrame(comparison_pre)
-            comparison_years = len(model_comparison.common_index) / 12
-            for name, backtest in model_comparison.results.items():
-                changes = int(backtest.monthly["allocation_change"].sum())
-                turnover = backtest.monthly["turnover"].sum() / comparison_years if "turnover" in backtest.monthly and comparison_years else changes / comparison_years if comparison_years else 0
-                comparison_summary.loc["Allocation changes", name] = changes
-                comparison_summary.loc["Average changes/year", name] = changes / comparison_years if comparison_years else 0
-                comparison_summary.loc["Annual turnover", name] = turnover
-            st.subheader("Pre-tax results")
-            st.dataframe(comparison_summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + numeric_rows, :]), use_container_width=True)
+            try:
+                comparison_inputs = {}
+                comparison_bounds = []
+                for selected_name in selected_models:
+                    selected_strategy = BACKTEST_MODEL_OPTIONS[selected_name]()
+                    selected_assets = getattr(selected_strategy, "data_assets", ASSETS)
+                    selected_daily = all_prices.loc[:, selected_assets]
+                    selected_market_assets = getattr(selected_strategy, "market_data_assets", selected_assets)
+                    selected_monthly = to_month_end(selected_daily.loc[:, list(selected_market_assets)])
+                    selected_decision_prices = selected_daily if getattr(selected_strategy, "uses_daily_signals", False) else selected_monthly
+                    comparison_inputs[selected_name] = ModelInput(selected_name, selected_strategy.decisions(selected_decision_prices), selected_monthly, selected_daily, getattr(selected_strategy, "benchmark_asset", "SPY"))
+                    first_date, last_date = common_monthly_period(selected_monthly)
+                    if first_date is None or last_date is None:
+                        raise ValueError(f"{selected_name} has no common monthly data.")
+                    comparison_bounds.append((first_date, last_date))
+                if len({model.benchmark_asset for model in comparison_inputs.values()}) != 1:
+                    raise ValueError("Compare only models with the same buy-and-hold benchmark. The selected models use different benchmark assets or currencies.")
+                comparison_start_min = max(first for first, _ in comparison_bounds).date()
+                comparison_end_max = min(last for _, last in comparison_bounds).date()
+                compare_start = min(max(st.session_state.get("compare_start", comparison_start_min), comparison_start_min), comparison_end_max)
+                compare_end = min(max(st.session_state.get("compare_end", comparison_end_max), comparison_start_min), comparison_end_max)
+                if compare_start > compare_end:
+                    compare_start = comparison_start_min
+                with workspace_setup:
+                    config_left = st.container()
+                    config_right = st.container()
+                    with config_left:
+                        compare_initial = st.number_input("Initial investment", min_value=1.0, value=100_000.0, step=1_000.0, key="comparison_initial")
+                        compare_cost_pct = st.number_input("Transaction cost per entry/change (%)", min_value=0.0, max_value=10.0, value=0.0, step=0.01, key="comparison_cost_pct") / 100
+                        compare_tax_enabled = st.toggle("Israeli capital-gains tax", value=False, key="comparison_tax_enabled")
+                        compare_tax_rate = st.number_input("Tax rate (%)", min_value=0.0, max_value=100.0, value=DEFAULT_TAX_RATE * 100, step=0.1, key="comparison_tax_rate", disabled=not compare_tax_enabled) / 100
+                    with config_right:
+                        st.caption(f"Shared source-data window: {comparison_start_min} through {comparison_end_max}")
+                        compare_start = st.date_input("Comparison start (holding-period end)", value=compare_start, min_value=comparison_start_min, max_value=comparison_end_max, key="compare_start")
+                        compare_end = st.date_input("Comparison end (holding-period end)", value=compare_end, min_value=comparison_start_min, max_value=comparison_end_max, key="compare_end")
+                        if compare_start > compare_end:
+                            st.error("Comparison start must not be after comparison end.")
+                            st.stop()
+                model_comparison = compare_models(
+                    comparison_inputs,
+                    compare_initial,
+                    compare_cost_pct,
+                    compare_tax_enabled,
+                    compare_tax_rate,
+                    pd.Timestamp(compare_start),
+                    pd.Timestamp(compare_end),
+                )
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                with workspace_setup, st.expander("Shared data coverage"):
+                    st.dataframe(model_comparison.available_periods, use_container_width=True)
+                st.success(f"All results below use **{model_comparison.common_index.min().date()} through {model_comparison.common_index.max().date()}** ({len(model_comparison.common_index)} complete monthly holding periods).")
+                comparison_pre = {name: performance_metrics(backtest.monthly["pre_tax_value"], compare_initial) for name, backtest in model_comparison.results.items()}
+                first_comparison = next(iter(model_comparison.results.values()))
+                comparison_benchmark_label = f"{next(iter(comparison_inputs.values())).benchmark_asset} buy-and-hold"
+                comparison_pre[comparison_benchmark_label] = performance_metrics(first_comparison.monthly["benchmark_value"], compare_initial)
+                comparison_summary = pd.DataFrame(comparison_pre)
+                comparison_years = len(model_comparison.common_index) / 12
+                for name, backtest in model_comparison.results.items():
+                    changes = int(backtest.monthly["allocation_change"].sum())
+                    turnover = backtest.monthly["turnover"].sum() / comparison_years if "turnover" in backtest.monthly and comparison_years else changes / comparison_years if comparison_years else 0
+                    comparison_summary.loc["Allocation changes", name] = changes
+                    comparison_summary.loc["Average changes/year", name] = changes / comparison_years if comparison_years else 0
+                    comparison_summary.loc["Annual turnover", name] = turnover
+                compare_performance, compare_risk, compare_details, compare_returns = st.tabs(["Performance", "Drawdown", "Details", "Returns"])
+                with compare_details:
+                    st.subheader("Pre-tax results")
+                with compare_details:
+                    st.dataframe(comparison_summary.style.format("{:.2%}", subset=pd.IndexSlice[percentage_rows, :]).format("{:.2f}", subset=pd.IndexSlice[[row for row in ratio_rows + numeric_rows if row in comparison_summary.index], :]), use_container_width=True)
 
-            pre_curves = pd.DataFrame({name: backtest.monthly["pre_tax_value"] for name, backtest in model_comparison.results.items()})
-            pre_curves[comparison_benchmark_label] = first_comparison.monthly["benchmark_value"]
-            st.plotly_chart(px.line(pre_curves, title="Pre-tax equity curves"), use_container_width=True)
-            st.plotly_chart(px.line(pre_curves.div(pre_curves.cummax()).sub(1), title="Monthly drawdown"), use_container_width=True)
-            annual_comparison = pd.DataFrame({name: annual_returns(backtest.monthly["pre_tax_monthly_return"]) for name, backtest in model_comparison.results.items()})
-            annual_comparison[comparison_benchmark_label] = annual_returns(first_comparison.monthly["benchmark_monthly_return"])
-            st.subheader("Annual returns")
-            st.dataframe(annual_comparison.style.format("{:.2%}"), use_container_width=True)
-            monthly_comparison = pd.DataFrame({name: backtest.monthly["pre_tax_monthly_return"] for name, backtest in model_comparison.results.items()})
-            monthly_comparison[comparison_benchmark_label] = first_comparison.monthly["benchmark_monthly_return"]
-            st.subheader("Monthly returns")
-            st.dataframe(monthly_comparison.style.format("{:.2%}"), use_container_width=True)
-            st.download_button("Download common-period monthly returns CSV", monthly_comparison.to_csv().encode("utf-8"), "haa_model_comparison_monthly_returns.csv", "text/csv", key="comparison_monthly_download")
+                pre_curves = pd.DataFrame({name: backtest.monthly["pre_tax_value"] for name, backtest in model_comparison.results.items()})
+                pre_curves[comparison_benchmark_label] = first_comparison.monthly["benchmark_value"]
+                with compare_performance:
+                    render_analysis_chart(px.line(pre_curves, title="Pre-tax equity curves"), use_container_width=True)
+                with compare_risk:
+                    render_analysis_chart(px.line(pre_curves.div(pre_curves.cummax()).sub(1), title="Monthly drawdown"), use_container_width=True)
+                annual_comparison = pd.DataFrame({name: annual_returns(backtest.monthly["pre_tax_monthly_return"]) for name, backtest in model_comparison.results.items()})
+                annual_comparison[comparison_benchmark_label] = annual_returns(first_comparison.monthly["benchmark_monthly_return"])
+                with compare_returns:
+                    st.subheader("Annual returns")
+                with compare_returns:
+                    st.dataframe(annual_comparison.style.format("{:.2%}"), use_container_width=True)
+                monthly_comparison = pd.DataFrame({name: backtest.monthly["pre_tax_monthly_return"] for name, backtest in model_comparison.results.items()})
+                monthly_comparison[comparison_benchmark_label] = first_comparison.monthly["benchmark_monthly_return"]
+                with compare_returns:
+                    st.subheader("Monthly returns")
+                with compare_returns:
+                    st.dataframe(monthly_comparison.style.format("{:.2%}"), use_container_width=True)
+                with compare_returns:
+                    st.download_button("Download common-period monthly returns CSV", monthly_comparison.to_csv().encode("utf-8"), "haa_model_comparison_monthly_returns.csv", "text/csv", key="comparison_monthly_download")
 
-            if compare_tax_enabled:
-                after_summary = pd.DataFrame({name: performance_metrics(backtest.monthly["after_tax_value"], compare_initial) for name, backtest in model_comparison.results.items()})
-                st.subheader("After-tax results")
-                st.dataframe(after_summary.style.format("{:.2%}", subset=pd.IndexSlice[["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month"], :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + ["Final value"], :]), use_container_width=True)
-                after_curves = pd.DataFrame({name: backtest.monthly["after_tax_value"] for name, backtest in model_comparison.results.items()})
-                st.plotly_chart(px.line(after_curves, title="After-tax equity curves"), use_container_width=True)
-                after_annual = pd.DataFrame({name: annual_returns(backtest.monthly["after_tax_monthly_return"]) for name, backtest in model_comparison.results.items()})
-                st.subheader("After-tax annual returns")
-                st.dataframe(after_annual.style.format("{:.2%}"), use_container_width=True)
-                after_monthly = pd.DataFrame({name: backtest.monthly["after_tax_monthly_return"] for name, backtest in model_comparison.results.items()})
-                st.subheader("After-tax monthly returns")
-                st.dataframe(after_monthly.style.format("{:.2%}"), use_container_width=True)
-                st.download_button("Download common-period after-tax monthly returns CSV", after_monthly.to_csv().encode("utf-8"), "haa_model_comparison_after_tax_monthly_returns.csv", "text/csv", key="comparison_after_tax_monthly_download")
+                if compare_tax_enabled:
+                    after_summary = pd.DataFrame({name: performance_metrics(backtest.monthly["after_tax_value"], compare_initial) for name, backtest in model_comparison.results.items()})
+                    with compare_details:
+                        st.subheader("After-tax results")
+                    with compare_details:
+                        st.dataframe(after_summary.style.format("{:.2%}", subset=pd.IndexSlice[["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month"], :]).format("{:.2f}", subset=pd.IndexSlice[ratio_rows + ["Final value"], :]), use_container_width=True)
+                    after_curves = pd.DataFrame({name: backtest.monthly["after_tax_value"] for name, backtest in model_comparison.results.items()})
+                    with compare_performance:
+                        render_analysis_chart(px.line(after_curves, title="After-tax equity curves"), use_container_width=True)
+                    after_annual = pd.DataFrame({name: annual_returns(backtest.monthly["after_tax_monthly_return"]) for name, backtest in model_comparison.results.items()})
+                    with compare_returns:
+                        st.subheader("After-tax annual returns")
+                    with compare_returns:
+                        st.dataframe(after_annual.style.format("{:.2%}"), use_container_width=True)
+                    after_monthly = pd.DataFrame({name: backtest.monthly["after_tax_monthly_return"] for name, backtest in model_comparison.results.items()})
+                    with compare_returns:
+                        st.subheader("After-tax monthly returns")
+                    with compare_returns:
+                        st.dataframe(after_monthly.style.format("{:.2%}"), use_container_width=True)
+                    with compare_returns:
+                        st.download_button("Download common-period after-tax monthly returns CSV", after_monthly.to_csv().encode("utf-8"), "haa_model_comparison_after_tax_monthly_returns.csv", "text/csv", key="comparison_after_tax_monthly_download")
 
-            st.subheader("Latest allocation in the shared period")
-            allocation_rows = []
-            for name, backtest in model_comparison.results.items():
-                latest = backtest.monthly.iloc[-1]
-                weights = latest.get("target_weights")
-                allocation = ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()) if isinstance(weights, dict) else latest["selected_asset"]
-                allocation_rows.append({"model": name, "signal_date": latest["signal_date"], "regime": latest["regime"], "target allocation": allocation})
-            st.dataframe(pd.DataFrame(allocation_rows).set_index("model"), use_container_width=True)
-            st.subheader("Model audit downloads")
-            for name, backtest in model_comparison.results.items():
-                st.download_button(f"Download {name} common-period audit CSV", backtest.audit.to_csv().encode("utf-8"), f"{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_comparison_audit.csv", "text/csv", key=f"comparison_audit_{name}")
+                with compare_details:
+                    st.subheader("Latest allocation in the shared period")
+                    allocation_rows = []
+                    for name, backtest in model_comparison.results.items():
+                        latest = backtest.monthly.iloc[-1]
+                        weights = latest.get("target_weights")
+                        allocation = ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()) if isinstance(weights, dict) else latest["selected_asset"]
+                        allocation_rows.append({"model": name, "signal_date": latest["signal_date"], "regime": latest["regime"], "target allocation": allocation})
+                    st.dataframe(pd.DataFrame(allocation_rows).set_index("model"), use_container_width=True)
+                    st.subheader("Model audit downloads")
+                    for name, backtest in model_comparison.results.items():
+                        st.download_button(f"Download {name} common-period audit CSV", backtest.audit.to_csv().encode("utf-8"), f"{name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_comparison_audit.csv", "text/csv", key=f"comparison_audit_{name}")
 
 if page == "Signals":
-    signal_model_name = model_name
-    signal_strategy = MODEL_OPTIONS[signal_model_name]()
-    if hasattr(signal_strategy, "risk_warning") and getattr(signal_strategy, "execution_frequency", "monthly") != "daily":
-        st.warning(signal_strategy.risk_warning)
-    signal_definition = definition_for_label(signal_model_name)
-    signal_execution_currency = signal_definition.execution_currency
-    signal_data_assets = getattr(signal_strategy, "data_assets", ASSETS)
-    signal_momentum_assets = getattr(signal_strategy, "signal_assets", signal_data_assets)
-    signal_prices = all_prices.loc[:, signal_data_assets]
-    signal_market_assets = getattr(signal_strategy, "market_data_assets", signal_data_assets)
-    signal_monthly, signal_monthly_input = monthly_strategy_input(signal_prices, signal_market_assets)
-    signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly_input
-    try:
-        signal_decisions = signal_strategy.decisions(signal_decision_prices)
-    except ValueError as exc:
-        st.error(str(exc))
-        st.stop()
-    is_daily_execution = getattr(signal_strategy, "execution_frequency", "monthly") == "daily"
-    signal_status = latest_actionable_signal(signal_decisions, signal_prices if is_daily_execution else signal_monthly, signal_market_assets)
-    preview_status = None
-    if signal_definition.strategy_mode != "buy_and_hold" and not is_daily_execution:
-        preview_monthly, preview_price_as_of, preview_reason = month_to_date_snapshot(
-            signal_monthly, signal_prices, signal_market_assets
-        )
-        if preview_reason is not None:
-            preview_status = latest_preview_signal(pd.DataFrame(), preview_price_as_of)
-        elif getattr(signal_strategy, "uses_daily_signals", False):
-            preview_decisions = signal_strategy.decisions(
-                signal_prices.loc[:preview_price_as_of], include_current_month=True
+    with workspace_results:
+        signal_model_name = model_name
+        signal_strategy = MODEL_OPTIONS[signal_model_name]()
+        if hasattr(signal_strategy, "risk_warning") and getattr(signal_strategy, "execution_frequency", "monthly") != "daily":
+            st.warning(signal_strategy.risk_warning)
+        signal_definition = definition_for_label(signal_model_name)
+        signal_execution_currency = signal_definition.execution_currency
+        signal_data_assets = getattr(signal_strategy, "data_assets", ASSETS)
+        signal_momentum_assets = getattr(signal_strategy, "signal_assets", signal_data_assets)
+        signal_prices = all_prices.loc[:, signal_data_assets]
+        signal_market_assets = getattr(signal_strategy, "market_data_assets", signal_data_assets)
+        signal_monthly, signal_monthly_input = monthly_strategy_input(signal_prices, signal_market_assets)
+        signal_decision_prices = signal_prices if getattr(signal_strategy, "uses_daily_signals", False) else signal_monthly_input
+        try:
+            signal_decisions = signal_strategy.decisions(signal_decision_prices)
+        except ValueError as exc:
+            st.error(str(exc))
+            st.stop()
+        is_daily_execution = getattr(signal_strategy, "execution_frequency", "monthly") == "daily"
+        signal_status = latest_actionable_signal(signal_decisions, signal_prices if is_daily_execution else signal_monthly, signal_market_assets)
+        preview_status = None
+        if signal_definition.strategy_mode != "buy_and_hold" and not is_daily_execution:
+            preview_monthly, preview_price_as_of, preview_reason = month_to_date_snapshot(
+                signal_monthly, signal_prices, signal_market_assets
             )
-            preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
-        else:
-            preview_input = preview_monthly.join(
-                signal_prices.drop(columns=list(signal_market_assets), errors="ignore").reindex(preview_monthly.index, method="ffill")
-            )
-            preview_decisions = signal_strategy.decisions(preview_input)
-            preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
-    if is_daily_execution:
-        title_column.title(daily_signal_heading(signal_status.decision))
-        local_daily = signal_decisions.attrs.get("local_daily_execution", False)
-        title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-{'close/NAV' if local_daily else 'open'} execution")
-        st.warning(signal_strategy.risk_warning)
-        if signal_status.decision is None:
+            if preview_reason is not None:
+                preview_status = latest_preview_signal(pd.DataFrame(), preview_price_as_of)
+            elif getattr(signal_strategy, "uses_daily_signals", False):
+                preview_decisions = signal_strategy.decisions(
+                    signal_prices.loc[:preview_price_as_of], include_current_month=True
+                )
+                preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
+            else:
+                preview_input = preview_monthly.join(
+                    signal_prices.drop(columns=list(signal_market_assets), errors="ignore").reindex(preview_monthly.index, method="ffill")
+                )
+                preview_decisions = signal_strategy.decisions(preview_input)
+                preview_status = latest_preview_signal(preview_decisions, preview_price_as_of)
+        if is_daily_execution:
+            title_column.title(daily_signal_heading(signal_status.decision))
+            local_daily = signal_decisions.attrs.get("local_daily_execution", False)
+            title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-{'close/NAV' if local_daily else 'open'} execution")
+            st.warning(signal_strategy.risk_warning)
+            if signal_status.decision is None:
+                st.error(signal_status.reason)
+            else:
+                signal = signal_status.decision
+                st.dataframe(pd.DataFrame([{"Decision date": signal.decision_date.date(),
+                    "Execution date (scheduled close/NAV)" if local_daily else "Execution date (scheduled open)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
+                    "State transition": signal.transition_reason, "RVol": signal.rvol,
+                    "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
+                    "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
+                st.caption("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local_daily else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
+            daily_history_view, daily_data_view = st.tabs(["History", "Data"])
+            with daily_history_view:
+                date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]
+                history_columns = date_columns + [column for column in signal_decisions.columns if column not in date_columns]
+                st.dataframe(signal_decisions.loc[:, history_columns].sort_index(ascending=False), use_container_width=True)
+                st.download_button("Download daily signal history CSV", signal_decisions.to_csv().encode("utf-8"), "rvol_shifter_daily_signals.csv", "text/csv")
+            with daily_data_view:
+                st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
+            st.stop()
+        if signal_definition.strategy_mode == "buy_and_hold":
+            title_column.title(signal_model_name)
+            title_column.caption("Continuous holding · no app-generated timing signal")
+            if signal_status.decision is None:
+                st.error(signal_status.reason)
+            elif signal_model_name == "TA-125 Smart Momentum":
+                st.dataframe(pd.DataFrame([{
+                    "Current allocation": "100% TA-125 Smart Momentum (5134713)",
+                    "External signal": "None — Buy & Hold",
+                    "Internal strategy": "Momentum weighting handled by the underlying index",
+                }]), use_container_width=True, hide_index=True)
+                st.info("This fund is held continuously. The TA-125 Smart Momentum index performs its own momentum selection and reweighting; the app does not produce BUY, SELL, or CASH timing instructions.")
+                st.caption("Fund 5134713 uses public TASE/Maya history only. No synthetic or pre-fund history is used; Backtest and Compare begin at the actual available fund history.")
+            else:
+                holding = execution_security_label(str(signal_status.decision["selected_asset"]), signal_execution_currency)
+                st.dataframe(pd.DataFrame([{
+                    "Current allocation": f"100% {holding}",
+                    "External signal": "None — Buy & Hold",
+                    "Implementation": f"Continuous {holding} holding",
+                }]), use_container_width=True, hide_index=True)
+                st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
+                st.caption("Backtest and Compare use the actual available security history.")
+        elif signal_status.decision is None:
+            title_column.title("Signal")
+            title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
             st.error(signal_status.reason)
         else:
             signal = signal_status.decision
-            st.dataframe(pd.DataFrame([{"Decision date": signal.decision_date.date(),
-                "Execution date (scheduled close/NAV)" if local_daily else "Execution date (scheduled open)": signal.scheduled_execution_date.date(), "Target": signal.selected_asset,
-                "State transition": signal.transition_reason, "RVol": signal.rvol,
-                "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
-                "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
-            st.caption("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local_daily else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
-        with st.expander("Daily signal history"):
-            date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]
-            history_columns = date_columns + [column for column in signal_decisions.columns if column not in date_columns]
-            st.dataframe(signal_decisions.loc[:, history_columns].sort_index(ascending=False), use_container_width=True)
-            st.download_button("Download daily signal history CSV", signal_decisions.to_csv().encode("utf-8"), "rvol_shifter_daily_signals.csv", "text/csv")
-        st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
-        st.stop()
-    if signal_definition.strategy_mode == "buy_and_hold":
-        title_column.title(signal_model_name)
-        title_column.caption("Continuous holding · no app-generated timing signal")
-        if signal_status.decision is None:
-            st.error(signal_status.reason)
-        elif signal_model_name == "TA-125 Smart Momentum":
-            st.dataframe(pd.DataFrame([{
-                "Current allocation": "100% TA-125 Smart Momentum (5134713)",
-                "External signal": "None — Buy & Hold",
-                "Internal strategy": "Momentum weighting handled by the underlying index",
-            }]), use_container_width=True, hide_index=True)
-            st.info("This fund is held continuously. The TA-125 Smart Momentum index performs its own momentum selection and reweighting; the app does not produce BUY, SELL, or CASH timing instructions.")
-            st.caption("Fund 5134713 uses public TASE/Maya history only. No synthetic or pre-fund history is used; Backtest and Compare begin at the actual available fund history.")
-        else:
-            holding = execution_security_label(str(signal_status.decision["selected_asset"]), signal_execution_currency)
-            st.dataframe(pd.DataFrame([{
-                "Current allocation": f"100% {holding}",
-                "External signal": "None — Buy & Hold",
-                "Implementation": f"Continuous {holding} holding",
-            }]), use_container_width=True, hide_index=True)
-            st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
-            st.caption("Backtest and Compare use the actual available security history.")
-    elif signal_status.decision is None:
-        title_column.title("Signal")
-        title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
-        st.error(signal_status.reason)
-    else:
-        signal = signal_status.decision
-        signal_date = pd.Timestamp(signal.name)
-        effective_start = first_trading_day_after(signal_prices, signal_date, execution_assets(signal))
-        previous = signal["previous_asset"] if pd.notna(signal["previous_asset"]) else "No prior allocation"
-        weights = signal.get("target_weights", {signal["selected_asset"]: 1.0})
-        if getattr(signal_strategy, "is_multi_asset", False):
-            action = "Hold allocation" if not bool(signal["trade"]) else ("Establish allocation" if previous == "No prior allocation" else "Rebalance allocation")
-            target_allocation = display_allocation(weights, signal_execution_currency)
-        else:
-            selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
-            previous_security = execution_security_label(str(previous), signal_execution_currency) if previous != "No prior allocation" else previous
-            action = "Hold" if not bool(signal["trade"]) else (f"Buy {selected_security}" if previous == "No prior allocation" else f"Switch {previous_security} → {selected_security}")
-            target_allocation = f"100% {selected_security}"
-        title_column.title(f"Signal - {target_allocation}")
-        title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
-        signal_summary = pd.DataFrame([{
-            "signal date": signal_date.date().isoformat(),
-            "regime": str(signal["regime"]).replace("-", " ").title(),
-            "instruction": action,
-            "target allocation": target_allocation,
-        }])
-        st.dataframe(signal_summary.style.set_properties(**{"background-color": "#fff3cd"}), use_container_width=True, hide_index=True)
-        if effective_start is not None:
-            st.info(f"Effective holding period: **{effective_start.date()}** until the next month-end decision.")
-        else:
-            st.warning("No later trading observation is available yet, so an effective start date cannot be shown.")
-        with st.expander("Next month preview (provisional)", expanded=False):
-            if preview_status is None or preview_status.decision is None:
-                st.info("No preview is available yet because a common current-month price row is not available.")
+            signal_date = pd.Timestamp(signal.name)
+            effective_start = first_trading_day_after(signal_prices, signal_date, execution_assets(signal))
+            previous = signal["previous_asset"] if pd.notna(signal["previous_asset"]) else "No prior allocation"
+            weights = signal.get("target_weights", {signal["selected_asset"]: 1.0})
+            if getattr(signal_strategy, "is_multi_asset", False):
+                action = "Hold allocation" if not bool(signal["trade"]) else ("Establish allocation" if previous == "No prior allocation" else "Rebalance allocation")
+                target_allocation = display_allocation(weights, signal_execution_currency)
             else:
-                preview = preview_status.decision
-                preview_weights = preview.get("target_weights", {preview["selected_asset"]: 1.0})
-                if getattr(signal_strategy, "is_multi_asset", False):
-                    preview_allocation = display_allocation(preview_weights, signal_execution_currency)
+                selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
+                previous_security = execution_security_label(str(previous), signal_execution_currency) if previous != "No prior allocation" else previous
+                action = "Hold" if not bool(signal["trade"]) else (f"Buy {selected_security}" if previous == "No prior allocation" else f"Switch {previous_security} → {selected_security}")
+                target_allocation = f"100% {selected_security}"
+            title_column.title("Signals")
+            title_column.caption(f"Model: {signal_model_name} · Completed month-end signal")
+            signal_summary = pd.DataFrame([{
+                "signal date": signal_date.date().isoformat(),
+                "regime": str(signal["regime"]).replace("-", " ").title(),
+                "instruction": action,
+                "target allocation": target_allocation,
+            }])
+            with st.container(key="signal-current-allocation"):
+                st.caption("CURRENT ALLOCATION")
+                st.markdown(f"### {target_allocation}")
+                signal_date_column, regime_column = st.columns(2)
+                signal_date_column.metric("Signal date", signal_date.date().isoformat())
+                regime_column.metric("Regime", str(signal["regime"]).replace("-", " ").title())
+                st.markdown(f"**{action}**")
+            signal_overview, signal_inputs, signal_history_view, signal_data_view = st.tabs(["Overview", "Rationale", "History", "Data"])
+            with signal_overview, st.expander("Signal summary"):
+                st.dataframe(signal_summary, use_container_width=True, hide_index=True)
+            if effective_start is not None:
+                st.info(f"Effective holding period: **{effective_start.date()}** until the next month-end decision.")
+            else:
+                st.warning("No later trading observation is available yet, so an effective start date cannot be shown.")
+            with signal_overview, st.expander("Next month preview (provisional)", expanded=False):
+                if preview_status is None or preview_status.decision is None:
+                    st.info("No preview is available yet because a common current-month price row is not available.")
                 else:
-                    preview_allocation = f"100% {execution_security_label(preview['selected_asset'], signal_execution_currency)}"
-                current_weights = weights if isinstance(weights, dict) else {signal["selected_asset"]: 1.0}
-                changed = preview_weights != current_weights
-                st.warning(
-                    "**Provisional only — not a trading instruction.** This estimates the next month-end decision "
-                    f"from prices available through **{preview_status.price_as_of.date()}**. It can change before month-end."
-                )
-                st.dataframe(pd.DataFrame([{
-                    "price data through": preview_status.price_as_of.date().isoformat(),
-                    "projected regime": str(preview["regime"]).replace("-", " ").title(),
-                    "projected allocation": preview_allocation,
-                    "change vs current signal": "Yes" if changed else "No",
-                }]), use_container_width=True, hide_index=True)
-                st.caption("The official signal remains the completed month-end decision above. This preview uses the latest common trading-day close in the current month and does not assume a future close.")
-        st.subheader("Why this allocation")
-        if isinstance(signal_strategy, (HAA4, HAA4Leveraged2x)):
-            if signal["regime"] == "risk-off":
-                holding = signal["selected_asset"] if isinstance(signal_strategy, HAA4Leveraged2x) else signal["defensive_winner"]
-                st.write(f"TIP 13612U momentum is not positive, so the model holds 100% of the higher-momentum defensive asset: {holding}.")
-            elif signal["replaced_offensive_assets"]:
-                mapped = f" Final holdings: {signal['mapped_holding_assets']}." if isinstance(signal_strategy, HAA4Leveraged2x) else ""
-                st.write(f"TIP 13612U momentum is positive, so the model selected {signal['selected_offensive_assets']}. The non-positive sleeve(s) {signal['replaced_offensive_assets']} were replaced with {signal['defensive_winner']}.{mapped}")
-            else:
-                holdings = signal["mapped_holding_assets"] if isinstance(signal_strategy, HAA4Leveraged2x) else signal["selected_offensive_assets"]
-                st.write(f"TIP 13612U momentum is positive and both selected offensive assets are positive, so the model holds {holdings} at 50% each.")
-        elif isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)):
-            st.write(f"Growth is {'up' if signal['growth_up'] else 'down'} and inflation is {'on' if signal['inflation_on'] else 'off'}, producing the {signal['regime'].replace('-', ' ')} allocation.")
-        elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
-            st.write(f"Growth is {'high' if signal['growth_up'] else 'low'} because SPY is {'above' if signal['growth_up'] else 'at or below'} its 200-day SMA. Inflation is {'high' if signal['inflation_on'] else 'low'} because the sector ratio is {'above' if signal['inflation_on'] else 'at or below'} its 200-day SMA, producing the {signal['regime']} allocation.")
-            if isinstance(signal_strategy, GrowthInflationConcentratedIsrael):
-                st.caption("The regime is calculated from U.S. market data; the displayed allocation is the corresponding TASE-listed ILS execution security.")
-        elif isinstance(signal_strategy, VAAG4):
-            if signal["regime"] == "risk-on":
-                st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
-            else:
-                st.write(f"{signal['breadth_bad_count']} offensive asset(s) have non-positive 13612W momentum. With B=1, breadth protection is active and VAA holds the best defensive asset: {signal['defensive_winner']}.")
-        elif isinstance(signal_strategy, BAAG4Aggressive):
-            if signal["regime"] == "risk-on":
-                st.write(f"All four canaries have positive 13612W momentum, so BAA holds the highest-ranked offensive asset: {signal['selected_asset']}.")
-            elif signal["bil_replacements"]:
-                st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA selected the top three defensive assets. {signal['bil_replacements']} ranked below BIL and were replaced with BIL.")
-            else:
-                st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA holds the top three defensive assets: {signal['selected_asset']}.")
-        elif isinstance(signal_strategy, GEM):
-            source_holding = signal.get("signal_selected_asset", signal["selected_asset"])
-            if signal["regime"] == "risk-off":
-                st.write("SPY's completed 12-month return is at or below BIL's, so GEM holds aggregate bonds.")
-            elif source_holding == "SPY":
-                st.write("SPY's completed 12-month return is above BIL's and at least VEU's, so GEM holds U.S. equities.")
-            else:
-                st.write("SPY's completed 12-month return is above BIL's, but VEU has the higher relative return, so GEM holds international equities.")
-        elif isinstance(signal_strategy, GGCEMLinkOriginal):
-            source = signal.get("macro_source")
-            if signal["risk_on"]:
-                st.write(f"{source} set a risk-on regime. The model then selected the stronger 12-month equity leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
-            else:
-                st.write(f"{source} set a risk-off regime. The model then selected the stronger 12-month defensive leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
-        elif isinstance(signal_strategy, OrthogonalAlpha):
-            if signal["satellite_asset"] == "BTAL":
-                st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
-            else:
-                st.write("BTAL's blended 1/3/6/12-month momentum is at or below BIL's, so the 50% satellite holds QLD alongside the permanent 25% QLD / 25% BTAL core.")
-        elif isinstance(signal_strategy, (CenturyMomentum, CenturyMomentumIsrael)):
-            comparison = "above" if signal["trend_up"] else "at or below"
-            st.write(f"{signal_strategy.equity_asset}'s completed month-end close is {comparison} its 10-month SMA, so Century Momentum holds {execution_security_label(signal['selected_asset'], signal_execution_currency)}.")
-        elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
-            if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
-                st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
-            else:
-                st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum offensive assets: {signal['selected_assets']}.")
-        elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)):
-            if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
-                st.write(f"TIP 13612U momentum is not positive, so the model compares 1x IEF and BIL momentum and holds the mapped defensive asset: {signal['selected_asset']}.")
-            else:
-                st.write(f"TIP 13612U momentum is not positive, so the model selects the higher-momentum defensive asset: {signal['selected_asset']}.")
-        elif isinstance(signal_strategy, HAASimpleIsrael) and signal["regime"] == "risk-on":
-            st.write("TIP and CSPX_IL 13612U momentum are both strictly positive, so the model selects CSPX — 1159250.")
-        elif isinstance(signal_strategy, HAASimpleIsrael):
-            selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
-            st.write(f"At least one of TIP or CSPX_IL 13612U momentum is not positive, so the model selects the higher-momentum Israeli defensive security: {selected_security}.")
-        elif signal["regime"] == "risk-on":
-            holding = "SSO" if isinstance(signal_strategy, HAASimpleLeveraged2x) else "SPY"
-            st.write(f"SPY and TIP 13612U momentum are both strictly positive, so the model selects {holding}.")
+                    preview = preview_status.decision
+                    preview_weights = preview.get("target_weights", {preview["selected_asset"]: 1.0})
+                    if getattr(signal_strategy, "is_multi_asset", False):
+                        preview_allocation = display_allocation(preview_weights, signal_execution_currency)
+                    else:
+                        preview_allocation = f"100% {execution_security_label(preview['selected_asset'], signal_execution_currency)}"
+                    current_weights = weights if isinstance(weights, dict) else {signal["selected_asset"]: 1.0}
+                    changed = preview_weights != current_weights
+                    st.warning(
+                        "**Provisional only — not a trading instruction.** This estimates the next month-end decision "
+                        f"from prices available through **{preview_status.price_as_of.date()}**. It can change before month-end."
+                    )
+                    st.dataframe(pd.DataFrame([{
+                        "price data through": preview_status.price_as_of.date().isoformat(),
+                        "projected regime": str(preview["regime"]).replace("-", " ").title(),
+                        "projected allocation": preview_allocation,
+                        "change vs current signal": "Yes" if changed else "No",
+                    }]), use_container_width=True, hide_index=True)
+                    st.caption("The official signal remains the completed month-end decision above. This preview uses the latest common trading-day close in the current month and does not assume a future close.")
+            with signal_inputs:
+                st.subheader("Why this allocation")
+                if isinstance(signal_strategy, (HAA4, HAA4Leveraged2x)):
+                    if signal["regime"] == "risk-off":
+                        holding = signal["selected_asset"] if isinstance(signal_strategy, HAA4Leveraged2x) else signal["defensive_winner"]
+                        st.write(f"TIP 13612U momentum is not positive, so the model holds 100% of the higher-momentum defensive asset: {holding}.")
+                    elif signal["replaced_offensive_assets"]:
+                        mapped = f" Final holdings: {signal['mapped_holding_assets']}." if isinstance(signal_strategy, HAA4Leveraged2x) else ""
+                        st.write(f"TIP 13612U momentum is positive, so the model selected {signal['selected_offensive_assets']}. The non-positive sleeve(s) {signal['replaced_offensive_assets']} were replaced with {signal['defensive_winner']}.{mapped}")
+                    else:
+                        holdings = signal["mapped_holding_assets"] if isinstance(signal_strategy, HAA4Leveraged2x) else signal["selected_offensive_assets"]
+                        st.write(f"TIP 13612U momentum is positive and both selected offensive assets are positive, so the model holds {holdings} at 50% each.")
+                elif isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)):
+                    st.write(f"Growth is {'up' if signal['growth_up'] else 'down'} and inflation is {'on' if signal['inflation_on'] else 'off'}, producing the {signal['regime'].replace('-', ' ')} allocation.")
+                elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+                    st.write(f"Growth is {'high' if signal['growth_up'] else 'low'} because SPY is {'above' if signal['growth_up'] else 'at or below'} its 200-day SMA. Inflation is {'high' if signal['inflation_on'] else 'low'} because the sector ratio is {'above' if signal['inflation_on'] else 'at or below'} its 200-day SMA, producing the {signal['regime']} allocation.")
+                    if isinstance(signal_strategy, GrowthInflationConcentratedIsrael):
+                        st.caption("The regime is calculated from U.S. market data; the displayed allocation is the corresponding TASE-listed ILS execution security.")
+                elif isinstance(signal_strategy, VAAG4):
+                    if signal["regime"] == "risk-on":
+                        st.write(f"All four offensive assets have positive 13612W momentum, so VAA holds the highest-scoring offensive asset: {signal['offensive_winner']}.")
+                    else:
+                        st.write(f"{signal['breadth_bad_count']} offensive asset(s) have non-positive 13612W momentum. With B=1, breadth protection is active and VAA holds the best defensive asset: {signal['defensive_winner']}.")
+                elif isinstance(signal_strategy, BAAG4Aggressive):
+                    if signal["regime"] == "risk-on":
+                        st.write(f"All four canaries have positive 13612W momentum, so BAA holds the highest-ranked offensive asset: {signal['selected_asset']}.")
+                    elif signal["bil_replacements"]:
+                        st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA selected the top three defensive assets. {signal['bil_replacements']} ranked below BIL and were replaced with BIL.")
+                    else:
+                        st.write(f"{signal['breadth_bad_count']} canary asset(s) have non-positive 13612W momentum, so BAA holds the top three defensive assets: {signal['selected_asset']}.")
+                elif isinstance(signal_strategy, GEM):
+                    source_holding = signal.get("signal_selected_asset", signal["selected_asset"])
+                    if signal["regime"] == "risk-off":
+                        st.write("SPY's completed 12-month return is at or below BIL's, so GEM holds aggregate bonds.")
+                    elif source_holding == "SPY":
+                        st.write("SPY's completed 12-month return is above BIL's and at least VEU's, so GEM holds U.S. equities.")
+                    else:
+                        st.write("SPY's completed 12-month return is above BIL's, but VEU has the higher relative return, so GEM holds international equities.")
+                elif isinstance(signal_strategy, GGCEMLinkOriginal):
+                    source = signal.get("macro_source")
+                    if signal["risk_on"]:
+                        st.write(f"{source} set a risk-on regime. The model then selected the stronger 12-month equity leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
+                    else:
+                        st.write(f"{source} set a risk-off regime. The model then selected the stronger 12-month defensive leg: {signal.get('signal_selected_asset', signal['selected_asset'])}.")
+                elif isinstance(signal_strategy, OrthogonalAlpha):
+                    if signal["satellite_asset"] == "BTAL":
+                        st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
+                    else:
+                        st.write("BTAL's blended 1/3/6/12-month momentum is at or below BIL's, so the 50% satellite holds QLD alongside the permanent 25% QLD / 25% BTAL core.")
+                elif isinstance(signal_strategy, (CenturyMomentum, CenturyMomentumIsrael)):
+                    comparison = "above" if signal["trend_up"] else "at or below"
+                    st.write(f"{signal_strategy.equity_asset}'s completed month-end close is {comparison} its 10-month SMA, so Century Momentum holds {execution_security_label(signal['selected_asset'], signal_execution_currency)}.")
+                elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)) and signal["regime"] == "risk-on":
+                    if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
+                        st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum 1x underlyings ({signal['selected_underlying_assets']}) and holds their mapped 2x ETFs ({signal['mapped_holding_assets']}).")
+                    else:
+                        st.write(f"TIP 13612U momentum is strictly positive, so the model selects the four highest-momentum offensive assets: {signal['selected_assets']}.")
+                elif isinstance(signal_strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ)):
+                    if isinstance(signal_strategy, HAAClassicLeveragedNoQQQ):
+                        st.write(f"TIP 13612U momentum is not positive, so the model compares 1x IEF and BIL momentum and holds the mapped defensive asset: {signal['selected_asset']}.")
+                    else:
+                        st.write(f"TIP 13612U momentum is not positive, so the model selects the higher-momentum defensive asset: {signal['selected_asset']}.")
+                elif isinstance(signal_strategy, HAASimpleIsrael) and signal["regime"] == "risk-on":
+                    st.write("TIP and CSPX_IL 13612U momentum are both strictly positive, so the model selects CSPX — 1159250.")
+                elif isinstance(signal_strategy, HAASimpleIsrael):
+                    selected_security = execution_security_label(signal["selected_asset"], signal_execution_currency)
+                    st.write(f"At least one of TIP or CSPX_IL 13612U momentum is not positive, so the model selects the higher-momentum Israeli defensive security: {selected_security}.")
+                elif signal["regime"] == "risk-on":
+                    holding = "SSO" if isinstance(signal_strategy, HAASimpleLeveraged2x) else "SPY"
+                    st.write(f"SPY and TIP 13612U momentum are both strictly positive, so the model selects {holding}.")
+                else:
+                    st.write(f"At least one of SPY or TIP 13612U momentum is not positive, so the model selects the higher-momentum defensive asset: {signal['selected_asset']}.")
+                if isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)):
+                    window = signal_strategy.momentum_window
+                    compass_inputs = pd.DataFrame([{
+                        "SPY close": signal["SPY_price"],
+                        "SPY 200-day SMA": signal["SPY_200d_sma"],
+                        "Growth up": signal["growth_up"],
+                        "T5YIE date (lagged)": signal["t5yie_lag_date"],
+                        "T5YIE (lagged)": signal["t5yie_lagged"],
+                        f"T5YIE {window}-day date": signal["t5yie_momentum_date"],
+                        f"T5YIE {window}-day value": signal["t5yie_momentum_value"],
+                        "Breakeven momentum": signal["breakeven_momentum"],
+                        "Inflation indicator": signal["inflation_indicator"],
+                        f"{window}-day indicator slope": signal["indicator_momentum_slope"],
+                        "Asset momentum": signal["asset_momentum"],
+                        "Inflation on": signal["inflation_on"],
+                    }])
+                    st.dataframe(compass_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "T5YIE (lagged)": "{:.4f}", f"T5YIE {window}-day value": "{:.4f}", "Inflation indicator": "{:.6f}", f"{window}-day indicator slope": "{:.8f}"}), use_container_width=True, hide_index=True)
+                    st.caption(f"T5YIE is read from the prior available trading-day observation. Both confirmation windows use {window} valid trading observations.")
+                elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
+                    timing_inputs = pd.DataFrame([{
+                        "SPY close": signal["SPY_price"],
+                        "SPY 200-day SMA": signal["SPY_200d_sma"],
+                        "Growth state": "High" if signal["growth_up"] else "Low",
+                        "Inflation-positive basket": signal["positive_sector_basket"],
+                        "Inflation-negative basket": signal["negative_sector_basket"],
+                        "Inflation ratio": signal["inflation_ratio"],
+                        "Inflation ratio 200-day SMA": signal["inflation_ratio_200d_sma"],
+                        "Inflation state": "High" if signal["inflation_on"] else "Low",
+                    }])
+                    st.dataframe(timing_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "Inflation-positive basket": "{:.4f}", "Inflation-negative basket": "{:.4f}", "Inflation ratio": "{:.6f}", "Inflation ratio 200-day SMA": "{:.6f}"}), use_container_width=True, hide_index=True)
+                    st.caption("The inflation ratio is the equal-weighted inflation-positive sector basket divided by the equal-weighted inflation-negative sector basket. Both states use completed daily data at month-end.")
+                elif isinstance(signal_strategy, VAAG4):
+                    vaa_inputs = pd.DataFrame([{
+                        "Bad offensive assets": signal["breadth_bad_count"],
+                        "Breadth threshold (B)": signal["breadth_threshold"],
+                        "Top offensive": signal["offensive_winner"],
+                        "Top defensive": signal["defensive_winner"],
+                        **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.data_assets},
+                    }])
+                    st.dataframe(vaa_inputs.style.format({column: "{:.6f}" for column in vaa_inputs.columns if column.endswith("13612W")}), use_container_width=True, hide_index=True)
+                    st.caption("13612W = (12×1-month return + 4×3-month return + 2×6-month return + 12-month return) / 4. Momentum equal to zero is non-positive.")
+                elif isinstance(signal_strategy, BAAG4Aggressive):
+                    baa_inputs = pd.DataFrame([{
+                        "Non-positive canaries": signal["breadth_bad_count"],
+                        "Selected defensive assets": signal["selected_defensive_assets"] or "—",
+                        "BIL replacements": signal["bil_replacements"] or "—",
+                        **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.canary_assets},
+                        **{f"{asset} SMA(12)": signal[f"{asset}_sma12"] for asset in signal_strategy.signal_assets},
+                    }])
+                    st.dataframe(baa_inputs.style.format({column: "{:.6f}" for column in baa_inputs.columns if column.endswith("13612W") or column.endswith("SMA(12)")}), use_container_width=True, hide_index=True)
+                    st.caption("BAA ranks by current month-end price ÷ the average of the current and prior twelve month-ends − 1. Its canaries use 13612W; any value at or below zero activates defense.")
+                elif isinstance(signal_strategy, GEM):
+                    gem_inputs = pd.DataFrame([{
+                        "SPY 12-month return": signal["SPY_12m_return"],
+                        "VEU 12-month return": signal["VEU_12m_return"],
+                        "AGG 12-month return": signal["AGG_12m_return"],
+                        "BIL 12-month return": signal["BIL_12m_return"],
+                        "Published holding": signal.get("signal_selected_asset", signal["selected_asset"]),
+                    }])
+                    st.dataframe(gem_inputs.style.format({column: "{:.2%}" for column in gem_inputs.columns if column.endswith("return")}), use_container_width=True, hide_index=True)
+                    st.caption("GEM compares completed 12-month returns. SPY must strictly exceed BIL; an exact SPY/VEU tie selects SPY.")
+                elif isinstance(signal_strategy, GGCEMLinkOriginal):
+                    ggcem_inputs = pd.DataFrame([{
+                        "CLI diffusion (prior month)": signal["oecd_cli_diffusion"],
+                        "Regime source": signal["macro_source"],
+                        "Risk-on": signal["risk_on"],
+                        "SPY 12-month return": signal["SPY_12m_return"],
+                        "VEU 12-month return": signal["VEU_12m_return"],
+                        "IEF 12-month return": signal["IEF_12m_return"],
+                        "BIL 12-month return": signal["BIL_12m_return"],
+                    }])
+                    st.dataframe(ggcem_inputs.style.format({column: "{:.2%}" for column in ggcem_inputs.columns if "return" in column or "diffusion" in column}), use_container_width=True, hide_index=True)
+                    st.caption("Risk-on requires OECD diffusion strictly above 50%. The prior-month reading applies the publication lag; if unavailable, SPY-versus-BIL is the visible failsafe.")
+                elif isinstance(signal_strategy, OrthogonalAlpha):
+                    alpha_inputs = pd.DataFrame([{
+                        "BTAL blended momentum": signal["BTAL_13612u"],
+                        "BIL blended momentum": signal["BIL_13612u"],
+                        "Satellite": signal["satellite_asset"],
+                        "Core": "QLD 25% / BTAL 25%",
+                        "Target allocation": display_allocation(signal["target_weights"], signal_execution_currency),
+                    }])
+                    st.dataframe(alpha_inputs.style.format({"BTAL blended momentum": "{:.6f}", "BIL blended momentum": "{:.6f}"}), use_container_width=True, hide_index=True)
+                    st.caption("Blended momentum = (1-month return + 3-month return + 6-month return + 12-month return) / 4. A tie allocates the satellite to QLD.")
+                elif isinstance(signal_strategy, (CenturyMomentum, CenturyMomentumIsrael)):
+                    equity_asset = signal_strategy.equity_asset
+                    century_inputs = pd.DataFrame([{
+                        f"{equity_asset} close": signal[f"{equity_asset}_price"],
+                        f"{equity_asset} 10-month SMA": signal[f"{equity_asset}_10m_sma"],
+                        "Trend state": f"Above SMA — hold {equity_asset}" if signal["trend_up"] else f"At/below SMA — hold {signal_strategy.defensive_asset}",
+                    }])
+                    st.dataframe(century_inputs.style.format({f"{equity_asset} close": "{:.4f}", f"{equity_asset} 10-month SMA": "{:.4f}"}), use_container_width=True, hide_index=True)
+                    st.caption(f"The SMA uses the ten completed month-end closes including the current signal close. A tie selects {signal_strategy.defensive_asset}; the decision takes effect on the next available trading day.")
+                else:
+                    price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
+                    momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
+                    inputs = pd.DataFrame({
+                        "month-end price": {column.removesuffix("_price"): signal[column] for column in price_columns},
+                        "13612U momentum": {column.removesuffix("_13612u"): signal[column] for column in momentum_columns},
+                    }).T
+                    st.dataframe(inputs.style.format("{:.6f}"), use_container_width=True)
+                    st.caption("13612U = (1-month return + 3-month return + 6-month return + 12-month return) / 4. The leveraged model uses SPY and TIP—not SSO momentum—to determine its gate.")
+        if signal_definition.strategy_mode == "buy_and_hold" or signal_status.decision is None:
+            signal_history_view, signal_data_view = st.tabs(["History", "Data"])
+        history_columns = ["regime", "selected_asset", "previous_asset", "trade"]
+        if "target_weights" in signal_decisions:
+            history_columns.insert(2, "target_weights")
+        if signal_decisions.empty:
+            history = pd.DataFrame(columns=[*history_columns, "effective_start"])
+            history.index.name = "signal_date"
         else:
-            st.write(f"At least one of SPY or TIP 13612U momentum is not positive, so the model selects the higher-momentum defensive asset: {signal['selected_asset']}.")
-        if isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)):
-            window = signal_strategy.momentum_window
-            compass_inputs = pd.DataFrame([{
-                "SPY close": signal["SPY_price"],
-                "SPY 200-day SMA": signal["SPY_200d_sma"],
-                "Growth up": signal["growth_up"],
-                "T5YIE date (lagged)": signal["t5yie_lag_date"],
-                "T5YIE (lagged)": signal["t5yie_lagged"],
-                f"T5YIE {window}-day date": signal["t5yie_momentum_date"],
-                f"T5YIE {window}-day value": signal["t5yie_momentum_value"],
-                "Breakeven momentum": signal["breakeven_momentum"],
-                "Inflation indicator": signal["inflation_indicator"],
-                f"{window}-day indicator slope": signal["indicator_momentum_slope"],
-                "Asset momentum": signal["asset_momentum"],
-                "Inflation on": signal["inflation_on"],
-            }])
-            st.dataframe(compass_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "T5YIE (lagged)": "{:.4f}", f"T5YIE {window}-day value": "{:.4f}", "Inflation indicator": "{:.6f}", f"{window}-day indicator slope": "{:.8f}"}), use_container_width=True, hide_index=True)
-            st.caption(f"T5YIE is read from the prior available trading-day observation. Both confirmation windows use {window} valid trading observations.")
-        elif isinstance(signal_strategy, (GrowthInflationConcentrated, GrowthInflationDiversified)):
-            timing_inputs = pd.DataFrame([{
-                "SPY close": signal["SPY_price"],
-                "SPY 200-day SMA": signal["SPY_200d_sma"],
-                "Growth state": "High" if signal["growth_up"] else "Low",
-                "Inflation-positive basket": signal["positive_sector_basket"],
-                "Inflation-negative basket": signal["negative_sector_basket"],
-                "Inflation ratio": signal["inflation_ratio"],
-                "Inflation ratio 200-day SMA": signal["inflation_ratio_200d_sma"],
-                "Inflation state": "High" if signal["inflation_on"] else "Low",
-            }])
-            st.dataframe(timing_inputs.style.format({"SPY close": "{:.4f}", "SPY 200-day SMA": "{:.4f}", "Inflation-positive basket": "{:.4f}", "Inflation-negative basket": "{:.4f}", "Inflation ratio": "{:.6f}", "Inflation ratio 200-day SMA": "{:.6f}"}), use_container_width=True, hide_index=True)
-            st.caption("The inflation ratio is the equal-weighted inflation-positive sector basket divided by the equal-weighted inflation-negative sector basket. Both states use completed daily data at month-end.")
-        elif isinstance(signal_strategy, VAAG4):
-            vaa_inputs = pd.DataFrame([{
-                "Bad offensive assets": signal["breadth_bad_count"],
-                "Breadth threshold (B)": signal["breadth_threshold"],
-                "Top offensive": signal["offensive_winner"],
-                "Top defensive": signal["defensive_winner"],
-                **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.data_assets},
-            }])
-            st.dataframe(vaa_inputs.style.format({column: "{:.6f}" for column in vaa_inputs.columns if column.endswith("13612W")}), use_container_width=True, hide_index=True)
-            st.caption("13612W = (12×1-month return + 4×3-month return + 2×6-month return + 12-month return) / 4. Momentum equal to zero is non-positive.")
-        elif isinstance(signal_strategy, BAAG4Aggressive):
-            baa_inputs = pd.DataFrame([{
-                "Non-positive canaries": signal["breadth_bad_count"],
-                "Selected defensive assets": signal["selected_defensive_assets"] or "—",
-                "BIL replacements": signal["bil_replacements"] or "—",
-                **{f"{asset} 13612W": signal[f"{asset}_13612w"] for asset in signal_strategy.canary_assets},
-                **{f"{asset} SMA(12)": signal[f"{asset}_sma12"] for asset in signal_strategy.signal_assets},
-            }])
-            st.dataframe(baa_inputs.style.format({column: "{:.6f}" for column in baa_inputs.columns if column.endswith("13612W") or column.endswith("SMA(12)")}), use_container_width=True, hide_index=True)
-            st.caption("BAA ranks by current month-end price ÷ the average of the current and prior twelve month-ends − 1. Its canaries use 13612W; any value at or below zero activates defense.")
-        elif isinstance(signal_strategy, GEM):
-            gem_inputs = pd.DataFrame([{
-                "SPY 12-month return": signal["SPY_12m_return"],
-                "VEU 12-month return": signal["VEU_12m_return"],
-                "AGG 12-month return": signal["AGG_12m_return"],
-                "BIL 12-month return": signal["BIL_12m_return"],
-                "Published holding": signal.get("signal_selected_asset", signal["selected_asset"]),
-            }])
-            st.dataframe(gem_inputs.style.format({column: "{:.2%}" for column in gem_inputs.columns if column.endswith("return")}), use_container_width=True, hide_index=True)
-            st.caption("GEM compares completed 12-month returns. SPY must strictly exceed BIL; an exact SPY/VEU tie selects SPY.")
-        elif isinstance(signal_strategy, GGCEMLinkOriginal):
-            ggcem_inputs = pd.DataFrame([{
-                "CLI diffusion (prior month)": signal["oecd_cli_diffusion"],
-                "Regime source": signal["macro_source"],
-                "Risk-on": signal["risk_on"],
-                "SPY 12-month return": signal["SPY_12m_return"],
-                "VEU 12-month return": signal["VEU_12m_return"],
-                "IEF 12-month return": signal["IEF_12m_return"],
-                "BIL 12-month return": signal["BIL_12m_return"],
-            }])
-            st.dataframe(ggcem_inputs.style.format({column: "{:.2%}" for column in ggcem_inputs.columns if "return" in column or "diffusion" in column}), use_container_width=True, hide_index=True)
-            st.caption("Risk-on requires OECD diffusion strictly above 50%. The prior-month reading applies the publication lag; if unavailable, SPY-versus-BIL is the visible failsafe.")
-        elif isinstance(signal_strategy, OrthogonalAlpha):
-            alpha_inputs = pd.DataFrame([{
-                "BTAL blended momentum": signal["BTAL_13612u"],
-                "BIL blended momentum": signal["BIL_13612u"],
-                "Satellite": signal["satellite_asset"],
-                "Core": "QLD 25% / BTAL 25%",
-                "Target allocation": display_allocation(signal["target_weights"], signal_execution_currency),
-            }])
-            st.dataframe(alpha_inputs.style.format({"BTAL blended momentum": "{:.6f}", "BIL blended momentum": "{:.6f}"}), use_container_width=True, hide_index=True)
-            st.caption("Blended momentum = (1-month return + 3-month return + 6-month return + 12-month return) / 4. A tie allocates the satellite to QLD.")
-        elif isinstance(signal_strategy, (CenturyMomentum, CenturyMomentumIsrael)):
-            equity_asset = signal_strategy.equity_asset
-            century_inputs = pd.DataFrame([{
-                f"{equity_asset} close": signal[f"{equity_asset}_price"],
-                f"{equity_asset} 10-month SMA": signal[f"{equity_asset}_10m_sma"],
-                "Trend state": f"Above SMA — hold {equity_asset}" if signal["trend_up"] else f"At/below SMA — hold {signal_strategy.defensive_asset}",
-            }])
-            st.dataframe(century_inputs.style.format({f"{equity_asset} close": "{:.4f}", f"{equity_asset} 10-month SMA": "{:.4f}"}), use_container_width=True, hide_index=True)
-            st.caption(f"The SMA uses the ten completed month-end closes including the current signal close. A tie selects {signal_strategy.defensive_asset}; the decision takes effect on the next available trading day.")
-        else:
-            price_columns = [f"{asset}_price" for asset in signal_momentum_assets if f"{asset}_price" in signal.index]
-            momentum_columns = [f"{asset}_13612u" for asset in signal_momentum_assets if f"{asset}_13612u" in signal.index]
-            inputs = pd.DataFrame({
-                "month-end price": {column.removesuffix("_price"): signal[column] for column in price_columns},
-                "13612U momentum": {column.removesuffix("_13612u"): signal[column] for column in momentum_columns},
-            }).T
-            st.dataframe(inputs.style.format("{:.6f}"), use_container_width=True)
-            st.caption("13612U = (1-month return + 3-month return + 6-month return + 12-month return) / 4. The leveraged model uses SPY and TIP—not SSO momentum—to determine its gate.")
-    history_columns = ["regime", "selected_asset", "previous_asset", "trade"]
-    if "target_weights" in signal_decisions:
-        history_columns.insert(2, "target_weights")
-    if signal_decisions.empty:
-        history = pd.DataFrame(columns=[*history_columns, "effective_start"])
-        history.index.name = "signal_date"
-    else:
-        history = signal_decisions.loc[:, history_columns].copy()
-        history["effective_start"] = [first_trading_day_after(signal_prices, date, execution_assets(history.loc[date])) for date in history.index]
-        if "target_weights" in history:
-            history["target_weights"] = history["target_weights"].map(lambda weights: ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()))
-        history.index = pd.to_datetime(history.index).strftime("%Y-%m-%d")
-        history = history.rename_axis("signal_date")
-    with st.expander("Signal history"):
-        st.dataframe(history.sort_index(ascending=False), use_container_width=True)
-        st.download_button("Download signal history CSV", history.to_csv().encode("utf-8"), f"{signal_strategy.name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_signal_history.csv", "text/csv")
-    with st.expander("Data status"):
-        st.caption("This signal uses completed month-end data only. Backtest settings do not affect it.")
-        if isinstance(signal_strategy, HAASimpleIsrael) and tase_warning:
-            st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
-        if isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
-            st.warning(f"FRED retrieval issue: {fred_warning}")
-        if isinstance(signal_strategy, GGCEMLinkOriginal) and oecd_warning:
-            st.warning(f"OECD CLI retrieval issue: {oecd_warning}. This signal is using the disclosed SPY/BIL failsafe.")
-        st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
-        raw_ranges = date_ranges(signal_prices)
-        st.dataframe(raw_ranges, use_container_width=True)
-        st.caption(f"Latest eligible completed month: {signal_status.completed_through.date()}. A partial current month is never presented as a final signal.")
-    st.caption("Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution.")
+            history = signal_decisions.loc[:, history_columns].copy()
+            history["effective_start"] = [first_trading_day_after(signal_prices, date, execution_assets(history.loc[date])) for date in history.index]
+            if "target_weights" in history:
+                history["target_weights"] = history["target_weights"].map(lambda weights: ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()))
+            history.index = pd.to_datetime(history.index).strftime("%Y-%m-%d")
+            history = history.rename_axis("signal_date")
+        with signal_history_view:
+            st.dataframe(history.sort_index(ascending=False), use_container_width=True)
+            st.download_button("Download signal history CSV", history.to_csv().encode("utf-8"), f"{signal_strategy.name.lower().replace(' ', '_').replace('(', '').replace(')', '')}_signal_history.csv", "text/csv")
+        with signal_data_view:
+            st.caption("This signal uses completed month-end data only. Backtest settings do not affect it.")
+            if isinstance(signal_strategy, HAASimpleIsrael) and tase_warning:
+                st.warning(f"Public TASE/Maya retrieval issue: {tase_warning}")
+            if isinstance(signal_strategy, (InflationCompassFast, InflationCompassStandard, InflationCompassSteady)) and fred_warning:
+                st.warning(f"FRED retrieval issue: {fred_warning}")
+            if isinstance(signal_strategy, GGCEMLinkOriginal) and oecd_warning:
+                st.warning(f"OECD CLI retrieval issue: {oecd_warning}. This signal is using the disclosed SPY/BIL failsafe.")
+            st.dataframe(source_metadata.loc[list(signal_data_assets)], use_container_width=True)
+            raw_ranges = date_ranges(signal_prices)
+            st.dataframe(raw_ranges, use_container_width=True)
+            st.caption(f"Latest eligible completed month: {signal_status.completed_through.date()}. A partial current month is never presented as a final signal.")
+        st.caption("Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution.")
 
 if page == "Rules":
     title_column.title("Rules")
