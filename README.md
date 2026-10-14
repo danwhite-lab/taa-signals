@@ -63,7 +63,9 @@ This is a standard Streamlit project. Create an app at [Streamlit Community Clou
 
 ### Private Google login and workspace sync
 
-Google sign-in is required before any investing workspace is shown. Portfolio drafts, saved portfolios, the Today default, model choices, ticker mappings, fees, tax preferences, and backtest settings save automatically to a private Supabase account every five seconds. Uploaded CSV data and calculated results are session-only. Another device loads the saved workspace when signing in or reloading; simultaneous edits produce a conflict notice instead of overwriting newer changes.
+Google sign-in is required before any investing workspace is shown. The login screen contains only a centered Google Login button. Portfolio drafts, model choices, ticker mappings, fees, tax preferences, and backtest settings save automatically every five seconds. Saved portfolios and Today defaults are separate account records: clicking Save writes them immediately and reports success only after database confirmation. Saved portfolios refresh on other open devices every five seconds. Uploaded CSV data and calculated results are session-only.
+
+Use **Edit saved portfolio** to load a saved record, then **Save changes** to update or rename it without creating a duplicate. Use **New portfolio** to create a separate record. A stale edit is rejected if that portfolio changed on another device; settings conflicts do not prevent portfolio saves.
 
 This deployment defaults to the TAA Signals Supabase project's public URL and publishable key. To use a different project, add these optional overrides in Streamlit **Settings → Secrets**:
 
@@ -77,7 +79,9 @@ Configure Google's OAuth client ID and secret in Supabase **Authentication → P
 
 Sign-in uses a popup and PKCE: the initiating browser keeps the verifier, the callback returns only a one-use authorization code, and session credentials are sent to Streamlit through its component channel. Supabase validates the access token before the app admits the user. The browser retains the session and rotates refresh tokens; signing out clears the investing session. Allow popups and browser storage for the app.
 
-The `portfolios` and `user_settings` tables enforce per-user row-level security. Workspace updates compare revision numbers to prevent stale saves. Never add a service-role key to this app. The legacy portfolio-only library is imported into the workspace on first sign-in.
+The `portfolios` and `user_settings` tables enforce per-user row-level security. Portfolio saves run atomically through the invoker-rights function in `supabase/portfolio_functions.sql`; edits compare the record timestamp. Workspace updates compare revision numbers. Never add a service-role key to this app. Libraries from the earlier workspace-only implementation are imported into separate portfolio records.
+
+Google may show the Supabase project domain on its account chooser until the Google project has verified and published its branding. Changing App name alone does not change that screen; see [Google's branding requirements](https://support.google.com/cloud/answer/15549049?hl=en).
 
 ## Independent checks built into the UI
 

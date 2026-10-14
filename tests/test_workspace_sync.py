@@ -10,6 +10,9 @@ def test_workspace_roundtrip_preserves_preferences_and_dates_but_not_secrets():
         "supabase_session": {"access_token": "must-not-sync"},
         "uploaded_replacements": {"SPY": "must-not-sync"},
         "computed_result": "must-not-sync",
+        "page": "Portfolio",
+        "browser_portfolio_library": [{"name": "Separate account record"}],
+        "browser_default_portfolio": {"name": "Separate account default"},
     }
     recovered = restore(snapshot(state))
     assert recovered == {key: state[key] for key in ("portfolio_name", "portfolio_sleeves", "compare_start")}

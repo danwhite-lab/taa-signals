@@ -12,7 +12,9 @@ function harness({saved=null,callback=false}={}) {
   const elements={login:{hidden:true},message:{textContent:''}};
   const popup={location:null,close(){}};
   let closed=false;
-  const parent={location:{href:'https://app.example/'+(callback?'?code=callback-code':'')},postMessage:data=>outputs.push(data),close:()=>closed=true};
+  let loginStyle=null;
+  const head={querySelector:()=>loginStyle,appendChild:style=>loginStyle=style};
+  const parent={document:{head,createElement:()=>({remove:()=>loginStyle=null})},innerHeight:800,location:{href:'https://app.example/'+(callback?'?code=callback-code':'')},postMessage:data=>outputs.push(data),close:()=>closed=true};
   if(callback) parent.opener={postMessage:(data,origin)=>calls.push({data,origin})};
   const sandbox={
     URL, URLSearchParams, TextEncoder, Uint8Array, JSON, Date, crypto:webcrypto,
@@ -28,12 +30,14 @@ function harness({saved=null,callback=false}={}) {
   };
   vm.runInNewContext(source,sandbox);
   const render=extra=>listeners.message({source:parent,data:{type:'streamlit:render',args:{url:'https://example.supabase.co',publishable_key:'public-key',logout_version:0,...extra}}});
-  return {listeners,outputs,calls,store,elements,popup,sandbox,render,isClosed:()=>closed};
+  return {listeners,outputs,calls,store,elements,popup,sandbox,render,isClosed:()=>closed,getStyle:()=>loginStyle};
 }
 
 test('PKCE binds the code to the verifier and rejects unexpected messages',async()=>{
   const h=harness();await h.render();
   assert.equal(h.elements.login.hidden,false);
+  assert.ok(h.getStyle());
+  assert.equal(h.outputs.at(-1).height,800);
   await h.elements.login.onclick();
   const authorization=new URL(h.popup.location);
   assert.equal(authorization.searchParams.get('provider'),'google');
@@ -47,6 +51,7 @@ test('PKCE binds the code to the verifier and rejects unexpected messages',async
   const hash=Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(body.code_verifier))).toString('base64url');
   assert.equal(hash,authorization.searchParams.get('code_challenge'));
   assert.equal(h.elements.login.hidden,true);
+  assert.equal(h.getStyle(),null);
   assert.ok(h.store.size);
 });
 

@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
-<style>body{margin:0;font:15px system-ui;color:#31333f}button{font:inherit;border:1px solid #ddd;border-radius:7px;padding:10px 20px;background:white;cursor:pointer}button:hover{background:#f4f6f6}#message{font-size:13px;margin-top:10px;color:#555}</style></head>
-<body><button id="login" hidden>Continue with Google</button><div id="message"></div>
+<style>html,body{height:100%;margin:0;font:15px system-ui;color:#31333f}body{display:grid;place-items:center}#login-panel{text-align:center}button{font:inherit;border:1px solid #ddd;border-radius:7px;padding:12px 24px;background:white;cursor:pointer}button:hover{background:#f4f6f6}#message{font-size:13px;margin-top:12px;color:#555}</style></head>
+<body><div id="login-panel"><button id="login" hidden>Google Login</button><div id="message"></div></div>
 <script>
 // This component uses Supabase's documented OAuth PKCE endpoints. The verifier
 // stays in the initiating browser; the popup returns only the single-use code.
@@ -24,7 +24,16 @@ function remember(data) {
   session=data?.access_token ? {access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at || Math.floor(Date.now()/1000)+data.expires_in}:null;
   if(session) localStorage.setItem(storageKey,JSON.stringify(session)); else localStorage.removeItem(storageKey);
   document.getElementById('login').hidden=!!session;
-  value({session});height(session ? 0:85);
+  value({session});
+  // Apply the full-screen layout only while signed out, then restore the app.
+  const head=window.parent.document.head;
+  let style=head.querySelector('#taa-login-layout');
+  if(!session && !style) {
+    style=window.parent.document.createElement('style');style.id='taa-login-layout';
+    style.textContent='[data-testid="stMain"] .block-container{padding:0!important;max-width:none!important} [data-testid="stHeader"],[data-testid="stSidebar"],[data-testid="stToolbar"],footer{display:none!important}';
+    head.appendChild(style);
+  } else if(session && style) style.remove();
+  height(session ? 0:window.parent.innerHeight);
 }
 async function renew() {
   if(!session || refreshing) return;
@@ -86,7 +95,7 @@ document.getElementById('login').onclick=async () => {
     const redirect=new URL(window.parent.location.href);redirect.search='';redirect.hash='';
     const url=new URL(args.url+'/auth/v1/authorize');
     url.search=new URLSearchParams({provider:'google',redirect_to:redirect.toString(),code_challenge:challenge,code_challenge_method:'s256'});
-    popup.location=url.toString();message('Complete Google sign-in in the opened window.');
+    popup.location=url.toString();message('');
   } catch(error) {popup.close();message('Could not start Google sign-in. Please try again.');}
 };
 async function complete(code) {

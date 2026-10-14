@@ -7,7 +7,9 @@ import haa.supabase_sync as sync
 def test_signed_out_browser_cannot_render_investing_workspace():
     app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
     assert not app.exception
-    assert [item.value for item in app.title] == ["TAA Signals"]
+    assert not app.title
+    assert not app.subheader
+    assert not app.caption
     assert not app.radio
     assert not app.dataframe
     assert not app.file_uploader

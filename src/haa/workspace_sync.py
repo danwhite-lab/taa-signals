@@ -5,12 +5,11 @@ import json
 from datetime import date, datetime
 
 FIELDS = {
-    'page', 'model_name', 'signals_model_name', 'research_model_name',
+    'model_name', 'signals_model_name', 'research_model_name',
     'ticker_text', 'initial', 'cost_pct', 'tax_enabled', 'tax_rate',
     'compare_initial', 'compare_cost_pct', 'compare_tax_enabled', 'compare_tax_rate',
     'portfolio_sleeves', 'portfolio_next_id', 'portfolio_base_currency',
     'portfolio_name', 'portfolio_total_ils', 'portfolio_capital_text', 'portfolio_fx_rate',
-    'browser_default_portfolio', 'browser_portfolio_library',
     'backtest_mode', 'backtest_sleeves', 'backtest_next_id',
     'deep_proxy_sleeves', 'deep_proxy_next_id', 'settings_cost_pct', 'settings_tax_rate',
     'backtest_dca_amount', 'backtest_dca_enabled', 'backtest_fee_mode', 'backtest_fixed_fee',

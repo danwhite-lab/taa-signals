@@ -44,7 +44,7 @@ from haa.signals import daily_signal_heading, execution_assets, first_trading_da
 from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4, HAA4Israel, HAA4Leveraged2x, HAAClassicLeveragedNoQQQ, HAAClassicNoQQQ, HAASimple, HAASimpleIsrael, HAASimpleLeveraged2x, InflationCompassFast, InflationCompassStandard, InflationCompassSteady, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 from haa.tase_data import ISRAEL_DEFAULT_TASE_SUBSTITUTIONS, TASE_ISRAEL_ASSET_IDS, TaseDataError, download_tase_israel_prices, download_tase_security_prices
 from haa.validation import ValidationInput, profile_for, research_unavailable_reason, run_deterministic_validation
-from haa.supabase_sync import config_from_secrets, list_portfolios as list_cloud_portfolios, verified_session, load_workspace, save_workspace
+from haa.supabase_sync import config_from_secrets, list_portfolios as list_cloud_portfolios, save_portfolio as save_cloud_portfolio, delete_portfolio as delete_cloud_portfolio, clear_default as clear_cloud_default, verified_session, load_workspace, save_workspace
 from haa.workspace_sync import snapshot as workspace_snapshot, restore as restore_workspace
 
 
@@ -165,9 +165,6 @@ def require_google_sign_in() -> tuple[str, str]:
             st.stop()
         st.session_state.pop('auth_logout_pending', None)
     if not tokens:
-        st.title('TAA Signals')
-        st.subheader('Your private investing workspace')
-        st.caption('Sign in with Google to restore your portfolios and settings on this device.')
         st.stop()
     if st.session_state.get('verified_auth_token') != tokens.get('access_token'):
         try:
@@ -533,6 +530,8 @@ def refresh_cloud_portfolios() -> None:
     rows = list_cloud_portfolios(*config, session)
     st.session_state["cloud_portfolio_rows"] = rows
     st.session_state["cloud_portfolios_loaded"] = True
+    st.session_state["browser_portfolio_library"] = [row['payload'] for row in rows]
+    st.session_state["browser_default_portfolio"] = next((row['payload'] for row in rows if row.get('is_default')), None)
 
 
 def restore_cloud_default() -> None:
@@ -545,6 +544,26 @@ def restore_cloud_default() -> None:
 
 sync_config = require_google_sign_in()
 
+# Recover libraries from the previous workspace-only save implementation.
+if not st.session_state.get('cloud_library_ready'):
+    try:
+        remote_legacy = load_workspace(*sync_config, st.session_state['supabase_session'])
+        legacy_payload = remote_legacy['payload'] if remote_legacy else {}
+        legacy_library = list(legacy_payload.get('browser_portfolio_library', [])) + list(st.session_state.get('browser_portfolio_library', []))
+        legacy_default = st.session_state.get('browser_default_portfolio') or legacy_payload.get('browser_default_portfolio')
+        refresh_cloud_portfolios()
+        known_names = {row['name'].casefold() for row in st.session_state['cloud_portfolio_rows']}
+        for old_portfolio in legacy_library:
+            old_name = str(old_portfolio.get('name', '')).strip()
+            if old_name and old_name.casefold() not in known_names:
+                save_cloud_portfolio(*sync_config, st.session_state['supabase_session'], old_portfolio, is_default=bool(legacy_default and legacy_default.get('name') == old_name))
+                known_names.add(old_name.casefold())
+        refresh_cloud_portfolios()
+        st.session_state['cloud_library_ready'] = True
+    except Exception:
+        st.error('Could not load your saved portfolios. Reload to retry; your account data has not been changed.')
+        st.stop()
+
 if not st.session_state.get('workspace_loaded'):
     try:
         remote = load_workspace(*sync_config, st.session_state['supabase_session'])
@@ -555,16 +574,15 @@ if not st.session_state.get('workspace_loaded'):
         st.session_state['workspace_last_saved'] = remote['payload'] if remote else {}
         st.session_state['workspace_loaded'] = True
         refresh_cloud_portfolios()
-        if not saved:
-            restore_cloud_default()
-            # Import portfolios created by the earlier portfolio-only version.
-            st.session_state['browser_portfolio_library'] = [
-                row['payload'] for row in st.session_state['cloud_portfolio_rows']
-                if isinstance(row.get('payload'), dict)
-            ]
     except Exception:
         st.error('Could not load your saved workspace. Reload to retry; your saved data has not been changed.')
         st.stop()
+
+# Restore shadow values before applying defaults after widget cleanup.
+for saved_key, saved_value in st.session_state.get('workspace_shadow', {}).items():
+    # Explicit assignment detaches saved preferences from Streamlit's widget
+    # cleanup when their page is not rendered during this run.
+    st.session_state[saved_key] = st.session_state.get(saved_key, saved_value)
 
 for key, value in {
     "model_name": DEFAULT_MODEL,
@@ -599,11 +617,6 @@ for key, value in {
 }.items():
     st.session_state.setdefault(key, value)
 
-# Restore preferences removed by Streamlit's cleanup when changing pages.
-for saved_key, saved_value in st.session_state.get('workspace_shadow', {}).items():
-    st.session_state.setdefault(saved_key, saved_value)
-
-
 def persist_workspace():
     payload = {**workspace_snapshot(st.session_state.get('workspace_shadow', {})), **workspace_snapshot(st.session_state)}
     st.session_state['workspace_shadow'] = restore_workspace(payload)
@@ -627,6 +640,13 @@ def persist_workspace():
 @st.fragment(run_every='5s')
 def autosave_workspace():
     persist_workspace()
+    try:
+        previous_rows = st.session_state.get('cloud_portfolio_rows', [])
+        refresh_cloud_portfolios()
+        if previous_rows != st.session_state['cloud_portfolio_rows']:
+            st.rerun()
+    except Exception:
+        st.caption('Saved portfolio refresh is temporarily unavailable.')
 
 
 autosave_workspace()
@@ -1393,7 +1413,7 @@ def load_tase_substitution_data(source_items: tuple[tuple[str, str], ...]):
 if page == "Portfolio":
     active_model_labels = selected_sleeve_labels(st.session_state["portfolio_sleeves"], "portfolio")
 elif page == "Today":
-    active_model_labels = [sleeve["model"] for sleeve in st.session_state.get("portfolio_sleeves", [])] if st.session_state.get("browser_default_portfolio") else []
+    active_model_labels = [sleeve["model"] for sleeve in st.session_state["browser_default_portfolio"]["sleeves"]] if st.session_state.get("browser_default_portfolio") else []
 elif page == "Backtest" and backtest_mode == "Portfolio":
     active_model_labels = selected_sleeve_labels(st.session_state["backtest_sleeves"], "backtest_sleeve")
 elif page == "Compare":
@@ -2193,7 +2213,7 @@ if page == "Today":
     if not saved_portfolio:
         st.info("Set up a portfolio, then choose **Use as Today default** on the Portfolio page. It will sync privately across your devices.")
     else:
-        saved_sleeves = st.session_state["portfolio_sleeves"]
+        saved_sleeves = saved_portfolio["sleeves"]
         saved_total_weight = total_weight(saved_sleeves)
         title_column.caption(f"{saved_portfolio['name']} · private synced portfolio")
         signal_rows, valid_sleeves, signal_dates, changed_models, current_weights_by_model = [], [], [], [], {}
@@ -2316,33 +2336,47 @@ if page == "Portfolio":
             with picker_column:
                 selected_saved_name = st.selectbox("Saved portfolios", tuple(library_by_name), key="portfolio_library_selection")
             with load_column:
-                load_saved = st.button("Load", key="portfolio_load_saved")
+                load_saved = st.button("Edit saved portfolio", key="portfolio_load_saved")
             with delete_column:
                 delete_saved = st.button("Delete", key="portfolio_delete_saved")
             if load_saved:
                 apply_browser_portfolio(library_by_name[selected_saved_name])
+                selected_row = next(row for row in st.session_state['cloud_portfolio_rows'] if row['name'] == selected_saved_name)
+                st.session_state['editing_portfolio_id'] = selected_row['id']
+                st.session_state['editing_portfolio_updated_at'] = selected_row['updated_at']
                 st.rerun()
             if delete_saved:
-                st.session_state["browser_portfolio_library"] = [portfolio for portfolio in library if portfolio["name"] != selected_saved_name]
-                st.rerun()
+                try:
+                    selected_row = next(row for row in st.session_state['cloud_portfolio_rows'] if row['name'] == selected_saved_name)
+                    delete_cloud_portfolio(*sync_config, st.session_state['supabase_session'], selected_row['id'])
+                    if st.session_state.get('editing_portfolio_id') == selected_row['id']:
+                        st.session_state['editing_portfolio_id'] = None
+                    refresh_cloud_portfolios()
+                    st.rerun()
+                except Exception:
+                    st.error('Could not delete the saved portfolio. Please try again.')
         else:
             st.caption("Save named portfolios here. Your library syncs privately across devices.")
+        if st.button('New portfolio', key='portfolio_new'):
+            apply_browser_portfolio(portfolio_payload([{'id': 1, 'weight': 100., 'model': DEFAULT_MODEL}], 100_000., st.session_state.get('portfolio_fx_rate', 3.7), 'My portfolio'))
+            st.session_state['editing_portfolio_id'] = None
+            st.session_state['editing_portfolio_updated_at'] = None
+            st.rerun()
     with portfolio_inputs:
         fx_quote_timestamp, fx_error = initialise_portfolio_fx_rate()
         st.session_state.setdefault("portfolio_total_ils", 100_000.0)
         st.session_state.setdefault("portfolio_capital_text", f"{st.session_state['portfolio_total_ils']:,.2f}".rstrip("0").rstrip("."))
-        with st.form("portfolio-investment-settings"):
+        with st.container(key="portfolio-investment-settings"):
             name_column = st.container()
             base_column = st.container()
             rate_column = st.container()
             with name_column:
                 portfolio_name = st.text_input("Portfolio name", key="portfolio_name", max_chars=80)
             with base_column:
-                st.text_input("Total available capital (ILS)", key="portfolio_capital_text")
+                st.text_input("Total available capital (ILS)", key="portfolio_capital_text", on_change=update_portfolio_capital)
                 total_ils = st.session_state["portfolio_total_ils"]
             with rate_column:
                 ils_per_usd = st.number_input("ILS per 1 USD (editable)", min_value=0.0001, step=0.01, format="%.2f", key="portfolio_fx_rate")
-            st.form_submit_button("Update portfolio inputs", on_click=update_portfolio_capital)
         if st.session_state.get("portfolio_capital_error"):
             st.error(st.session_state["portfolio_capital_error"])
         if fx_error:
@@ -2413,7 +2447,7 @@ if page == "Portfolio":
             portfolio_actions = st.container(key="portfolio-actions")
     save_column, default_column = portfolio_actions.columns([1, 1.7])
     with save_column:
-        save_named = st.button("Save portfolio", type="primary", use_container_width=True)
+        save_named = st.button("Save changes" if st.session_state.get('editing_portfolio_id') else "Save portfolio", type="primary", use_container_width=True)
     with default_column:
         save_as_default = st.button("Use as Today default", use_container_width=True)
     valid_portfolio = abs(sleeve_total - 100.0) <= 1e-9 and all(sleeve["weight"] > 0 for sleeve in updated_sleeves)
@@ -2422,30 +2456,37 @@ if page == "Portfolio":
         clear_default = st.button("Clear saved default", disabled=st.session_state.get("browser_default_portfolio") is None)
         st.download_button("Download portfolio JSON", json.dumps(current_payload, indent=2).encode("utf-8"), "portfolio.json", "application/json", key="portfolio_export_json")
     with portfolio_main:
-        if save_named:
+        if save_named or save_as_default:
             if not valid_portfolio:
                 st.error("Set one or more positive sleeve weights totaling exactly 100% before saving a portfolio.")
+            elif not portfolio_name.strip():
+                st.error('Enter a name for your portfolio.')
+            elif st.session_state.get('portfolio_capital_error'):
+                st.error('Correct the portfolio capital before saving.')
             else:
-                updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
-                updated_library.append(current_payload)
-                st.session_state["browser_portfolio_library"] = updated_library
-                persist_workspace()
-                st.success(f"Added {current_payload['name']} to your private portfolio library.")
-        if save_as_default:
-            if not valid_portfolio:
-                st.error("Set one or more positive sleeve weights totaling exactly 100% before saving this default portfolio.")
-            else:
-                updated_library = [portfolio for portfolio in st.session_state["browser_portfolio_library"] if portfolio["name"].casefold() != current_payload["name"].casefold()]
-                updated_library.append(current_payload)
-                st.session_state["browser_portfolio_library"] = updated_library
-                st.session_state["browser_default_portfolio"] = current_payload
-                st.session_state["browser_portfolio_checked"] = True
-                persist_workspace()
-                st.success("Set as Today’s default portfolio across your devices.")
+                try:
+                    saved_row = save_cloud_portfolio(
+                        *sync_config, st.session_state['supabase_session'], current_payload,
+                        existing_id=st.session_state.get('editing_portfolio_id'),
+                        expected_updated_at=st.session_state.get('editing_portfolio_updated_at'),
+                        is_default=bool(save_as_default),
+                    )
+                    st.session_state['editing_portfolio_id'] = saved_row['id']
+                    st.session_state['editing_portfolio_updated_at'] = saved_row['updated_at']
+                    refresh_cloud_portfolios()
+                    st.success(f"Saved {saved_row['name']} to your account." + (" Set as Today’s default." if save_as_default else ""))
+                except Exception as exc:
+                    if getattr(exc, 'code', None) == '23505':
+                        st.error('A portfolio with this name already exists. Choose Edit saved portfolio to update it, or use a different name.')
+                    else:
+                        st.error('Portfolio was not saved. ' + str(getattr(exc, 'message', 'Please try again; if it changed on another device, load it again first.')))
         if clear_default:
-            st.session_state["browser_default_portfolio"] = None
-            persist_workspace()
-            st.success("Removed your saved default portfolio.")
+            try:
+                clear_cloud_default(*sync_config, st.session_state['supabase_session'])
+                refresh_cloud_portfolios()
+                st.success("Removed your saved default portfolio.")
+            except Exception:
+                st.error('Could not remove the default. Please try again.')
     sleeve_rows, sleeve_detail_rows, valid_sleeves = [], [], []
     allocations_by_id = {int(item["id"]): item for item in plan["sleeves"]}
     for sleeve in updated_sleeves:

@@ -80,25 +80,21 @@ def save_portfolio(
     *,
     is_default: bool = False,
     existing_id: str | None = None,
-) -> None:
+    expected_updated_at: str | None = None,
+) -> dict[str, Any]:
     """Insert or replace one named portfolio for the authenticated user."""
-    client = _client(url, key, session)
-    now = datetime.now(timezone.utc).isoformat()
-    row = {
-        "user_id": session["user_id"],
-        "name": payload["name"],
-        "payload": payload,
-        "is_default": is_default,
-        "updated_at": now,
-    }
-    if is_default:
-        client.table("portfolios").update({"is_default": False, "updated_at": now}).eq(
-            "user_id", session["user_id"]
-        ).execute()
-    if existing_id:
-        client.table("portfolios").update(row).eq("id", existing_id).execute()
-    else:
-        client.table("portfolios").insert(row).execute()
+    row = _client(url, key, session).rpc("save_private_portfolio", {
+        "p_payload": payload, "p_id": existing_id,
+        "p_expected_updated_at": expected_updated_at,
+        "p_make_default": is_default,
+    }).execute().data
+    if not isinstance(row, dict) or not row.get("id"):
+        raise RuntimeError("The portfolio save was not confirmed by the database.")
+    return row
+
+
+def clear_default(url: str, key: str, session: dict[str, str]) -> None:
+    _client(url, key, session).table("portfolios").update({"is_default": False}).eq("user_id", session["user_id"]).execute()
 
 
 def delete_portfolio(url: str, key: str, session: dict[str, str], portfolio_id: str) -> None:
