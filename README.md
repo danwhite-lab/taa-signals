@@ -61,9 +61,11 @@ Tax is optional and defaults to 25%. The independent tax module taxes only reali
 
 This is a standard Streamlit project. Create an app at [Streamlit Community Cloud](https://share.streamlit.io/) and point it to `app.py` on the `main` branch. Community Cloud installs the root `requirements.txt`; local development can use `pip install -e '.[dev]'`. The tasekit integration needs no API key. Do not represent the app as an official TASE data distribution service; use the official TASE Data Hub if you need contractual availability or distribution rights.
 
-### Private portfolio sync
+### Private Google login and workspace sync
 
-The app supports email/password accounts and private sync of named portfolios through Supabase. Add these secrets in the Streamlit deployment's **Advanced settings → Secrets** (the tracked `.streamlit/secrets.toml.example` shows the format):
+Google sign-in is required before any investing workspace is shown. Portfolio drafts, saved portfolios, the Today default, model choices, ticker mappings, fees, tax preferences, and backtest settings save automatically to a private Supabase account every five seconds. Uploaded CSV data and calculated results are session-only. Another device loads the saved workspace when signing in or reloading; simultaneous edits produce a conflict notice instead of overwriting newer changes.
+
+This deployment defaults to the TAA Signals Supabase project's public URL and publishable key. To use a different project, add these optional overrides in Streamlit **Settings → Secrets**:
 
 ```toml
 [supabase]
@@ -71,7 +73,11 @@ url = "https://YOUR_PROJECT_REF.supabase.co"
 publishable_key = "sb_publishable_YOUR_KEY"
 ```
 
-Use the project URL and publishable key from Supabase's **Connect** panel. Do not add a service-role key anywhere in the app or deployment. In Supabase **Authentication → URL Configuration**, set the app's deployed URL as the Site URL so email confirmation links return to the app. The database allows authenticated users to read and change only rows whose `user_id` matches their own account; this is enforced with row-level security, not merely by the Streamlit interface.
+Configure Google's OAuth client ID and secret in Supabase **Authentication → Providers → Google**. Google's authorized redirect URI is `https://PROJECT_REF.supabase.co/auth/v1/callback`. In Supabase **Authentication → URL Configuration**, set the deployed app URL as the Site URL and add it to Redirect URLs. No Google client secret is needed in Streamlit.
+
+Sign-in uses a popup and PKCE: the initiating browser keeps the verifier, the callback returns only a one-use authorization code, and session credentials are sent to Streamlit through its component channel. Supabase validates the access token before the app admits the user. The browser retains the session and rotates refresh tokens; signing out clears the investing session. Allow popups and browser storage for the app.
+
+The `portfolios` and `user_settings` tables enforce per-user row-level security. Workspace updates compare revision numbers to prevent stale saves. Never add a service-role key to this app. The legacy portfolio-only library is imported into the workspace on first sign-in.
 
 ## Independent checks built into the UI
 

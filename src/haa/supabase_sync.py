@@ -24,28 +24,41 @@ def config_from_secrets(secrets: Any) -> tuple[str, str] | None:
     return (url, key) if url and key else None
 
 
-def sign_up(url: str, key: str, email: str, password: str) -> None:
-    create_client(url, key).auth.sign_up({"email": email, "password": password})
-
-
-def sign_in(url: str, key: str, email: str, password: str) -> dict[str, str]:
-    response = create_client(url, key).auth.sign_in_with_password(
-        {"email": email, "password": password}
-    )
-    if response.session is None or response.user is None:
-        raise RuntimeError("Supabase did not return a signed-in session.")
-    return {
-        "access_token": response.session.access_token,
-        "refresh_token": response.session.refresh_token,
-        "user_id": response.user.id,
-        "email": response.user.email or email,
-    }
-
-
 def _client(url: str, key: str, session: dict[str, str]):
     client = create_client(url, key)
-    client.auth.set_session(session["access_token"], session["refresh_token"])
+    # The browser owns refresh-token rotation. Database requests only need the
+    # current access token, avoiding concurrent refreshes on browser and server.
+    client.postgrest.auth(session["access_token"])
     return client
+
+
+def verified_session(url: str, key: str, tokens: dict) -> dict[str, str]:
+    """Verify browser-supplied credentials with Auth before admitting the user."""
+    user = create_client(url, key).auth.get_user(tokens['access_token']).user
+    if user is None:
+        raise RuntimeError('The sign-in session is invalid.')
+    return {**tokens, 'user_id': user.id, 'email': user.email or 'Google account'}
+
+
+def load_workspace(url, key, session):
+    rows = _client(url, key, session).table('user_settings').select('payload,revision').eq('user_id', session['user_id']).execute().data
+    return rows[0] if rows else None
+
+
+def save_workspace(url, key, session, payload, revision):
+    """Compare-and-swap prevents a stale device overwriting newer preferences."""
+    client = _client(url, key, session)
+    row = {'payload': payload, 'revision': revision + 1, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    if revision == 0:
+        try:
+            rows = client.table('user_settings').insert({**row, 'user_id': session['user_id']}).execute().data
+        except Exception as exc:
+            if getattr(exc, 'code', None) == '23505':
+                return None
+            raise
+    else:
+        rows = client.table('user_settings').update(row).eq('user_id', session['user_id']).eq('revision', revision).execute().data
+    return revision + 1 if rows else None
 
 
 def list_portfolios(url: str, key: str, session: dict[str, str]) -> list[dict[str, Any]]:

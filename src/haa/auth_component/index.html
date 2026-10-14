@@ -1,0 +1,112 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<style>body{margin:0;font:15px system-ui;color:#31333f}button{font:inherit;border:1px solid #ddd;border-radius:7px;padding:10px 20px;background:white;cursor:pointer}button:hover{background:#f4f6f6}#message{font-size:13px;margin-top:10px;color:#555}</style></head>
+<body><button id="login" hidden>Continue with Google</button><div id="message"></div>
+<script>
+// This component uses Supabase's documented OAuth PKCE endpoints. The verifier
+// stays in the initiating browser; the popup returns only the single-use code.
+const emit = (type, extra={}) => window.parent.postMessage({isStreamlitMessage:true,type,...extra}, '*');
+const value = data => emit('streamlit:setComponentValue', {value:data,dataType:'json'});
+const height = n => emit('streamlit:setFrameHeight', {height:n});
+const message = text => document.getElementById('message').textContent=text;
+const base64url = data => btoa(String.fromCharCode(...data)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+let args, session, popup, verifier, refreshing=false, logoutVersion=null;
+let storageKey;
+async function api(path, body, token) {
+  const response = await fetch(args.url+'/auth/v1/'+path, {
+    method:body ? 'POST':'GET', headers:{'Content-Type':'application/json',apikey:args.publishable_key,...(token?{Authorization:'Bearer '+token}:{})},
+    ...(body?{body:JSON.stringify(body)}:{})
+  });
+  if (!response.ok) throw new Error('Authentication request failed');
+  return response.status===204 ? {} : response.json();
+}
+function remember(data) {
+  session=data?.access_token ? {access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at || Math.floor(Date.now()/1000)+data.expires_in}:null;
+  if(session) localStorage.setItem(storageKey,JSON.stringify(session)); else localStorage.removeItem(storageKey);
+  document.getElementById('login').hidden=!!session;
+  value({session});height(session ? 0:85);
+}
+async function renew() {
+  if(!session || refreshing) return;
+  if(session.expires_at>Math.floor(Date.now()/1000)+60) return;
+  refreshing=true;
+  const refresh=async () => {
+    // Pick up rotations performed by another tab before using a refresh token.
+    session=JSON.parse(localStorage.getItem(storageKey)||'null');
+    if(session && session.expires_at<=Math.floor(Date.now()/1000)+60) {
+      remember(await api('token?grant_type=refresh_token',{refresh_token:session.refresh_token}));
+    } else remember(session);
+  };
+  try {
+    if(navigator.locks) await navigator.locks.request(storageKey,refresh);
+    else await refresh();
+  }
+  catch(error) {message('Your session expired. Please sign in again.');remember(null);}
+  finally {refreshing=false;}
+}
+async function render(next) {
+  if(args) {
+    if(next.logout_version!==logoutVersion) {
+      logoutVersion=next.logout_version;
+      if(session) {try {await api('logout',{},session.access_token);}catch(error){}}
+      remember(null);
+    }
+    return;
+  }
+  args=next;logoutVersion=next.logout_version;
+  storageKey='taa-signals.auth.'+new URL(args.url).hostname;
+  const parentURL=new URL(window.parent.location.href);
+  // Popup callbacks do not render the investing workspace or exchange tokens.
+  if(parentURL.searchParams.has('code')) {
+    const code=parentURL.searchParams.get('code');
+    // Some providers sever window.opener. A transient same-origin storage
+    // event also returns the code; only the initiating window has the verifier.
+    localStorage.setItem(storageKey+'.callback',JSON.stringify({code}));
+    localStorage.removeItem(storageKey+'.callback');
+    if(window.parent.opener) window.parent.opener.postMessage({type:'taa-oauth-code',code},parentURL.origin);
+    window.parent.close();height(0);return;
+  }
+  if(parentURL.searchParams.has('error')) {
+    message('Google sign-in was cancelled or could not be completed. Please try again.');
+  }
+  try {session=JSON.parse(localStorage.getItem(storageKey)||'null');}catch(error){session=null;}
+  if(args.logout_pending) {
+    if(session) {try {await api('logout',{},session.access_token);}catch(error){}}
+    remember(null);return;
+  }
+  if(session) {await renew(); if(session) remember(session);} else remember(null);
+  setInterval(renew,30000);
+}
+document.getElementById('login').onclick=async () => {
+  popup=window.open('about:blank','taa-google-login','width=520,height=700');
+  if(!popup) {message('Allow popups for this app, then try again.');return;}
+  try {
+    verifier=base64url(crypto.getRandomValues(new Uint8Array(32)));
+    const challenge=base64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))));
+    const redirect=new URL(window.parent.location.href);redirect.search='';redirect.hash='';
+    const url=new URL(args.url+'/auth/v1/authorize');
+    url.search=new URLSearchParams({provider:'google',redirect_to:redirect.toString(),code_challenge:challenge,code_challenge_method:'s256'});
+    popup.location=url.toString();message('Complete Google sign-in in the opened window.');
+  } catch(error) {popup.close();message('Could not start Google sign-in. Please try again.');}
+};
+async function complete(code) {
+  if(!verifier) return;
+  const pendingVerifier=verifier;verifier=null;
+  try {remember(await api('token?grant_type=pkce',{auth_code:code,code_verifier:pendingVerifier}));message('');}
+  catch(error){message('Could not complete sign-in. Please try again.');}
+}
+window.addEventListener('message',async event => {
+  if(event.data?.type==='streamlit:render' && event.source===window.parent) {try {await render(event.data.args);}catch(error){message('Browser storage is unavailable. Allow storage for this app and reload.');height(85);}return;}
+  if(event.data?.type!=='taa-oauth-code' || event.origin!==window.location.origin || event.source!==popup || !verifier) return;
+  await complete(event.data.code);
+});
+window.addEventListener('storage',async event => {
+  if(event.key===storageKey+'.callback' && event.newValue) {
+    try {await complete(JSON.parse(event.newValue).code);}catch(error){}
+  }
+  if(event.key===storageKey) {
+    try {remember(JSON.parse(event.newValue||'null'));}catch(error){remember(null);}
+  }
+});
+emit('streamlit:componentReady',{apiVersion:1});height(85);
+</script></body></html>
