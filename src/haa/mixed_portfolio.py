@@ -275,7 +275,13 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         validate_sessions(quotes)
         valid=np.isfinite(quotes).all(axis=1)&(quotes>0).all(axis=1)
         if not valid.any(): raise ValueError('No usable daily sleeve history.')
-        lower.extend([quotes.index[valid][0],schedule_dates(model.decisions.index[:1])[0]])
+        if model.decisions.attrs.get('signal_calendar') == 'XNYS' and local:
+            from .market_sessions import scheduled_us_tase_execution_dates
+            first_execution = (pd.Timestamp(model.decisions.attrs['cash_start_date']) if model.decisions.attrs.get('cash_start_date')
+                               else scheduled_us_tase_execution_dates(model.decisions.index[:1])[0])
+        else:
+            first_execution = schedule_dates(model.decisions.index[:1])[0]
+        lower.extend([quotes.index[valid][0],first_execution])
         upper.append(min(quotes.index.max(),model.decisions.attrs.get('completed_through',quotes.index.max())))
     first=max(lower+[pd.Timestamp(start)] if start is not None else lower)
     last=min(upper+[pd.Timestamp(end)] if end is not None else upper)

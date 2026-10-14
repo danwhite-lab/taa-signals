@@ -21,19 +21,30 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
     if execution_delay_business_days < 0:
         raise ValueError("Execution delay cannot be negative.")
     assets = {benchmark_asset}
+    cross_market = decisions.attrs.get("signal_calendar") == "XNYS"
+    if cross_market:
+        # Include cash even if every replay signal immediately leaves BIL:
+        # the explicit initial cash book precedes the first eligible US close.
+        assets.update(decisions.attrs.get("execution_assets", ()))
     for weights in decisions.target_weights:
         assets.update(_normalise_weights(weights))
     if not assets.issubset(daily_prices.columns):
         raise ValueError("Required TASE execution and benchmark prices are unavailable.")
     prices = daily_prices.loc[:, sorted(assets)].sort_index().dropna(how="all")
     prices = prices.loc[:decisions.attrs.get("completed_through")]
+    if cross_market and decisions.attrs.get("execution_prices_started_from") is not None:
+        prices = prices.loc[decisions.attrs["execution_prices_started_from"]:]
     validate_tase_sessions(prices)
     # Price dates, not US business days, determine the execution session.
     schedule = {}
-    for signal_date, decision in decisions.sort_index().iterrows():
-        position = prices.index.searchsorted(signal_date, side="right") + execution_delay_business_days
-        if position < len(prices):
-            schedule[prices.index[position]] = (signal_date, decision)
+    if cross_market:
+        from .cross_market_daily import tase_execution_schedule
+        schedule = tase_execution_schedule(decisions, prices.index, execution_delay_business_days)
+    else:
+        for signal_date, decision in decisions.sort_index().iterrows():
+            position = prices.index.searchsorted(signal_date, side="right") + execution_delay_business_days
+            if position < len(prices):
+                schedule[prices.index[position]] = (signal_date, decision)
     if not schedule:
         raise ValueError("No post-signal TASE execution session is available.")
     dates = prices.loc[min(schedule):].index
@@ -67,7 +78,8 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
         signal_date, decision = schedule[date]
         state = decision.model_state
         state_change = holding_state is not None and state != holding_state
-        annual_reset = previous_date is not None and date.year != previous_date.year and state == "QLD"
+        reset_states = decisions.attrs.get("annual_reset_states", ("QLD",))
+        annual_reset = previous_date is not None and date.year != previous_date.year and state in reset_states
         rebalance = holding_state is None or state_change or annual_reset or contribution > 0
         details = []; purchase_notional = 0.
         if rebalance:
@@ -124,6 +136,11 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
                'pre_tax_monthly_return': (pre - contribution) / prior_pre - 1,
                'after_tax_monthly_return': (after - contribution) / prior_after - 1,
                'benchmark_monthly_return': (benchmark - contribution) / prior_benchmark - 1}
+        if cross_market:
+            row['new_us_observation'] = pd.notna(signal_date) and (not output or signal_date != output[-1]['signal_date'])
+            row['signal_calendar'] = 'XNYS'
+            row['us_state_transition'] = bool(decision.get('trade', False))
+            row['trade'] = bool(details)
         output.append(row)
         if details: audit.append(row.copy())
         previous_date = date

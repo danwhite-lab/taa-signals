@@ -17,6 +17,7 @@ from .vaa import VAAG4
 from .momentum_correlation_triplet import MomentumCorrelationTriplet
 from .rvol_shifter import RVolShifterCashOnly
 from .rvol_shifter_israel import RVolShifterCashOnlyIsrael
+from .rvol_shifter_us_tase import RVolShifterUSTase1x, RVolShifterUSTaseBlend
 from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 

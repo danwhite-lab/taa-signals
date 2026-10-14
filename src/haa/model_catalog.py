@@ -42,6 +42,8 @@ from .strategies import (
     MomentumCorrelationTriplet,
     RVolShifterCashOnly,
     RVolShifterCashOnlyIsrael,
+    RVolShifterUSTase1x,
+    RVolShifterUSTaseBlend,
     ChimericAssetAllocation,
     ChimericFullRetreat,
 )
@@ -101,6 +103,8 @@ MODEL_CATALOG: tuple[ModelDefinition, ...] = (
     ModelDefinition("Orthogonal Alpha", None, "Standard", "Orthogonal Alpha (BTAL/QLD)", OrthogonalAlpha, "USD", "externally_timed", "external", None, "Thomas Carlson's monthly core-satellite model: a permanent 25% QLD / 25% BTAL core plus a 50% satellite that holds BTAL when BTAL's equal-weighted 1/3/6/12-month momentum exceeds BIL, otherwise QLD."),
     ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "Documented interpretation", "A-RVol Shifter V3 Cash-Only", RVolShifterCashOnly, "USD", "daily_timed", "daily", None, "Daily TQQQ / QLD / BIL state machine. Closing-price decisions and next-session-open execution. Supports USD mixed-frequency portfolios with initial sleeve weights and no sleeve transfers. Monthly Compare remains unsupported."),
     ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "Israel", "A-RVol Shifter V3 Cash-Only Israel", RVolShifterCashOnlyIsrael, "ILS", "daily_timed", "daily", None, "TASE implementation: 1187079 x3; QLD state 50% 1187079 / 50% 1149038, reset annually; 5117700 shekel cash. Local signal inputs: SPY 1144385, QQQ 1149038, LQD 1159185 and HYG 1159078. Actual ILS history and next-session closing/NAV execution."),
+    ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "US signals / TASE — 1x middle", RVolShifterUSTase1x.name, RVolShifterUSTase1x, "ILS", "daily_timed", "daily", None, "Unchanged US V3 signals. TASE states: 1187079 monthly x3, 100% Harel 1149038 middle, Ayalon 5117700 cash. First eligible TASE closing/NAV execution; actual ILS history."),
+    ModelDefinition("A-RVol Shifter", "V3 Cash-Only", "US signals / TASE — 50:50 middle", RVolShifterUSTaseBlend.name, RVolShifterUSTaseBlend, "ILS", "daily_timed", "daily", None, "Unchanged US V3 signals. Middle enters 50% Harel 1149038 / 50% MTF 1187079, drifts and resets on the first TASE session of the year. Cash 5117700. Actual ILS closing/NAV execution; reference month-end reset differs."),
 )
 
 

@@ -54,6 +54,18 @@ def latest_actionable_signal(
     allocation silently.
     """
     completed_month_end = last_completed_month_end(as_of)
+    if decisions.attrs.get("signal_calendar") == "XNYS":
+        from .strategies.rvol_shifter import completed_daily_cutoff
+        from .market_sessions import us_equity_sessions
+        cutoff = completed_daily_cutoff(as_of)
+        expected = us_equity_sessions(str((cutoff - pd.Timedelta(days=14)).date()), str(cutoff.date()))
+        if decisions.empty or not len(expected):
+            return SignalStatus(None, "US signal data or warm-up is unavailable.", cutoff)
+        latest = expected[-1]
+        assets = decisions.attrs["us_data_assets"]
+        if latest not in decisions.index or latest not in monthly_prices.index or monthly_prices.loc[latest, list(assets)].isna().any():
+            return SignalStatus(None, "Latest completed US session is missing; refusing a stale signal.", latest)
+        return SignalStatus(decisions.loc[latest].copy(), None, latest)
     if decisions.attrs.get("execution_frequency") == "daily":
         from .strategies.rvol_shifter import completed_daily_cutoff
         if decisions.attrs.get("local_daily_execution"):

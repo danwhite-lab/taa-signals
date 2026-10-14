@@ -98,3 +98,31 @@ def scheduled_tase_execution_dates(decision_dates: pd.DatetimeIndex) -> pd.Datet
     sessions = tase_equity_sessions(str(decision_dates.min().date()),
                                     str((decision_dates.max() + pd.Timedelta(days=14)).date()))
     return sessions.take(sessions.searchsorted(decision_dates, side="right"))
+
+
+def market_session_times(market: str, dates: pd.DatetimeIndex, field: str) -> pd.DatetimeIndex:
+    """Actual UTC opens/closes for verified session labels; never weekday guesses."""
+    if not len(dates):
+        return pd.DatetimeIndex([], tz="UTC")
+    try:
+        import exchange_calendars as xcals
+        calendar = xcals.get_calendar(market, start=dates.min() - pd.Timedelta(days=7),
+                                      end=dates.max() + pd.Timedelta(days=7))
+        getter = calendar.session_open if field == "open" else calendar.session_close
+        return pd.DatetimeIndex([getter(date) for date in dates]).tz_convert("UTC")
+    except Exception as exc:
+        raise ValueError(f"{market} session timestamps unavailable; refusing unsafe execution timing.") from exc
+
+
+def scheduled_us_tase_execution_dates(signal_dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """First TASE opening strictly after each completed US session close."""
+    if not len(signal_dates):
+        return pd.DatetimeIndex([])
+    sessions = tase_equity_sessions(str(signal_dates.min().date()),
+                                    str((signal_dates.max() + pd.Timedelta(days=30)).date()))
+    openings = market_session_times("XTAE", sessions, "open")
+    closes = market_session_times("XNYS", signal_dates, "close")
+    positions = openings.searchsorted(closes, side="right")
+    if (positions >= len(sessions)).any():
+        raise ValueError("No future TASE session available to schedule US signals.")
+    return sessions.take(positions)

@@ -122,6 +122,16 @@ Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update
 **Risk:** high-drawdown leveraged satellite, not a core holding. A monthly signal cannot prevent losses from a fast intramonth crash.""",
 }
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
+for _definition in MODEL_CATALOG:
+    if getattr(_definition.model_class, "signal_calendar", None) == "XNYS":
+        MODEL_RULES[_definition.label] = (
+            MODEL_RULES["A-RVol Shifter V3 Cash-Only"] + "\n\n"
+            + _definition.model_class.risk_warning
+            + "\n\nSignals use original adjusted US prices. Execution uses actual TASE ILS funds, with US and TASE calendars validated separately. Cash is Ayalon 5117700; top state is monthly-reset MTF 1187079. "
+            + "US holidays carry the existing state without another observation; multiple US signals before a TASE reopening execute only the latest eligible state. "
+            + "The first eligible TASE session is modeled at its closing/NAV price. No prices are forward-filled. "
+            + "[Implementation and reference differences](https://github.com/danwhite-lab/taa-signals/blob/main/docs/arvol-us-signals-tase.md)."
+        )
 MODEL_RULES["A-RVol Shifter V3 Cash-Only Israel"] = """**A-RVol Shifter V3 Cash-Only Israel:** Uses the V3 state-machine thresholds on actual TASE ILS inputs: Nasdaq 1149038, S&P 500 1144385, corporate bonds 1159185, high yield 1159078. TQQQ state holds MTF monthly-reset x3 1187079. QLD state enters 50% 1187079 / 50% 1149038, allows drift, and restores 50/50 on the first session of each new year. Cash holds Ayalon 5117700 (shekels). State changes and annual resets trade at next-session closing/NAV prices. This is a local adaptation, not a replication of US daily-reset TQQQ/QLD. Actual available fund history only; fund expenses are embedded in NAV, not deducted twice. Investor-level fees and realized-sale taxes apply separately. No assumed 1.8-point drift or 0.06% cost is hardcoded."""
 TASE_ASSETS = tuple(TASE_ISRAEL_ASSET_IDS)
 YAHOO_ASSETS = tuple(asset for asset in ALL_MODEL_ASSETS if asset not in (*TASE_ASSETS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
@@ -1331,6 +1341,14 @@ def load_data(source_items: tuple[tuple[str, str], ...]):
     return download_yahoo_prices(dict(source_items))
 
 
+@st.cache_data(ttl=3600, show_spinner="Downloading actual adjusted US V3 prices...")
+def load_strict_us_data(source_items, strict_assets):
+    sources = dict(source_items)
+    if any(sources.get(asset) != asset for asset in strict_assets):
+        raise ValueError("US-signals/TASE variants require original US tickers; signal ticker proxies are not enabled.")
+    return download_yahoo_prices(sources, require_adjusted_assets=strict_assets)
+
+
 @st.cache_data(ttl=3600, show_spinner="Downloading daily closing and opening prices...")
 def load_daily_bars(source_items: tuple[tuple[str, str], ...]):
     return download_yahoo_daily_bars(dict(source_items))
@@ -1460,7 +1478,12 @@ try:
     if needs_open_prices:
         downloaded, execution_opens = load_daily_bars(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets))
     else:
-        downloaded = load_data(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)) if runtime_yahoo_assets else pd.DataFrame()
+        strict_us_assets = tuple(dict.fromkeys(asset for label in active_model_labels
+            if getattr(MODEL_OPTIONS[label], "signal_calendar", None) == "XNYS"
+            for asset in MODEL_OPTIONS[label].us_data_assets))
+        source_items = tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)
+        downloaded = (load_strict_us_data(source_items, strict_us_assets) if strict_us_assets
+                      else load_data(source_items)) if runtime_yahoo_assets else pd.DataFrame()
 except Exception as exc:
     st.error(f"Yahoo Finance download failed: {exc}")
     st.stop()
@@ -1538,6 +1561,10 @@ if page == "Backtest":
     st.session_state["uploaded_replacements"] = replacements
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
 all_prices = combine_replacements(downloaded_all, replacements, runtime_assets)
+if any(getattr(MODEL_OPTIONS[label], "signal_calendar", None) == "XNYS" for label in active_model_labels):
+    if set(replacements).intersection(("QQQ", "SPY", "HYG", "LQD", "TQQQ", "QLD", "BIL")):
+        st.error("US signal CSV replacements are not enabled for the exact US V3 / TASE variants. Use original adjusted US data.")
+        st.stop()
 if needs_open_prices and set(replacements).intersection(runtime_assets):
     st.error("Next-open A-RVol backtests require opening and closing prices from the same source. Close-only CSV replacements cannot be used; remove these uploads or select a Yahoo ticker source.")
     st.stop()
@@ -1560,6 +1587,9 @@ source_metadata = pd.DataFrame(
     index=pd.Index(runtime_yahoo_assets, name="asset"),
 )
 source_metadata = pd.concat([source_metadata, tase_metadata]).reindex(runtime_assets)
+for _label in active_model_labels:
+    if getattr(MODEL_OPTIONS[_label], "signal_calendar", None) == "XNYS":
+        source_metadata.loc[list(MODEL_OPTIONS[_label].us_data_assets), "price_field"] = "Required adjusted close; no raw Close fallback"
 for asset in runtime_fred_assets:
     source_metadata.loc[asset] = {"source": "FRED", "identifier": asset, "price_field": "Daily observation"}
 if needs_oecd:
@@ -1759,7 +1789,13 @@ if page in {"Backtest", "Research", "Rules"}:
         if daily_available_decisions.empty:
             st.error("Insufficient daily warm-up and actual ETF history for this strategy.")
             st.stop()
-        common_start = first_trading_day_after(prices, daily_available_decisions.index.min(), strategy.data_assets)
+        if getattr(strategy, "signal_calendar", None) == "XNYS":
+            from haa.cross_market_daily import market_frame, tase_execution_schedule
+            local_sessions = market_frame(prices, strategy.execution_assets, "TASE").loc[:daily_available_decisions.attrs['completed_through']].dropna().index
+            executable = tase_execution_schedule(daily_available_decisions, local_sessions)
+            common_start = min(executable) if executable else None
+        else:
+            common_start = first_trading_day_after(prices, daily_available_decisions.index.min(), strategy.data_assets)
         common_end = daily_available_decisions.attrs["completed_through"]
         if daily_available_decisions.attrs.get("pending_price_dates"):
             st.caption(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
@@ -1793,7 +1829,15 @@ if page in {"Backtest", "Research", "Rules"}:
 
     decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_decision_input
     try:
-        decisions = strategy.decisions(decision_prices)
+        if getattr(strategy, "signal_calendar", None) == "XNYS":
+            reference_cash_start = False
+            if page == "Backtest":
+                with backtest_configuration:
+                    reference_cash_start = st.checkbox("Reference replay: restart V3 in cash at backtest start", value=False, key="us_tase_cash_replay")
+                    st.caption("Keeps prior indicator warm-up. Reference uses a different, unverified December month-end reset and FIFO/spread/final-sale accounting; its taxable CAGR is not a match target.")
+            decisions = strategy.decisions(decision_prices, cash_start=start if reference_cash_start else None)
+        else:
+            decisions = strategy.decisions(decision_prices)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -2008,7 +2052,11 @@ if page == "Backtest":
         st.caption("These settings configure this backtest only.")
         if result.daily is not None:
             local_daily = decisions.attrs.get("local_daily_execution", False)
-            st.caption("Israel execution uses next-session closing/NAV prices, not exchange opens. The two-fund QLD substitute drifts until state changes or its annual reset. Fund expenses are already in NAV. Realized-sale tax and broker fees are additional. Drawdown uses daily closes; no terminal liquidation, FX/indexation or legal tax validation is assumed." if local_daily else "Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
+            if getattr(strategy, "signal_calendar", None) == "XNYS":
+                st.caption("US closing signals execute at the first eligible TASE session's closing/NAV price. The 1x middle holds Harel alone; the blended middle drifts and resets on the first TASE session of each year. App tax uses average cost without spreads or final liquidation; it does not reproduce reference FIFO taxable CAGR.")
+                st.caption(f"US prices/signals through {decisions.attrs['us_completed_through']:%Y-%m-%d}; TASE execution prices through {decisions.attrs['execution_prices_completed_through']:%Y-%m-%d}.")
+            else:
+                st.caption("Israel execution uses next-session closing/NAV prices, not exchange opens. The two-fund QLD substitute drifts until state changes or its annual reset. Fund expenses are already in NAV. Realized-sale tax and broker fees are additional. Drawdown uses daily closes; no terminal liquidation, FX/indexation or legal tax validation is assumed." if local_daily else "Signals use the completed session's closing prices. Trades execute at the next session's open. Fees apply separately to buys and sells. Drawdown and volatility use daily closing values, not intraday lows; monthly returns include partial boundary months.")
             st.info("Israel also supports same-currency ILS daily-valued portfolio Backtests. Portfolio Compare, generic monthly Research and synthetic Deep History are not available for this local implementation." if local_daily else "Also available in USD portfolio backtests and portfolio comparisons using initial weights / daily valuation. Model-only monthly Compare remains unsupported. Long synthetic A-RVol supports monthly Deep History blends and modeled CGT; the older import remains standalone only.")
         else:
             st.caption("Signals are evaluated at month-end and execute for the following holding period; no optimization or synthetic history.")
@@ -2820,6 +2868,8 @@ if page == "Signals":
             title_column.title(daily_signal_heading(signal_status.decision))
             local_daily = signal_decisions.attrs.get("local_daily_execution", False)
             title_column.caption(f"Model: {signal_model_name} · EXPERIMENTAL · closing-price decision · next-session-{'close/NAV' if local_daily else 'open'} execution")
+            if getattr(signal_strategy, "signal_calendar", None) == "XNYS":
+                st.caption(f"US signals through {signal_decisions.index.max():%Y-%m-%d}; actual TASE prices through {signal_decisions.attrs['execution_prices_completed_through']:%Y-%m-%d}. The US close and TASE execution session are separate dates.")
             st.warning(signal_strategy.risk_warning)
             if signal_status.decision is None:
                 st.error(signal_status.reason)
@@ -2830,7 +2880,10 @@ if page == "Signals":
                     "State transition": signal.transition_reason, "RVol": signal.rvol,
                     "VR": signal.vr, "SPY vs SMA": signal.trend, "Credit 20-session change": signal.credit,
                     "Donchian lock": signal.donchian_lock, "Defensive sessions": signal.defensive_age}]), hide_index=True)
-                st.caption("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local_daily else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
+                if getattr(signal_strategy, "signal_calendar", None) == "XNYS":
+                    st.caption("US data is considered complete after 17:00 New York. Execute at the first TASE session after the US close, modeled at closing/NAV prices; verify broker dealing deadlines. Targets are not actual holdings. US holidays retain the previous state without another indicator observation.")
+                else:
+                    st.caption("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local_daily else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
             daily_history_view, daily_data_view = st.tabs(["History", "Data"])
             with daily_history_view:
                 date_columns = [column for column in ("decision_date", "scheduled_execution_date") if column in signal_decisions.columns]

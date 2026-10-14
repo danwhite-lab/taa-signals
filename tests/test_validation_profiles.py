@@ -52,7 +52,8 @@ def test_every_catalogued_strategy_declares_research_support_or_explicit_limitat
         reason = research_unavailable_reason(definition.model_class)
         assert (profile is not None) != (reason is not None), definition.label
     unsupported = {d.label for d in MODEL_CATALOG if research_unavailable_reason(d.model_class)}
-    assert unsupported == {"A-RVol Shifter V3 Cash-Only", "A-RVol Shifter V3 Cash-Only Israel"}
+    assert unsupported == {"A-RVol Shifter V3 Cash-Only", "A-RVol Shifter V3 Cash-Only Israel",
+                           "A-RVol V3 US Signals / TASE — 1x Middle", "A-RVol V3 US Signals / TASE — 50:50 Middle"}
 
 
 def test_new_monthly_profiles_do_not_enable_tuning_or_change_variants():
