@@ -828,18 +828,18 @@ if page == "Backtest":
             st.subheader("Portfolio sleeves")
             st.caption("Choose sleeves and starting weights. With A-RVol, weights drift without transfers between sleeves; monthly-only portfolios retain their monthly weight reset.")
             configured_sleeves = st.session_state["backtest_sleeves"]
-            add_column, remove_column = st.columns(2)
-            with add_column:
-                add_backtest_sleeve = st.button("+", key="backtest_add_sleeve", help="Add sleeve")
-            with remove_column:
-                remove_backtest_sleeve = st.button("-", key="backtest_remove_sleeve", help="Remove the last sleeve", disabled=len(configured_sleeves) == 1)
+            add_backtest_sleeve = st.button("+", key="backtest_add_sleeve", help="Add sleeve")
+            remove_backtest_id = None
             updated_backtest_sleeves = []
             for sleeve in configured_sleeves:
                 sleeve_id = sleeve["id"]
                 prefix = f"backtest_sleeve_{sleeve_id}"
                 seed_model_selection(prefix, sleeve.get("model", DEFAULT_MODEL))
                 with st.container(key=f"{prefix}-compact-editor"):
-                    sleeve_heading = st.container()
+                    sleeve_heading, sleeve_remove = st.columns([4, 1])
+                    with sleeve_remove:
+                        if st.button("Remove", key=f"{prefix}_remove", help="Remove this sleeve", disabled=len(configured_sleeves) == 1):
+                            remove_backtest_id = sleeve_id
                     with st.expander("Edit sleeve"):
                         sleeve_model = model_selector(prefix, implementation_dropdown=True)
                         sleeve_weight = st.number_input("Weight (%)", min_value=0.0, max_value=100.0, value=float(sleeve["weight"]), step=1.0, key=f"{prefix}_weight")
@@ -853,8 +853,8 @@ if page == "Backtest":
                 st.session_state["backtest_next_id"] = next_id + 1
                 st.session_state["backtest_sleeves"].append({"id": next_id, "weight": 0.0, "model": DEFAULT_MODEL})
                 st.rerun()
-            if remove_backtest_sleeve:
-                st.session_state["backtest_sleeves"] = updated_backtest_sleeves[:-1]
+            if remove_backtest_id is not None:
+                st.session_state["backtest_sleeves"] = [s for s in updated_backtest_sleeves if s["id"] != remove_backtest_id]
                 st.rerun()
             backtest_weight_total = total_weight(updated_backtest_sleeves)
             if abs(backtest_weight_total - 100.0) > 1e-9:
@@ -909,18 +909,18 @@ if page == "Backtest":
             proxy_options = deep_history_options(len(configured_proxy_sleeves))
             proxy_labels = {key: spec.label for key, spec in ALL_DEEP_HISTORY_SPECS.items()}
             configured_daily_proxy = any(st.session_state.get(f"deep_proxy_sleeve_{sleeve['id']}_model", sleeve["model"]) == "rvol_daily" for sleeve in configured_proxy_sleeves)
-            add_column, remove_column = st.columns(2)
-            with add_column:
-                add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve; long synthetic A-RVol supports monthly blends", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(deep_history_options(2)))
-            with remove_column:
-                remove_proxy_sleeve = st.button("-", key="deep_proxy_remove_sleeve", help="Remove the last proxy sleeve", disabled=len(configured_proxy_sleeves) == 1)
+            add_proxy_sleeve = st.button("+", key="deep_proxy_add_sleeve", help="Add proxy sleeve; long synthetic A-RVol supports monthly blends", disabled=configured_daily_proxy or len(configured_proxy_sleeves) >= len(deep_history_options(2)))
+            remove_proxy_id = None
             updated_proxy_sleeves = []
             for sleeve in configured_proxy_sleeves:
                 sleeve_id = sleeve["id"]
                 model_key = f"deep_proxy_sleeve_{sleeve_id}_model"
                 st.session_state.setdefault(model_key, sleeve["model"])
                 with st.container(key=f"deep-proxy-sleeve-{sleeve_id}"):
-                    strategy_column, weight_column = st.columns((2.7, 0.8))
+                    strategy_column, weight_column, remove_column = st.columns((2.7, 0.8, 0.8))
+                    with remove_column:
+                        if st.button("Remove", key=f"deep_proxy_sleeve_{sleeve_id}_remove", help="Remove this proxy sleeve", disabled=len(configured_proxy_sleeves) == 1):
+                            remove_proxy_id = sleeve_id
                     with strategy_column:
                         sleeve_model = st.selectbox("Proxy strategy", proxy_options, format_func=lambda key: proxy_labels[key], key=model_key)
                     with weight_column:
@@ -938,8 +938,8 @@ if page == "Backtest":
                 unused_proxy = next(key for key in deep_history_options(2) if key not in {s["model"] for s in updated_proxy_sleeves})
                 st.session_state["deep_proxy_sleeves"].append({"id": next_id, "weight": 0.0, "model": unused_proxy})
                 st.rerun()
-            if remove_proxy_sleeve:
-                st.session_state["deep_proxy_sleeves"] = updated_proxy_sleeves[:-1]
+            if remove_proxy_id is not None:
+                st.session_state["deep_proxy_sleeves"] = [s for s in updated_proxy_sleeves if s["id"] != remove_proxy_id]
                 st.rerun()
             proxy_weight_total = total_weight(updated_proxy_sleeves)
             duplicate_proxy_models = len({sleeve["model"] for sleeve in updated_proxy_sleeves}) != len(updated_proxy_sleeves)
@@ -2465,11 +2465,8 @@ if page == "Portfolio":
     with portfolio_setup:
         st.divider()
         st.markdown("**Strategy sleeves**")
-        sleeve_add_column, sleeve_remove_column = st.columns(2)
-        with sleeve_add_column:
-            add_sleeve = st.button("+ Add sleeve", key="portfolio_add_sleeve", help="Add sleeve", use_container_width=True)
-        with sleeve_remove_column:
-            remove_sleeve = st.button("− Remove", key="portfolio_remove_sleeve", help="Remove the last sleeve", disabled=len(sleeves) == 1, use_container_width=True)
+        add_sleeve = st.button("+ Add sleeve", key="portfolio_add_sleeve", help="Add sleeve", use_container_width=True)
+    remove_sleeve_id = None
     updated_sleeves = []
     for sleeve in sleeves:
         sleeve_id = sleeve["id"]
@@ -2477,7 +2474,10 @@ if page == "Portfolio":
         previous_model = sleeve.get("model", st.session_state.get(f"{prefix}_model", DEFAULT_MODEL))
         seed_model_selection(prefix, previous_model)
         with portfolio_setup, st.container(key=f"{prefix}-compact-sleeve"):
-            sleeve_summary = st.container()
+            sleeve_summary, sleeve_remove = st.columns([4, 1])
+            with sleeve_remove:
+                if st.button("Remove", key=f"{prefix}_remove", help="Remove this sleeve", disabled=len(sleeves) == 1):
+                    remove_sleeve_id = sleeve_id
             with st.expander("Edit sleeve", expanded=False):
                 model_label = model_selector(prefix, implementation_dropdown=True)
                 weight_column, currency_column = st.columns(2)
@@ -2498,8 +2498,8 @@ if page == "Portfolio":
         st.session_state["portfolio_next_id"] = next_id + 1
         st.session_state["portfolio_sleeves"].append({"id": next_id, "weight": 0.0, "model": DEFAULT_MODEL})
         st.rerun()
-    if remove_sleeve:
-        st.session_state["portfolio_sleeves"] = updated_sleeves[:-1]
+    if remove_sleeve_id is not None:
+        st.session_state["portfolio_sleeves"] = [s for s in updated_sleeves if s["id"] != remove_sleeve_id]
         st.rerun()
     with portfolio_setup:
         sleeve_total = total_weight(updated_sleeves)
