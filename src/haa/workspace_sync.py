@@ -20,6 +20,7 @@ FIELDS = {
     'portfolio_compare_tax', 'portfolio_compare_tax_rate',
     'mixed_rebalance_cap', 'mixed_rebalance_rule', 'mixed_rebalance_sleeve', 'mixed_rebalance_target',
     'substitution_mode',
+    'holdings_account', 'rebalance_portfolio_id',
 }
 
 

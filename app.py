@@ -27,6 +27,7 @@ from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, funding_plan, total_weight
+from haa.portfolio_signals import monthly_strategy_input, portfolio_signal
 from haa.portfolio_backtest import run_portfolio_backtest
 # Streamlit reruns app.py after deployment but can retain imported modules from
 # the previous revision. Refresh both dispatch layers when their API is stale.
@@ -723,7 +724,55 @@ with st.expander("Account & private sync", expanded=False):
             clear_sign_in()
 
 with st.container(key="primary-navigation"):
-    page = st.radio("Primary navigation", ("Today", "Signals", "Portfolio", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
+    page = st.radio("Primary navigation", ("Today", "Signals", "Portfolio", "Rebalance Holdings", "Backtest", "Research", "Compare", "Rules"), horizontal=True, label_visibility="collapsed", key="page")
+
+if page == "Rebalance Holdings":
+    from haa.rebalance_holdings import execution_security, security
+    from haa.rebalance_page import render_rebalance_page
+    from haa.supabase_sync import save_holdings_workspace
+
+    def commit_rebalance_account(account):
+        if st.session_state.get('workspace_conflict'):
+            raise RuntimeError('Reload the synced workspace to resolve the other-device conflict first.')
+        current = st.session_state.get('holdings_account', {'revision': 0})
+        if account['revision'] != current['revision'] + 1:
+            raise ValueError('Holdings changed. Reload before saving.')
+        payload = {**workspace_snapshot(st.session_state.get('workspace_shadow', {})), **workspace_snapshot(st.session_state)}
+        payload['holdings_account'] = account
+        try:
+            saved = save_holdings_workspace(*sync_config, st.session_state['supabase_session'], payload,
+                                           st.session_state['workspace_revision'])
+        except Exception:
+            # Freeze autosave after an uncertain write; never overwrite a
+            # remotely committed purchase with the old local holdings.
+            st.session_state['workspace_conflict'] = True
+            raise
+        st.session_state['holdings_account'] = saved['payload']['holdings_account']
+        st.session_state['workspace_revision'] = saved['revision']
+        st.session_state['workspace_last_saved'] = saved['payload']
+        st.session_state['workspace_shadow'] = restore_workspace(saved['payload'])
+        if saved['payload'] != payload:
+            # A confirmed operation can coexist with later remote preference
+            # edits. Preserve those edits until the user reloads as well.
+            st.session_state['workspace_conflict'] = True
+
+    known_instruments = {}
+    for asset in YAHOO_ASSETS:
+        item = security(asset, 'US')
+        known_instruments[item['id']] = item
+    for asset in TASE_ASSETS:
+        item = execution_security(asset, 'ILS')
+        known_instruments[item['id']] = item
+    try:
+        rebalance_ticker_items = tuple(parse_ticker_map(st.session_state['ticker_text'], YAHOO_ASSETS).items())
+        rebalance_source_error = None
+    except (ValueError, TypeError) as exc:
+        rebalance_ticker_items, rebalance_source_error = (), str(exc)
+    render_rebalance_page(st.session_state['cloud_portfolio_rows'], known_instruments,
+                          rebalance_ticker_items, st.session_state['uploaded_replacements'],
+                          commit_rebalance_account, rebalance_source_error)
+    st.stop()
+
 if page in {"Signals", "Backtest", "Research", "Compare"}:
     st.markdown("""
 <style>
@@ -1374,16 +1423,6 @@ def load_fred_data():
 @st.cache_data(ttl=6 * 60 * 60, show_spinner="Downloading OECD CLI macro data...")
 def load_oecd_cli_data():
     return download_oecd_cli_diffusion()
-
-
-def monthly_strategy_input(daily_prices: pd.DataFrame, market_assets: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build tradable month-ends plus forward-filled signal-only macro inputs."""
-    monthly_market = to_month_end(daily_prices.loc[:, list(market_assets)])
-    auxiliary = daily_prices.drop(columns=list(market_assets), errors="ignore")
-    if auxiliary.empty:
-        return monthly_market, monthly_market
-    values = auxiliary.reindex(monthly_market.index, method="ffill")
-    return monthly_market, monthly_market.join(values)
 
 
 def assets_for_models(model_labels: list[str] | tuple[str, ...], include_spy_benchmark: bool = False, include_research_proxies: bool = False) -> tuple[str, ...]:
@@ -2199,23 +2238,7 @@ if page == "Backtest":
 
 def current_portfolio_signal(model_label: str):
     """Reuse a model's normal signal path and return its executable weights."""
-    sleeve_strategy = MODEL_OPTIONS[model_label]()
-    sleeve_assets = getattr(sleeve_strategy, "data_assets", ASSETS)
-    sleeve_prices = all_prices.loc[:, sleeve_assets]
-    sleeve_market_assets = getattr(sleeve_strategy, "market_data_assets", sleeve_assets)
-    sleeve_monthly, sleeve_monthly_input = monthly_strategy_input(sleeve_prices, sleeve_market_assets)
-    sleeve_decision_prices = sleeve_prices if getattr(sleeve_strategy, "uses_daily_signals", False) else sleeve_monthly_input
-    status_prices = sleeve_prices if getattr(sleeve_strategy, "execution_frequency", "monthly") == "daily" else sleeve_monthly
-    try:
-        sleeve_decisions = sleeve_strategy.decisions(sleeve_decision_prices)
-    except ValueError as exc:
-        return None, str(exc)
-    status = latest_actionable_signal(sleeve_decisions, status_prices, sleeve_market_assets)
-    if status.decision is None:
-        return None, status.reason
-    decision = status.decision
-    weights = decision.get("target_weights", {decision["selected_asset"]: 1.0})
-    return {"decision": decision, "weights": dict(weights), "strategy": sleeve_strategy}, None
+    return portfolio_signal(MODEL_OPTIONS[model_label], all_prices)
 
 
 def next_portfolio_preview(model_label: str):

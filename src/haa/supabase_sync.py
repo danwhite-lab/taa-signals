@@ -72,6 +72,30 @@ def list_portfolios(url: str, key: str, session: dict[str, str]) -> list[dict[st
     return list(response.data or [])
 
 
+def save_holdings_workspace(url, key, session, payload, revision):
+    """Save holdings and their operation ID in the same revision-checked row.
+
+    A lost response must not cause a duplicate purchase on retry. Read back the
+    exact candidate holdings after any uncertain result, never blindly retry a
+    mutation or claim that a local session edit has been synced.
+    """
+    from .rebalance_holdings import validate_account
+    account = validate_account(payload['holdings_account'])
+    if not account.get('last_operation_id'):
+        raise ValueError('Holdings save requires a unique operation ID.')
+    try:
+        saved_revision = save_workspace(url, key, session, payload, revision)
+        if saved_revision is not None:
+            return {'revision': saved_revision, 'payload': payload}
+    except Exception:
+        # The server may have committed before the connection failed.
+        pass
+    remote = load_workspace(url, key, session)
+    if remote and remote['payload'].get('holdings_account') == account:
+        return remote
+    raise RuntimeError('Save could not be confirmed or this workspace changed on another device. Reload the synced workspace before editing further.')
+
+
 def save_portfolio(
     url: str,
     key: str,
