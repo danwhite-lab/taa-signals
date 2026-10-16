@@ -8,7 +8,7 @@ from haa.model_catalog import resolve
 from haa.portfolio import execution_security_label
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
-from haa.strategies import BuyAndHoldGLD
+from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
 
 
 def test_gld_is_separate_usd_gold_implementation_with_actual_history():
@@ -29,6 +29,25 @@ def test_gld_is_separate_usd_gold_implementation_with_actual_history():
     assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1210.)
     assert result.tax_events.empty
     assert resolve("Buy and Hold", "Gold", "TASE 1147875").model_class is BuyAndHoldGoldIsrael
+
+
+def test_ief_is_plain_usd_buy_and_hold_without_pre_etf_proxy():
+    model = BuyAndHoldIEF()
+    definition = resolve("Buy and Hold", "US Treasury Bonds", "IEF (USD)")
+    assert definition.model_class is BuyAndHoldIEF
+    assert definition.execution_currency == "USD"
+    assert model.data_assets == ("IEF",) and model.signal_assets == ()
+    assert model.actual_history_only
+    prices = pd.DataFrame({"IEF": [100., 110., 121.]},
+                          index=pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31"]))
+    decisions = model.decisions(prices)
+    assert decisions.selected_asset.eq("IEF").all()
+    assert decisions.trade.tolist() == [True, False, False]
+    assert decisions.index.equals(prices.index)
+    result = run_backtest(decisions, prices, 1000., tax_enabled=True, benchmark_asset="IEF")
+    assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1210.)
+    assert result.monthly.after_tax_value.equals(result.monthly.pre_tax_value)
+    assert result.tax_events.empty
 
 
 @pytest.mark.parametrize("cls,asset,security,variant,implementation", [

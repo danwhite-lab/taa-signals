@@ -116,6 +116,24 @@ class BuyAndHoldGLD(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldIEF(BuyAndHoldSPY):
+    """Continuous actual IEF holding in USD, without pre-ETF proxies."""
+
+    name = "Buy and Hold IEF"
+    holding_asset = "IEF"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-ief",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold IEF continuously in USD."),),
+        execution=ExecutionSpec("continuous", "IEF remains continuously invested", (0,), (0,)),
+        notes="Uses actual IEF ETF adjusted-price history from Yahoo Finance. No pre-ETF bond-index proxy or local-fund history is spliced in. Expenses embedded in prices are not deducted again. Uploaded or selected-source replacements are explicitly flagged.",
+    )
+
+
 class BuyAndHoldQQQIsrael(BuyAndHoldQQQ):
     """Continuous Nasdaq-100 holding through the user's TASE implementation."""
 

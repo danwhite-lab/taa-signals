@@ -1,5 +1,10 @@
 # Plain gold and Harel bond holdings
 
+**Buy and Hold / US Treasury Bonds / IEF (USD)** continuously holds IEF using
+actual Yahoo Finance ETF history. It has no timing signal or pre-ETF proxy
+extension. The existing costs and realized-sale tax treatment apply, with no
+extra expense deduction or final liquidation. Replacement sources are flagged.
+
 Gold also offers **GLD (USD)** as a separate Buy and Hold implementation.
 It continuously holds GLD using the existing Yahoo Finance price adapter and
 actual available GLD ETF history only. No futures or pre-ETF extension is

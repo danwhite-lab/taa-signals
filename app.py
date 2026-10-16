@@ -99,6 +99,7 @@ Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update
     "Buy and Hold QQQ Israel": """**Buy and Hold QQQ Israel:** Holds Nasdaq-100 through TASE security 1186063 continuously. Backtests use available local security history in ILS, including currency exposure, rather than QQQ proxy history.""",
     "Buy and Hold Gold Israel": """**Buy and Hold Gold Israel:** Hold 100% gold security 1147875 continuously in ILS. No timing, rotation or cash signal. Uses actual TASE fund prices only; no GLD/GLDM, futures, or pre-fund history is spliced in. Fund expenses are embedded in its prices, not deducted twice. Any uploaded replacement is unverified and explicitly flagged.""",
     "Buy and Hold Gold GLD": """**Buy and Hold Gold GLD:** Hold 100% GLD continuously in USD using its actual ETF history from Yahoo Finance. No timing, rotation or cash rule. No futures, pre-ETF history or TASE prices are spliced in, and expenses embedded in fund prices are not deducted again.""",
+    "Buy and Hold IEF": """**Buy and Hold IEF:** Hold 100% IEF continuously in USD using its actual ETF history from Yahoo Finance. No timing, rotation or cash signal. No pre-ETF index proxy or TASE fund history is spliced in, and expenses embedded in fund prices are not deducted again. Replacements are explicitly flagged.""",
     "Buy and Hold Harel Government Bonds Israel": """**Buy and Hold Harel Government Bonds Israel:** Hold 100% Harel government-bond fund 5131792 continuously in ILS, using actual Maya redemption prices. No timing or rotation rule, index 602 proxy, pre-fund extension or extra 0.12% fee deduction. Any uploaded replacement is unverified and explicitly flagged.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
@@ -1609,15 +1610,15 @@ plain_holding_assets = tuple(asset for label in active_model_labels
 if plain_holding_assets:
     from haa.tase_data import plain_holding_provenance
     holding_provenance = plain_holding_provenance(source_metadata, plain_holding_assets, replacements)
-    st.caption("Gold and Harel bonds: actual available fund history only; no automatic proxy or pre-fund extension. Fund expenses are already embedded in prices.")
+    st.caption("Plain buy-and-hold assets: actual available fund history only; no automatic proxy or pre-fund extension. Fund expenses are already embedded in prices.")
     for asset, row in holding_provenance.iterrows():
         if row.history_kind != "Actual fund history":
             st.warning(f"{asset}: {row.history_kind}. Any stand-in or pre-fund period belongs to the selected replacement/source, not verified actual fund history.")
         elif row.price_field in {"Published ETF NAV", "End-of-day close"}:
             st.warning(f"{asset}: using {row.price_field}; dividend/distribution-adjusted total return is not verified.")
-    with st.expander("Gold / Harel bonds history sources"):
+    with st.expander("Plain buy-and-hold history sources"):
         st.dataframe(holding_provenance, hide_index=False)
-        st.download_button("Download gold / bonds history sources CSV", holding_provenance.to_csv().encode("utf-8"), "plain_holdings_history_sources.csv", "text/csv")
+        st.download_button("Download buy-and-hold history sources CSV", holding_provenance.to_csv().encode("utf-8"), "plain_holdings_history_sources.csv", "text/csv")
 
 if page == "Backtest" and backtest_mode == "Portfolio":
     with workspace_results:
@@ -3223,7 +3224,7 @@ if page == "Rules":
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
         st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)
-    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel", "Buy and Hold QQQ", "Buy and Hold QQQ Israel", "Buy and Hold Gold GLD", "Buy and Hold Gold Israel", "Buy and Hold Harel Government Bonds Israel"}:
+    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel", "Buy and Hold QQQ", "Buy and Hold QQQ Israel", "Buy and Hold Gold GLD", "Buy and Hold Gold Israel", "Buy and Hold Harel Government Bonds Israel", "Buy and Hold IEF"}:
         holding = execution_security_label(strategy.data_assets[0], model_definition.execution_currency)
         st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
         st.write(f"Execution currency: {model_definition.execution_currency}. History: actual available security prices.")
