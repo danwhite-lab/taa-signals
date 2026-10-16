@@ -8,6 +8,27 @@ from haa.model_catalog import resolve
 from haa.portfolio import execution_security_label
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
+from haa.strategies import BuyAndHoldGLD
+
+
+def test_gld_is_separate_usd_gold_implementation_with_actual_history():
+    model = BuyAndHoldGLD()
+    definition = resolve("Buy and Hold", "Gold", "GLD (USD)")
+    assert definition.model_class is BuyAndHoldGLD
+    assert definition.execution_currency == "USD"
+    assert model.data_assets == ("GLD",)
+    assert model.actual_history_only
+    assert model.signal_assets == ()
+    prices = pd.DataFrame({"GLD": [100., 110., 121.]},
+                          index=pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31"]))
+    decisions = model.decisions(prices)
+    assert decisions.selected_asset.eq("GLD").all()
+    assert decisions.trade.tolist() == [True, False, False]
+    assert decisions.index.equals(prices.index)
+    result = run_backtest(decisions, prices, 1000., tax_enabled=True, benchmark_asset=model.benchmark_asset)
+    assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1210.)
+    assert result.tax_events.empty
+    assert resolve("Buy and Hold", "Gold", "TASE 1147875").model_class is BuyAndHoldGoldIsrael
 
 
 @pytest.mark.parametrize("cls,asset,security,variant,implementation", [

@@ -5,8 +5,25 @@ import pytest
 import haa.supabase_sync as sync
 import haa.tase_data as tase
 from haa.market_sessions import tase_equity_sessions
-from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
+from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael, BuyAndHoldGLD
 from test_saved_portfolio_ui import account, open_app
+
+
+def test_gld_usd_implementation_renders_as_plain_buy_and_hold(account, monkeypatch):
+    monkeypatch.setattr(sync, "load_workspace", lambda *a: {"revision": 1, "payload": {
+        "model_name": BuyAndHoldGLD.name, "signals_model_name": BuyAndHoldGLD.name}})
+    app = open_app()
+    app.radio(key="page").set_value("Backtest").run()
+    assert not app.exception
+    assert not app.error, [e.value for e in app.error]
+    assert app.session_state["model_name"] == BuyAndHoldGLD.name
+    app.radio(key="page").set_value("Rules").run()
+    assert not app.exception
+    assert any("Execution currency: USD" in item.value for item in app.markdown)
+    assert not any("Internally managed momentum strategy" in item.value for item in app.info)
+    app.radio(key="page").set_value("Signals").run()
+    assert not app.exception
+    assert any("GLD is held continuously" in item.value for item in app.info)
 
 
 @pytest.mark.parametrize("cls", [BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael])

@@ -69,6 +69,7 @@ def plain_holding_provenance(metadata, assets, replacements=()):
     """Never describe a user replacement as verified actual local fund history."""
     result = metadata.loc[list(dict.fromkeys(assets))].copy()
     result["history_kind"] = ["Unverified replacement / possible stand-in" if asset in replacements
+                              else "Selected source / stand-in" if str(result.loc[asset, "identifier"]) != TASE_ISRAEL_ASSET_IDS.get(asset, asset)
                               else "Actual fund history" for asset in result.index]
     result["automatic_proxy_extension"] = False
     return result

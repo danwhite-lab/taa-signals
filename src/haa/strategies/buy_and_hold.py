@@ -98,6 +98,24 @@ class BuyAndHoldQQQ(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldGLD(BuyAndHoldSPY):
+    """Continuous actual GLD holding in USD, without pre-ETF proxies."""
+
+    name = "Buy and Hold Gold GLD"
+    holding_asset = "GLD"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-gld",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold GLD continuously in USD."),),
+        execution=ExecutionSpec("continuous", "GLD remains continuously invested", (0,), (0,)),
+        notes="Uses actual GLD ETF history from Yahoo Finance only. No futures, pre-ETF history or TASE fund prices are spliced in. Fund expenses embedded in prices are not deducted again.",
+    )
+
+
 class BuyAndHoldQQQIsrael(BuyAndHoldQQQ):
     """Continuous Nasdaq-100 holding through the user's TASE implementation."""
 

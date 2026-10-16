@@ -1,5 +1,11 @@
 # Plain gold and Harel bond holdings
 
+Gold also offers **GLD (USD)** as a separate Buy and Hold implementation.
+It continuously holds GLD using the existing Yahoo Finance price adapter and
+actual available GLD ETF history only. No futures or pre-ETF extension is
+spliced in, and fund expenses embedded in prices are not deducted again.
+The TASE 1147875 implementation remains separate and unchanged.
+
 Under **Buy and Hold**, select **Gold / TASE 1147875** or
 **Israeli Government Bonds / Harel 5131792**. Each holds its one fund continuously
 in ILS, without a timing signal, rotation, annual reset or blend engine.

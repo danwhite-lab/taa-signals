@@ -92,6 +92,15 @@ def test_plain_gold_and_harel_bonds_use_exact_local_security_histories():
     assert not flagged.automatic_proxy_extension.any()
 
 
+def test_gld_source_substitution_is_flagged_as_stand_in():
+    from haa.tase_data import plain_holding_provenance
+    metadata = pd.DataFrame({"source": ["Yahoo Finance"], "identifier": ["GLD"],
+                             "price_field": ["Adj Close"]}, index=["GLD"])
+    assert plain_holding_provenance(metadata, ("GLD",)).loc["GLD", "history_kind"] == "Actual fund history"
+    metadata.loc["GLD", "identifier"] = "IAU"
+    assert "stand-in" in plain_holding_provenance(metadata, ("GLD",)).loc["GLD", "history_kind"]
+
+
 def test_cache_avoids_duplicate_public_requests_and_returns_safe_copies():
     calls = []
     frame = pd.DataFrame({"Close": [100.0]}, index=pd.to_datetime(["2024-01-02"]))

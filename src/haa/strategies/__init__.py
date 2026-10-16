@@ -19,6 +19,7 @@ from .rvol_shifter import RVolShifterCashOnly
 from .rvol_shifter_israel import RVolShifterCashOnlyIsrael
 from .rvol_shifter_us_tase import RVolShifterUSTase1x, RVolShifterUSTaseBlend
 from .buy_and_hold import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
+from .buy_and_hold import BuyAndHoldGLD
 from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 
