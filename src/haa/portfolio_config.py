@@ -7,6 +7,8 @@ DEEP_HISTORY_MODEL_MAP = {
     "Inflation Compass Standard": "inflation_compass", "GEM": "gem",
     "Chimeric Asset Allocation": "chimeric", "Buy and Hold SPY": "buy_and_hold_sp500",
     "Buy and Hold ACWI": "buy_and_hold_global",
+    "Buy and Hold Gold GLD": "buy_and_hold_gld",
+    "Buy and Hold IEF": "buy_and_hold_ief",
     "A-RVol Shifter V3 Cash-Only": "rvol_synthetic",
 }
 

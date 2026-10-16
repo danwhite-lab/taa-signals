@@ -1014,6 +1014,14 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
             for selected_proxy in dict.fromkeys(sleeve["model"] for sleeve in proxy_sleeves):
                 if proxy_specs[selected_proxy].caveat:
                     st.warning(proxy_specs[selected_proxy].caveat)
+                if proxy_specs[selected_proxy].actual_etf_ticker:
+                    st.download_button(f"Download {proxy_specs[selected_proxy].actual_etf_ticker} actual monthly source CSV",
+                        (Path(__file__).parent / "data" / "deep_history" / proxy_specs[selected_proxy].returns_file).read_bytes(),
+                        proxy_specs[selected_proxy].returns_file, "text/csv", key=f"deep_actual_source_{selected_proxy}")
+                    if proxy_specs[selected_proxy].pre_etf_returns_file:
+                        st.download_button(f"Download {proxy_specs[selected_proxy].actual_etf_ticker} early monthly source CSV",
+                            (Path(__file__).parent / "data" / "deep_history" / proxy_specs[selected_proxy].pre_etf_returns_file).read_bytes(),
+                            proxy_specs[selected_proxy].pre_etf_returns_file, "text/csv", key=f"deep_early_source_{selected_proxy}")
             proxy_weight_total = total_weight(proxy_sleeves)
             if abs(proxy_weight_total - 100.0) > 1e-9 or any(float(sleeve["weight"]) <= 0 for sleeve in proxy_sleeves):
                 raise ValueError("Set one or more positive proxy sleeve weights totaling exactly 100%.")
@@ -1059,7 +1067,7 @@ if page == "Backtest" and backtest_mode == "Deep History / Proxy":
                     benchmark_asset=proxy_input.benchmark_asset,
                 )
                 title_column.title(f"{spec.label} — Deep History / Proxy")
-                if not spec.daily_signal_history:
+                if not spec.actual_etf_ticker and not spec.daily_signal_history:
                     st.warning("Proxy result: the bundled CSV contains strategy-level returns and signals, not historical security prices. Capital-gains realization at allocation changes is therefore an approximation.")
                 st.caption(f"Holding periods: {result.monthly.index.min().date()} through {result.monthly.index.max().date()}. Benchmark: {deep_history_benchmark.label}. {deep_history_benchmark.caveat}")
                 proxy_label = f"{spec.label} proxy pre-tax"

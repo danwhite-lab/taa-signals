@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import re
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,9 @@ class DeepHistorySpec:
     usable_through: str | None = None
     daily_signal_history: bool = False
     daily_nav_history: bool = False
+    actual_etf_ticker: str | None = None
+    pre_etf_returns_file: str | None = None
+    pre_etf_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,8 @@ DEEP_HISTORY_SPECS = {
     "chimeric": DeepHistorySpec("chimeric", "Chimeric Asset Allocation (supplied proxy)", "chimeric_signals.csv", "chimeric_monthly_returns.csv", completed_only=True, usable_through="2026-09-30", caveat="Supplied strategy-level history from March 1982. Uses BIL, not the implemented variants' SGOV; variant fidelity and pre-ETF reconstruction are unverified. Three September 2026 rows all target October and are excluded, together with October's unfinished return. Reviewed coverage ends September 2026 and requires a source update to extend. Any repeated usable-month signals are rejected, never counted as separate monthly returns. Tax is an allocation-change approximation, not exact security-level CGT."),
     "buy_and_hold_sp500": DeepHistorySpec("buy_and_hold_sp500", "Buy & Hold S&P 500 Total Return", "", "sp500_total_return_proxy_monthly_returns.csv", True),
     "buy_and_hold_global": DeepHistorySpec("buy_and_hold_global", "Buy & Hold Global All-Country Equity USD Proxy", "", "global_all_country_usd_monthly_returns.csv", True, "GLOBAL_EQUITY_TOTAL_RETURN_PROXY"),
+    "buy_and_hold_gld": DeepHistorySpec("buy_and_hold_gld", "Buy and Hold Gold GLD", "", "gld_actual_monthly_returns.csv", True, "GLD_MONTHLY_NAV", completed_only=True, usable_through="2026-09-30", actual_etf_ticker="GLD", pre_etf_returns_file="gld_pre_etf_monthly_returns.csv", pre_etf_source="XUMLGPD"),
+    "buy_and_hold_ief": DeepHistorySpec("buy_and_hold_ief", "Buy and Hold IEF", "", "ief_actual_monthly_returns.csv", True, "IEF_MONTHLY_NAV", completed_only=True, usable_through="2026-09-30", actual_etf_ticker="IEF", pre_etf_returns_file="ief_pre_etf_monthly_returns.csv", pre_etf_source="VFITX"),
     "century_momentum": DeepHistorySpec("century_momentum", "Century Momentum", "century_momentum_signals.csv", "century_momentum_monthly_returns.csv"),
     "haa_simple": DeepHistorySpec("haa_simple", "HAA-Simple", "haa_simple_signals.csv", "haa_simple_monthly_returns.csv"),
     "inflation_compass": DeepHistorySpec("inflation_compass", "Inflation Compass", "inflation_compass_signals.csv", "inflation_compass_monthly_returns.csv"),
@@ -190,7 +196,69 @@ def _read_benchmark_returns(spec: DeepHistoryBenchmarkSpec) -> pd.Series:
     return series
 
 
+def _read_actual_etf_returns(spec: DeepHistorySpec, *, pre_etf: bool = False) -> pd.Series:
+    """Validate one frozen price segment without filling missing observations.
+
+    ETF/fund prices use actual last US sessions. The supplied gold series uses
+    calendar month-end labels. Each segment reconciles independently so the
+    later return splice never compares prices from two different instruments.
+    """
+    from .market_sessions import us_equity_sessions
+    frame = pd.read_csv(DEEP_HISTORY_DIR / (spec.pre_etf_returns_file if pre_etf else spec.returns_file))
+    required = {"year", "month", "nominalReturn", "previousObservationDate", "previousAdjustedClose",
+                "observationDate", "adjustedClose", "source", "ticker", "currency", "history_kind"}
+    if frame.empty or not required.issubset(frame.columns):
+        raise ValueError(f"{spec.label}: missing actual ETF source fields.")
+    dates = pd.to_datetime(frame.observationDate, errors="raise")
+    previous = pd.to_datetime(frame.previousObservationDate, errors="raise")
+    months = pd.DatetimeIndex(pd.to_datetime(dict(year=frame.year, month=frame.month, day=1))) + pd.offsets.MonthEnd(0)
+    if months.has_duplicates or not months.equals(pd.date_range(months.min(), months.max(), freq="ME")):
+        raise ValueError(f"{spec.label}: duplicate, unsorted or missing ETF months.")
+    sessions = us_equity_sessions(str(previous.min().date()), str(months.max().date()))
+    ends = sessions.to_series().groupby(sessions.to_period("M")).last()
+    for i, row in frame.iterrows():
+        current, prior = dates.iloc[i], previous.iloc[i]
+        values = (float(row.adjustedClose), float(row.previousAdjustedClose), float(row.nominalReturn))
+        if not all(math.isfinite(v) for v in values) or min(values[:2]) <= 0 or values[2] <= -1:
+            raise ValueError(f"{spec.label}: invalid ETF prices/return.")
+        if current.to_period("M") != months[i].to_period("M") or prior.to_period("M") + 1 != current.to_period("M"):
+            raise ValueError(f"{spec.label}: invalid ETF return interval.")
+        calendar_anchors = pre_etf and spec.pre_etf_source == "XUMLGPD"
+        if calendar_anchors and (current != current + pd.offsets.MonthEnd(0) or prior != prior + pd.offsets.MonthEnd(0)):
+            raise ValueError(f"{spec.label}: gold anchor is not calendar month-end.")
+        if not calendar_anchors and (ends.loc[current.to_period("M")] != current or ends.loc[prior.to_period("M")] != prior):
+            raise ValueError(f"{spec.label}: ETF anchor is not the actual last US session.")
+        if not math.isclose(values[0] / values[1] - 1, values[2], rel_tol=1e-10, abs_tol=1e-12):
+            raise ValueError(f"{spec.label}: ETF return does not reconcile to source prices.")
+        if i and (prior != dates.iloc[i-1] or values[1] != float(frame.adjustedClose.iloc[i-1])):
+            raise ValueError(f"{spec.label}: discontinuous ETF anchors.")
+    ticker = spec.pre_etf_source if pre_etf else spec.actual_etf_ticker
+    source = "Bank of England XUMLGPD" if ticker == "XUMLGPD" else "Yahoo Finance adjusted close"
+    kind = "Pre-ETF history" if pre_etf else "Actual ETF history"
+    if not (frame.ticker.eq(ticker) & frame.currency.eq("USD") &
+            frame.history_kind.eq(kind) & frame.source.eq(source)).all():
+        raise ValueError(f"{spec.label}: unexpected ticker, currency or stand-in source.")
+    cutoff = (pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M") - 1).to_timestamp("M")
+    cutoff = min(cutoff, pd.Timestamp(spec.usable_through))
+    return pd.Series(frame.nominalReturn.to_numpy(), index=months, dtype=float).loc[:cutoff]
+
+
+def _read_etf_history(spec: DeepHistorySpec) -> pd.Series:
+    """Chain monthly returns, never unrelated price levels or overlapping months."""
+    actual = _read_actual_etf_returns(spec)
+    if not spec.pre_etf_returns_file:
+        return actual
+    early = _read_actual_etf_returns(spec, pre_etf=True)
+    if (early.index[0] != pd.Timestamp("1999-01-31") or
+            early.index[-1] + pd.offsets.MonthEnd(1) != actual.index[0]):
+        raise ValueError(f"{spec.label}: pre-ETF history must meet actual returns without a gap or overlap.")
+    return pd.concat([early, actual])
+
+
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
+    if spec.actual_etf_ticker:
+        returns = _read_etf_history(spec)
+        return pd.DataFrame(index=returns.index - pd.offsets.MonthEnd(1)), returns
     if spec.daily_nav_history:
         from .synthetic_history import load_synthetic_daily
         daily = load_synthetic_daily(DEEP_HISTORY_DIR / spec.returns_file)
@@ -237,7 +305,8 @@ def deep_history_model_input(
             _read_benchmark_returns(benchmark), benchmark.asset_id, spec.usable_through)
     if spec.buy_and_hold or spec.daily_signal_history:
         path = DEEP_HISTORY_DIR / spec.returns_file
-        returns = (load_deep_history(spec)[1] if spec.daily_signal_history else
+        returns = (_read_etf_history(spec) if spec.actual_etf_ticker else
+                   load_deep_history(spec)[1] if spec.daily_signal_history else
                    _read_monthly_returns(path) if spec.key == "buy_and_hold_global" else _read_long_monthly_returns(path))
         benchmark_returns = _read_benchmark_returns(benchmark)
         common_months = returns.index.intersection(benchmark_returns.index)
@@ -268,6 +337,11 @@ def deep_history_model_input(
             # Monthly observation dates are not source trade dates. This NAV
             # must never masquerade as a no-tax daily implementation.
             decisions.attrs.update(single_strategy_only=True, tax_supported=False, trade_cost_supported=False)
+        if spec.actual_etf_ticker:
+            decisions.attrs.update(history_kind="Extended monthly returns" if spec.pre_etf_returns_file else "Actual ETF monthly returns", actual_etf_ticker=spec.actual_etf_ticker,
+                                   source="Yahoo Finance adjusted close", source_file=spec.returns_file,
+                                   pre_etf_extension=bool(spec.pre_etf_returns_file),
+                                   pre_etf_source=spec.pre_etf_source, pre_etf_source_file=spec.pre_etf_returns_file)
         return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
     signals, returns = load_deep_history(spec)
     rows: list[tuple[pd.Timestamp, dict[str, float], float]] = []
