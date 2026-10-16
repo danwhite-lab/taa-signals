@@ -9,6 +9,8 @@ SUPPORTED_CURRENCIES = ("USD", "ILS")
 # Execution labels are deliberately separate from canonical strategy asset
 # codes.  The latter remain stable for data retrieval and signal calculation.
 EXECUTION_SECURITY_LABELS = {
+    ("ILS", "GOLD_IL"): "Gold — 1147875",
+    ("ILS", "HAREL_GOV_BONDS_IL"): "Harel government bonds — 5131792",
     ("ILS", "RVOL_3X_IL"): "MTF Nasdaq-100 x3 monthly — 1187079",
     ("ILS", "RVOL_QQQ_IL"): "Harel Nasdaq-100 — 1149038",
     ("ILS", "RVOL_SPY_IL"): "Tachlit S&P 500 — 1144385",

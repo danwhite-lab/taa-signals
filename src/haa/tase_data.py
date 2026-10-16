@@ -31,8 +31,10 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLK_IL": "1159193",
     "XLV_IL": "1150390",
     "XLP_IL": "1150366",
+    "GOLD_IL": "1147875",
+    "HAREL_GOV_BONDS_IL": "5131792",
 }
-TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL"})
+TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "GOLD_IL"})
 PUBLIC_HISTORY_YEARS = 5
 RVOL_PUBLISHED_CLOSE_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL"})
 
@@ -61,6 +63,15 @@ ISRAEL_DEFAULT_TASE_SUBSTITUTIONS = {
 
 class TaseDataError(RuntimeError):
     """Raised when a public TASE/Maya series cannot be safely used."""
+
+
+def plain_holding_provenance(metadata, assets, replacements=()):
+    """Never describe a user replacement as verified actual local fund history."""
+    result = metadata.loc[list(dict.fromkeys(assets))].copy()
+    result["history_kind"] = ["Unverified replacement / possible stand-in" if asset in replacements
+                              else "Actual fund history" for asset in result.index]
+    result["automatic_proxy_extension"] = False
+    return result
 
 
 def parse_published_eod_closes(csv_text: str) -> pd.DataFrame:

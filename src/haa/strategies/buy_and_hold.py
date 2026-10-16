@@ -152,6 +152,44 @@ class BuyAndHoldGlobalIsrael(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldGoldIsrael(BuyAndHoldSPY):
+    """Plain holding of gold security 1147875, not GLD/GLDM proxy returns."""
+
+    name = "Buy and Hold Gold Israel"
+    holding_asset = "GOLD_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-gold-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold gold security 1147875 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "Gold security 1147875 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes="Actual TASE security 1147875 history only. No GLD, GLDM, futures or pre-fund history is spliced in. Expenses embedded in fund prices are not deducted again. Uploaded replacement history is unverified and must be labelled separately.",
+    )
+
+
+class BuyAndHoldHarelBondsIsrael(BuyAndHoldSPY):
+    """Plain holding of Harel government-bond fund 5131792."""
+
+    name = "Buy and Hold Harel Government Bonds Israel"
+    holding_asset = "HAREL_GOV_BONDS_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-harel-government-bonds-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Harel government-bond fund 5131792 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "Harel fund 5131792 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes="Actual Maya redemption-price history for fund 5131792 only. No index 602 proxy or pre-fund history is spliced in. Fund expenses are already embedded; no extra 0.12% deduction. Uploaded replacement history is unverified and must be labelled separately.",
+    )
+
+
 class BuyAndHoldACWI:
     """Continuous iShares MSCI ACWI ETF holding."""
 

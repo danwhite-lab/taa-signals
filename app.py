@@ -97,6 +97,8 @@ Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update
     "Buy and Hold Global Israel": """**Buy and Hold Global Israel:** Holds FTSE All-World, TASE security 1209220, continuously. Backtests use available local security history in ILS, including currency exposure. There is no timing or rotation rule.""",
     "Buy and Hold QQQ": """**Buy and Hold QQQ:** Holds QQQ continuously using actual ETF history from Yahoo Finance. There is no timing, rotation, or cash rule; no pre-ETF history is spliced in.""",
     "Buy and Hold QQQ Israel": """**Buy and Hold QQQ Israel:** Holds Nasdaq-100 through TASE security 1186063 continuously. Backtests use available local security history in ILS, including currency exposure, rather than QQQ proxy history.""",
+    "Buy and Hold Gold Israel": """**Buy and Hold Gold Israel:** Hold 100% gold security 1147875 continuously in ILS. No timing, rotation or cash signal. Uses actual TASE fund prices only; no GLD/GLDM, futures, or pre-fund history is spliced in. Fund expenses are embedded in its prices, not deducted twice. Any uploaded replacement is unverified and explicitly flagged.""",
+    "Buy and Hold Harel Government Bonds Israel": """**Buy and Hold Harel Government Bonds Israel:** Hold 100% Harel government-bond fund 5131792 continuously in ILS, using actual Maya redemption prices. No timing or rotation rule, index 602 proxy, pre-fund extension or extra 0.12% fee deduction. Any uploaded replacement is unverified and explicitly flagged.""",
     "HAA-Simple": """**HAA-Simple:** At each month-end, calculate equal-weighted 13612U momentum for SPY and TIP. If both are strictly positive, hold 100% SPY. Otherwise, compare IEF and BIL 13612U momentum and hold 100% of the higher-momentum asset. The decision earns the following month's return only.""",
     "HAA 4": """**HAA 4:** TIP is the sole canary. If TIP's equal-weighted 13612U momentum is zero or negative, hold 100% of the higher-momentum asset from IEF and BIL. If TIP is strictly positive, rank SPY, VEA, VNQ, and IEF by 13612U and select the top two at 50% each. Then replace each selected asset whose own momentum is zero or negative with the higher-momentum IEF/BIL defensive asset. This can produce a mixed offensive/defensive allocation. IEF is eligible in both universes.""",
     "HAA 4 Israel": """**HAA 4 Israel:** Uses the published HAA-4 USD signal logic: TIP is the canary; SPY, VEA, VNQ, and IEF are ranked by 13612U; and IEF/BIL provide defensive replacement. Holdings map to CSPX (1159250), IBI MSCI AC World ex USA (5142476), IBI DJ US Real Estate (5131834), IEF (1159268), and Keren Kaspit (5136866). Its backtest uses VXUS as the U.S. return proxy for the ex-US execution fund, so it is not actual TASE or ILS performance.""",
@@ -1597,6 +1599,25 @@ if needs_oecd:
 for asset in replacements:
     source_metadata.loc[asset] = {"source": "User CSV replacement", "identifier": asset, "price_field": "Adj Close or Close"}
 
+# These two plain holdings do not acquire or silently splice proxy histories.
+# Replacements cannot be certified as actual fund prices, so flag them wherever
+# they are used and include the same classification in downloadable metadata.
+plain_holding_assets = tuple(asset for label in active_model_labels
+    if getattr(MODEL_OPTIONS[label], "actual_history_only", False)
+    for asset in MODEL_OPTIONS[label].data_assets)
+if plain_holding_assets:
+    from haa.tase_data import plain_holding_provenance
+    holding_provenance = plain_holding_provenance(source_metadata, plain_holding_assets, replacements)
+    st.caption("Gold and Harel bonds: actual available local fund history only; no automatic proxy or pre-fund extension. Fund expenses are already embedded in prices.")
+    for asset, row in holding_provenance.iterrows():
+        if row.history_kind != "Actual fund history":
+            st.warning(f"{asset}: {row.history_kind}. Any stand-in or pre-fund period belongs to this unverified replacement, not the actual fund history.")
+        elif row.price_field in {"Published ETF NAV", "End-of-day close"}:
+            st.warning(f"{asset}: using {row.price_field}; dividend/distribution-adjusted total return is not verified.")
+    with st.expander("Gold / Harel bonds history sources"):
+        st.dataframe(holding_provenance, hide_index=False)
+        st.download_button("Download gold / bonds history sources CSV", holding_provenance.to_csv().encode("utf-8"), "plain_holdings_history_sources.csv", "text/csv")
+
 if page == "Backtest" and backtest_mode == "Portfolio":
     with workspace_results:
         percentage_rows = ["CAGR", "Total return", "Maximum drawdown", "Annualized volatility", "Best month", "Worst month", "Annual turnover"]
@@ -1857,6 +1878,10 @@ if page in {"Backtest", "Research", "Rules"}:
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
+    if getattr(strategy, "actual_history_only", False):
+        provenance = holding_provenance.loc[strategy.holding_asset]
+        for field in ("source", "identifier", "price_field", "history_kind", "automatic_proxy_extension"):
+            result.audit[f"history_{field}"] = provenance[field]
     substitution_result = None
     if substitution_decisions is not None and substitution_monthly is not None and substitution_prices is not None:
         try:
@@ -3197,7 +3222,7 @@ if page == "Rules":
     if model_definition.strategy_mode == "buy_and_hold" and model_name == "Buy and Hold SPY":
         st.info("SPY is held continuously. Unlike externally timed strategies, it has no app-generated BUY, SELL, or CASH signal.")
         st.markdown("**Market:** United States<br>**Fund:** SPDR S&P 500 ETF Trust (SPY)<br>**Benchmark:** S&P 500<br>**Implementation:** Buy & Hold<br>**Signal frequency:** None<br>**History:** Actual SPY ETF history only (no pre-ETF splice)", unsafe_allow_html=True)
-    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel", "Buy and Hold QQQ", "Buy and Hold QQQ Israel"}:
+    elif model_name in {"Buy and Hold SPY Israel", "Buy and Hold ACWI", "Buy and Hold Global Israel", "Buy and Hold QQQ", "Buy and Hold QQQ Israel", "Buy and Hold Gold Israel", "Buy and Hold Harel Government Bonds Israel"}:
         holding = execution_security_label(strategy.data_assets[0], model_definition.execution_currency)
         st.info(f"{holding} is held continuously. There is no app-generated timing signal.")
         st.write(f"Execution currency: {model_definition.execution_currency}. History: actual available security prices.")
@@ -3251,6 +3276,8 @@ if page == "Rules":
     if isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael)):
         audit_columns += [f"{strategy.equity_asset}_10m_sma", "trend_up"]
     audit_columns += ["regime", "selected_asset", "previous_asset", "trade", "execution_date", "holding_end", "holding_period_return"]
+    if getattr(strategy, "actual_history_only", False):
+        audit_columns += [column for column in result.audit if column.startswith("history_")]
     audit = result.audit[[column for column in audit_columns if column in result.audit.columns]]
     with st.expander("Monthly audit table"):
         st.dataframe(audit.style.format("{:.6f}", subset=[c for c in audit.columns if c.endswith("13612u") or c.endswith("return")]), use_container_width=True)

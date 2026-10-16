@@ -39,6 +39,8 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "XLK_IL": "1159193",
         "XLV_IL": "1150390",
         "XLP_IL": "1150366",
+        "GOLD_IL": "1147875",
+        "HAREL_GOV_BONDS_IL": "5131792",
     }
 
 
@@ -69,6 +71,25 @@ def test_mutual_fund_uses_maya_redemption_price_close():
     assert result.field == "Maya published redemption price"
     assert result.prices.iloc[-1] == 100.1
     assert calls == [("5136866", "history")]
+
+
+def test_plain_gold_and_harel_bonds_use_exact_local_security_histories():
+    calls = []
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    source = TasePriceSource(factory_for({
+        "1147875": pd.DataFrame({"Adj Close": [100., 102.], "Close": [99., 101.]}, index=dates),
+        "5131792": pd.DataFrame({"Close": [100., 100.1]}, index=dates),
+    }, calls))
+    frame, metadata = source.fetch_all(("GOLD_IL", "HAREL_GOV_BONDS_IL"))
+    assert frame.GOLD_IL.tolist() == [100., 102.]
+    assert metadata.loc["HAREL_GOV_BONDS_IL", "price_field"] == "Maya published redemption price"
+    assert calls == [("1147875", "history"), ("5131792", "history")]
+    from haa.tase_data import plain_holding_provenance
+    actual = plain_holding_provenance(metadata, frame.columns)
+    assert actual.history_kind.eq("Actual fund history").all()
+    flagged = plain_holding_provenance(metadata, frame.columns, {"GOLD_IL": frame.GOLD_IL})
+    assert "stand-in" in flagged.loc["GOLD_IL", "history_kind"]
+    assert not flagged.automatic_proxy_extension.any()
 
 
 def test_cache_avoids_duplicate_public_requests_and_returns_safe_copies():

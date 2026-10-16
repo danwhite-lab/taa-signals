@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from haa.constants import TA125_SMART_MOMENTUM_ASSET
 from haa.strategies import BuyAndHoldQQQ, BuyAndHoldQQQIsrael, BuyAndHoldSPY, BuyAndHoldSPYIsrael, TA125SmartMomentum
@@ -6,6 +7,32 @@ from haa.engine import run_backtest
 from haa.model_catalog import resolve
 from haa.portfolio import execution_security_label
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
+from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
+
+
+@pytest.mark.parametrize("cls,asset,security,variant,implementation", [
+    (BuyAndHoldGoldIsrael, "GOLD_IL", "1147875", "Gold", "TASE 1147875"),
+    (BuyAndHoldHarelBondsIsrael, "HAREL_GOV_BONDS_IL", "5131792", "Israeli Government Bonds", "Harel 5131792"),
+])
+def test_plain_local_holdings_have_no_signals_or_proxy_splice(cls, asset, security, variant, implementation):
+    model = cls()
+    prices = pd.DataFrame({asset: [100., 110., 121.]},
+                          index=pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31"]))
+    decisions = model.decisions(prices)
+    assert decisions.selected_asset.eq(asset).all()
+    assert decisions.trade.tolist() == [True, False, False]
+    assert model.signal_assets == ()
+    assert model.actual_history_only
+    assert decisions.index.min() == prices.index.min()
+    assert model.data_assets == (asset,)
+    assert TASE_ISRAEL_ASSET_IDS[asset] == security
+    definition = resolve("Buy and Hold", variant, implementation)
+    assert definition.model_class is cls and definition.execution_currency == "ILS"
+    assert security in execution_security_label(asset, "ILS")
+    result = run_backtest(decisions, prices, 1000, tax_enabled=True, benchmark_asset=asset)
+    assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1210.)
+    assert result.monthly.after_tax_value.equals(result.monthly.pre_tax_value)
+    assert result.tax_events.empty
 
 
 def test_buy_and_hold_strategy_remains_invested_without_momentum_signal():
