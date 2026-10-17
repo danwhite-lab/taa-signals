@@ -7,6 +7,13 @@ signal calculation, now shared in `portfolio_signals.py`.
 
 ## One account, many comparisons
 
+The default screen shows account value, a four-column target/actual comparison,
+new money, and What to buy. Results show whole units, estimated costs and leftover
+cash; Record these buys opens actual-fill confirmation. Portfolio selection and
+signal dates, the holdings/units editor and manual overrides, and price/FX sources
+and dates remain available in collapsed sections. They have not been removed.
+Cash and FX controls use stable widget identities across saved book revisions.
+
 `holdings_account` is a single versioned JSON record in the signed-in user's
 existing `user_settings.payload`, not a separate record for each portfolio.
 Selecting or renaming a comparison portfolio does not copy or reset positions.
@@ -56,10 +63,16 @@ this page's quote/target caches. Every quote shows its actual observation date,
 source, price field and retrieval/entry timestamp. The completed-session check
 uses the existing US and TASE calendars, including holidays and market close
 times. An observation older than the most recent completed session is flagged
-and blocks automatic buy sizing. No assumed mutual-fund publication lag is
+and blocks sizing for that fund. No assumed mutual-fund publication lag is
 silently excused. Delayed fund publication may therefore require a dated broker
 observation. A manual observation can be intraday and is identified as manual,
 not mislabelled as an exchange close. Future dates are rejected for valuation.
+
+A small main-screen warning offers a dated native-currency manual price. An
+unpriced or stale target with zero units can be excluded while sizing the other
+funds, retaining their original weights (no redistribution). If the affected
+fund has units, its value is necessary to calculate account weights: sizing
+remains blocked until it has a usable quote. No account value is guessed.
 
 USD values use a dated, indicative Yahoo ILS=X quote (ILS per USD), or an
 explicitly entered dated broker FX rate. Stale/missing FX blocks sizing just as
@@ -99,6 +112,13 @@ exact book, not a repeated mutation. Another-device conflicts stop saves and
 require a workspace reload. Unconfirmed local edits are not autosaved as if
 they were completed purchases. No auth tokens, fetched prices, pending plans,
 or purchase-confirmation drafts are persisted in the workspace JSON.
+
+On this page a revision conflict is a small sync-paused notice, with explanation
+in sync details. It means the server revision changed since this session loaded;
+another tab or concurrent request can cause it, not necessarily another device.
+Only a readback equal to the complete local payload can safely acknowledge an
+already-saved revision. Differing payloads still block writes and require reload.
+Other pages retain their existing conflict notices.
 
 No schema migration, new auth policy, service-role key, tax-lot ledger, historic
 portfolio recalculation, annual blend engine or broker integration is added.

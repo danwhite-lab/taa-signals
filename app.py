@@ -638,18 +638,35 @@ def persist_workspace():
     if payload == st.session_state.get('workspace_last_saved'):
         return
     if st.session_state.get('workspace_conflict'):
-        st.warning('This workspace changed on another device. Reload this page to load those changes before editing further.')
+        if st.session_state.get('page') != 'Rebalance Holdings':
+            st.warning('This workspace changed on another device. Reload this page to load those changes before editing further.')
         return
     try:
         revision = save_workspace(*sync_config, st.session_state['supabase_session'], payload, st.session_state['workspace_revision'])
         if revision is None:
+            if st.session_state.get('page') == 'Rebalance Holdings':
+                # Only acknowledge a concurrent save automatically when the
+                # entire saved payload is identical. Never overwrite a newer
+                # book just to suppress a revision-conflict notice.
+                remote = load_workspace(*sync_config, st.session_state['supabase_session'])
+                if remote and remote['payload'] == payload:
+                    st.session_state['workspace_revision'] = remote['revision']
+                    st.session_state['workspace_last_saved'] = payload
+                    st.session_state.pop('rebalance_sync_unavailable', None)
+                    return
             st.session_state['workspace_conflict'] = True
-            st.warning('This workspace changed on another device. Reload this page to load those changes before editing further.')
+            if st.session_state.get('page') != 'Rebalance Holdings':
+                st.warning('This workspace changed on another device. Reload this page to load those changes before editing further.')
         else:
             st.session_state['workspace_revision'] = revision
             st.session_state['workspace_last_saved'] = payload
+            if st.session_state.get('page') == 'Rebalance Holdings':
+                st.session_state.pop('rebalance_sync_unavailable', None)
     except Exception:
-        st.warning('Sync is temporarily unavailable. Keep this page open; saving will retry automatically.')
+        if st.session_state.get('page') == 'Rebalance Holdings':
+            st.session_state['rebalance_sync_unavailable'] = True
+        else:
+            st.warning('Sync is temporarily unavailable. Keep this page open; saving will retry automatically.')
 
 
 @st.fragment(run_every='5s')
