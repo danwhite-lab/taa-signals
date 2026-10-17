@@ -44,6 +44,23 @@ def visit():
     return app
 
 
+def edit_holdings(app, changes):
+    ids = sorted(app.dataframe[0].value['Security'])
+    key = f"rebalance_editor_{app.session_state['holdings_account']['revision']}_{fingerprint(ids)[:12]}"
+    app.session_state[key] = {'edited_rows': changes, 'added_rows': [], 'deleted_rows': []}
+    app.run()
+    assert not app.exception
+
+
+def save_edited_holdings(app):
+    # AppTest has no data-editor interaction API: re-submit its cell deltas
+    # with the button event, as the browser does for the real widget.
+    ids = sorted(app.dataframe[0].value['Security'])
+    key = f"rebalance_editor_{app.session_state['holdings_account']['revision']}_{fingerprint(ids)[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    button(app, 'Save holdings').click().run()
+
+
 def test_page_uses_one_book_when_switching_portfolios_and_on_fresh_device(rebalance_account):
     app = visit()
     original = deepcopy(app.session_state['holdings_account'])
@@ -88,11 +105,11 @@ def test_stale_or_unavailable_prices_never_produce_automatic_buys(rebalance_acco
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'price': '10', 'fresh': False, 'as_of': '2026-09-01', 'source': 'Old fund publication'})
     app = visit()
     assert button(app, 'What to buy').disabled
-    assert any('price missing or stale' in item.value for item in app.caption)
+    assert any('Price missing or stale:' in item.value for item in app.caption)
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'No raw price', 'fresh': False})
     app.run()
     assert not app.exception
-    assert any('price missing or stale' in item.value for item in app.caption)
+    assert any('Price missing or stale:' in item.value for item in app.caption)
     assert button(app, 'Save holdings')
 
 
@@ -145,15 +162,19 @@ def visible_nodes(node):
         yield from visible_nodes(child)
 
 
-def test_minimal_default_screen_and_single_cash_fx_controls_after_repeated_saves(rebalance_account):
+def test_holdings_first_open_and_single_cash_fx_controls_after_repeated_saves(rebalance_account):
     app = visit()
     for _ in range(3):
         visible = list(visible_nodes(app.main))
-        assert [n.label for n in visible if n.type == 'number_input'] == ['New money (₪)']
-        assert [n.label for n in visible if n.type == 'button'] == ['What to buy']
+        assert [n.label for n in visible if n.type == 'number_input'] == ['Unallocated account cash (₪)', 'New money (₪)']
+        assert [n.label for n in visible if n.type == 'button'] == ['Save holdings', 'What to buy']
         tables = [n for n in visible if n.type in ('arrow_data_frame', 'dataframe')]
-        assert len(tables) == 1, [n.type for n in visible]
-        assert list(tables[0].value.columns) == ['Fund', 'Target %', 'Actual %', 'Status']
+        assert len(tables) == 3, [n.type for n in visible]
+        assert 'Units' in tables[0].value.columns
+        assert 'Units to save' in tables[1].value.columns
+        assert list(tables[2].value.columns) == ['Fund', 'Target %', 'Actual %', 'Status']
+        assert visible.index(tables[0]) < next(i for i, n in enumerate(visible) if n.type == 'number_input' and n.label == 'New money (₪)')
+        assert list(app.expander)[-1].label == 'Portfolio & signal dates'
         assert len([n for n in app.number_input if n.label == 'Unallocated account cash (₪)']) == 1
         assert len([n for n in app.number_input if n.label == 'Manual ₪ per $1 (0 = automatic)']) == 1
         assert all(not e.proto.expanded for e in app.expander)
@@ -177,21 +198,23 @@ def test_missing_unheld_target_is_skipped_without_redistributing_target_weights(
     # existing value. Removing the missing fund must NOT turn this into 100% GLD.
     assert plan['orders'] == []
     assert float(plan['leftover_ils']) == 100
-    assert app.number_input(key='quick_price_US:IEF')
+    assert not any(n.key and n.key.startswith('quick_price_') for n in app.number_input)
+    assert 'Manual price per unit' in app.dataframe[0].value
+    assert not any(b.label == 'Record these buys' for b in app.button)
 
 
-def test_inline_dated_manual_price_unblocks_a_held_fund(rebalance_account, monkeypatch):
+def test_row_dated_manual_price_unblocks_a_held_fund(rebalance_account, monkeypatch):
     monkeypatch.setattr(market, 'unit_quote', lambda instrument, position:
         {'price': position['manual_price'], 'fresh': True, 'source': 'Manual test observation'}
         if position.get('manual_price') else {'error': 'Cannot price', 'fresh': False})
     app = visit()
     assert button(app, 'What to buy').disabled
-    app.number_input(key='quick_price_US:GLD').set_value(12.)
-    assert app.date_input(key='quick_date_US:GLD').value is None
-    app.date_input(key='quick_date_US:GLD').set_value(date(2026, 10, 15))
-    button(app, 'Use manual price').click().run()
+    assert app.dataframe[0].value['Price date'].isna().all()
+    edit_holdings(app, {0: {'Manual price per unit': 12., 'Price date': date(2026, 10, 15)}})
+    save_edited_holdings(app)
     assert not app.exception
     saved = rebalance_account['payload']['holdings_account']['positions']['US:GLD']
+    assert saved['manual_price'] is not None, app.dataframe[0].value.to_dict('records')
     assert float(saved['manual_price']) == 12
     assert saved['manual_price_date'] == '2026-10-15'
     assert not button(app, 'What to buy').disabled, [(n.label, n.disabled) for n in app.button]
@@ -241,11 +264,11 @@ def test_manual_price_requires_explicit_observation_date(rebalance_account, monk
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'Cannot price', 'fresh': False})
     app = visit()
     before = deepcopy(rebalance_account['payload']['holdings_account'])
-    assert app.date_input(key='quick_date_US:GLD').value is None
-    app.number_input(key='quick_price_US:GLD').set_value(12.)
-    button(app, 'Use manual price').click().run()
+    assert app.dataframe[0].value['Price date'].isna().all()
+    edit_holdings(app, {0: {'Manual price per unit': 12.}})
+    save_edited_holdings(app)
     assert not app.exception
-    assert any(e.value == 'Enter the date of the price you are copying.' for e in app.error)
+    assert any('enter the date of the price you are copying' in c.value for c in app.caption)
     assert rebalance_account['payload']['holdings_account'] == before
     assert button(app, 'What to buy').disabled
 
@@ -265,12 +288,12 @@ def test_empty_cash_has_specific_error_and_does_not_save(rebalance_account):
 
 def test_overweight_note_only_appears_when_relevant(rebalance_account, monkeypatch):
     app = visit()
-    assert not any('Overweight funds get no buys' in c.value for c in app.caption)
+    assert not any('Overweight, buy-only' in c.value for c in app.caption)
     monkeypatch.setattr(market, 'load_portfolio_signals', lambda labels, *a: ([
         {'name': labels[0], 'currency': 'USD', 'target_weights': {'GLD': .5, 'IEF': .5},
          'signal_date': '2026-09-30', 'source_notes': []}], []))
     app.run()
-    assert any('Overweight funds get no buys' in c.value and 'buy-only' in c.value for c in app.caption)
+    assert any(c.value == 'Overweight, buy-only so nothing to buy' for c in app.caption)
     app.number_input(key='rebalance_new_money').set_value(35.).run()
     button(app, 'What to buy').click().run()
     assert all(r['id'] != 'US:GLD' for r in app.session_state['rebalance_pending']['orders'])
@@ -283,12 +306,109 @@ def test_changed_inputs_note_clears_after_new_buy_list(rebalance_account):
     button(app, 'What to buy').click().run()
     app.number_input(key='rebalance_new_money').set_value(200.).run()
     assert 'rebalance_pending' not in app.session_state
-    assert any(c.value == 'Inputs changed—select What to buy for a new buy list.' for c in app.caption)
+    assert any(c.value == 'Inputs changed, press What to buy again' for c in app.caption)
     app.run()
     assert any('Inputs changed' in c.value for c in app.caption)
     button(app, 'What to buy').click().run()
     assert not any('Inputs changed' in c.value for c in app.caption)
-    editor = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
-    app.session_state[editor] = {'edited_rows': {0: {'Units': 6.}}, 'added_rows': [], 'deleted_rows': []}
-    button(app, 'Save holdings').click().run()
+    edit_holdings(app, {0: {'Units': 6.}})
+    save_edited_holdings(app)
     assert any('Inputs changed' in c.value for c in app.caption)
+
+
+def test_value_entry_previews_usd_units_before_saving_units_only(rebalance_account):
+    app = visit()
+    edit_holdings(app, {0: {'Enter as': 'Value', 'Value (₪ / $)': 65.}})
+    preview = app.dataframe[1].value
+    assert preview.iloc[0]['Currency'] == 'USD'
+    assert preview.iloc[0]['Current value (₪ / $)'] == 65.
+    assert preview.iloc[0]['Units to save'] == 6.5
+    assert rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units'] == '5'
+    assert button(app, 'What to buy').disabled
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']['positions']['US:GLD']
+    assert float(saved['units']) == 6.5
+    assert 'Value (₪ / $)' not in saved
+    assert not button(app, 'What to buy').disabled
+
+
+def test_ils_value_entry_previews_whole_tase_units_without_adding_cash(rebalance_account):
+    instrument = security('1147875', 'TASE')
+    book = empty_account()
+    book['positions'][instrument['id']] = {**instrument, 'units': '3'}
+    rebalance_account['payload']['holdings_account'] = book
+    app = visit()
+    edit_holdings(app, {0: {'Enter as': 'Value', 'Value (₪ / $)': 25.}})
+    preview = app.dataframe[1].value.iloc[0]
+    assert preview['Currency'] == 'ILS'
+    assert preview['Units to save'] == 2
+    assert preview['Current value (₪ / $)'] == 20.
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']
+    assert saved['positions'][instrument['id']]['units'] == '2'
+    assert saved['cash_ils'] == '0.0'
+
+
+@pytest.mark.parametrize('quote', [{'error': 'unavailable', 'fresh': False}, {'price': '10', 'fresh': False}])
+def test_value_entry_never_converts_with_missing_or_stale_price(rebalance_account, monkeypatch, quote):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: quote)
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    edit_holdings(app, {0: {'Enter as': 'Value', 'Value (₪ / $)': 60.}})
+    assert any('value entry needs a current price' in c.value for c in app.caption)
+    save_edited_holdings(app)
+    assert rebalance_account['payload']['holdings_account'] == before
+    assert button(app, 'What to buy').disabled
+    assert not any(n.key and n.key.startswith('quick_price_') for n in app.number_input)
+
+
+def test_value_entry_can_use_dated_manual_price_in_the_same_row(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda instrument, position:
+        {'price': position['manual_price'], 'fresh': True} if position.get('manual_price') and position.get('manual_price_date')
+        else {'error': 'missing', 'fresh': False})
+    app = visit()
+    edit_holdings(app, {0: {'Enter as': 'Value', 'Value (₪ / $)': 60.,
+                            'Manual price per unit': 12., 'Price date': date(2026, 10, 15)}})
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 5
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']['positions']['US:GLD']
+    assert float(saved['units']) == 5
+    assert saved['manual_price_date'] == '2026-10-15'
+    assert not button(app, 'What to buy').disabled
+
+
+def test_unsaved_unit_edit_invalidates_list_and_hides_record_step(rebalance_account):
+    app = visit()
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    assert button(app, 'Record these buys')
+    edit_holdings(app, {0: {'Units': 7.}})
+    assert button(app, 'What to buy').disabled
+    assert not any(b.label == 'Record these buys' for b in app.button)
+    assert any(c.value == 'Inputs changed, press What to buy again' for c in app.caption)
+
+
+def test_record_step_requires_at_least_one_order(rebalance_account):
+    app = visit()
+    assert not any(b.label == 'Record these buys' for b in app.button)
+    button(app, 'What to buy').click().run()
+    assert app.session_state['rebalance_pending']['orders'] == []
+    assert not any(b.label == 'Record these buys' for b in app.button)
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    assert app.session_state['rebalance_pending']['orders']
+    assert button(app, 'Record these buys')
+
+
+def test_bottom_portfolio_selector_still_changes_targets(rebalance_account, account, monkeypatch):
+    account[1]['payload']['sleeves'][0]['model'] = 'Buy and Hold IEF'
+    monkeypatch.setattr(market, 'load_portfolio_signals', lambda labels, *a: ([
+        {'name': label, 'currency': 'USD', 'target_weights': {'IEF' if label == 'Buy and Hold IEF' else 'GLD': 1.},
+         'signal_date': '2026-09-30', 'source_notes': []} for label in labels], []))
+    app = visit()
+    assert app.expander[-1].label == 'Portfolio & signal dates'
+    assert not app.expander[-1].proto.expanded
+    app.selectbox(key='rebalance_portfolio_id').set_value('second').run()
+    assert not app.exception
+    comparison = next(t.value for t in app.dataframe if 'Target %' in t.value)
+    assert comparison.loc[comparison['Fund'] == 'IEF', 'Target %'].iloc[0] == 1.
