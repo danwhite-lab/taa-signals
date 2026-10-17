@@ -82,8 +82,37 @@ Adjusted Close is never substituted. TASE documents listed-security price
 units as 0.01 ILS:
 https://market.tase.co.il/en/market_data/securities
 
+Three explicitly verified ILS mutual funds use the official public MAYA details
+endpoint (`/api/v1/funds/mutual/<id>`) instead of an exchange close: Ayalon Kaspit
+5117700, Harel government bonds 5131792, and MTF Momentum 5140850. MAYA's
+`redemptionPrice` is a percentage of their ILS 1 nominal unit: divide by 100
+to obtain ILS per actual held unit. This is an explicit per-fund allowlist, not
+a heuristic for arbitrary mutual funds. Before conversion the adapter verifies
+fund ID, ISIN, type/subtype, active/unmerged status and the explicit non-dollar
+denomination flag. Missing or changed metadata fails closed. `ratesAsOf` is the
+price date; neither asset-value dates nor retrieval dates can replace it.
+
+The resulting quote is labelled Published fund redemption valuation, not a live
+or guaranteed execution/purchase price. Raw quote, units and divisor are shown
+in price details. MTF's holdings route takes precedence over its historical-data
+classification; strategy/backtest data routing is unchanged. Five-minute caching,
+strict completed-session freshness and explicit manual override precedence are
+unchanged. Clear an existing manual price and its date, then Save holdings, to
+resume automatic pricing. There is no silent migration of existing overrides.
+
+Verification (checked 17 October 2026):
+
+- [5117700 prospectus referenced by MAYA](https://mayafiles.tase.co.il/RPdf/784001-785000/P784415-00.pdf), page 1: ILS 1 nominal unit; current MAYA metadata identifies the same fund/ISIN as Ayalon. Its old manager/name is not used as a substitute fund.
+- [5131792 financial statements](https://mayafiles.tase.co.il/rpdf/1587001-1588000/P1587744-00.pdf), pages 4 and 10: units of ILS 1 nominal and redemption quoted as a percentage.
+- [5140850 prospectus](https://mayafiles.tase.co.il/rpdf/1682001-1683000/P1682265-00.pdf), page 2: ILS 1 nominal unit. The supplied broker example also independently reconciled the published ILA quote divided by 100 against units and account valuation; no actual holdings are stored in this documentation or tests.
+
+Live public-read verification found published dates of 15 October for cash/bonds
+and 14 October for MTF, older than the latest completed TASE session on 16 October.
+Those observations remain stale; the adapter does not invent a publication lag
+exception or label them current just because they are the latest available.
+
 The free public endpoints are not guaranteed live or complete. For other funds
-(including Maya-only redemption feeds and USD-denominated TASE funds), native
+(including unverified MAYA redemption feeds and USD-denominated TASE funds), native
 quote units have not been verified in this implementation. Automatic sizing
 therefore requires an explicitly entered, dated broker per-unit price in the
 holding's native currency. It does not guess a divisor, value the fund using a
