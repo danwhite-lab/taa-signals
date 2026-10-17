@@ -43,6 +43,11 @@ After saving, value cells are rebuilt from confirmed units and a current actual
 price, rather than going blank. The editor baseline stays fixed while there are
 draft cell edits. A visible Holdings saved confirmation appears only after the
 save callback confirms success, outside collapsed sections.
+Add selected fund and Add custom holding stage a new editor row locally; they
+do not save an older account snapshot. Draft rows are carried by security ID,
+not row number, preserving entered values, units, manual prices/dates and
+minimums as the sorted list changes. Cash and FX edits remain in place. Save
+holdings saves the complete draft, and failed saves keep that draft available.
 Unit and value displays use two decimal places; existing stored unit precision
 and native per-unit price precision are not rounded away.
 Value is entered in the
