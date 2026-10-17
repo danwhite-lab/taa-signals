@@ -103,7 +103,7 @@ def _preview_positions(account, instruments, rows):
             preview.append({"Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],
                             "Current value (₪ / $)": float(number(position["units"]) * number(quote["price"], positive=True)) if current else None,
                             "Units to save": float(position["units"]),
-                            "Price status": "Current" if current else "Missing / stale — no conversion"})
+                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" else "Current") if current else "Missing / stale — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
     return positions, preview, errors
@@ -339,11 +339,14 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
                 st.session_state["rebalance_inputs_changed"] = True
             st.rerun()
         st.caption("Actual unadjusted prices only. Public/delayed observations are not guaranteed fills. Five-minute caches. Manual prices are native currency per ONE unit, not agorot or cents.")
+        if any(q.get("valuation_kind") == "fund_nav" for q in quotes.values()):
+            st.caption("Mutual-fund prices are published redemption valuations, not live or guaranteed purchase prices. Publication can lag; stale observations still block sizing. Clear a saved manual price and its date to return to the automatic feed.")
         if quotes:
             st.dataframe(pd.DataFrame([{"Security": k, "Price per unit": q.get("price"),
-                "Currency": instruments[k]["currency"], "Raw publication (unit unverified)": q.get("raw_published_value"),
+                "Currency": instruments[k]["currency"], "Raw publication": q.get("raw_published_value"),
                 "Observation date": q.get("as_of"), "Retrieved / entered": q.get("fetched_at"),
                 "Field": q.get("field"), "Source": q.get("source"),
+                "Published quote units": q.get("raw_unit"), "Divisor to native per unit": q.get("quote_divisor"),
                 "Status": "Cannot price" if q.get("error") else q.get("status")} for k, q in quotes.items()]),
                 hide_index=True, use_container_width=True)
         if uses_usd:

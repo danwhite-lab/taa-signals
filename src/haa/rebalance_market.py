@@ -1,7 +1,7 @@
 """Actual unit quotes and the dashboard's shared signal path, kept separate."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -14,6 +14,48 @@ from .portfolio_signals import portfolio_signal
 from .rebalance_holdings import number
 from .tase_data import (TASE_ISRAEL_ASSET_IDS, TASE_ETF_ASSETS,
                         download_published_eod_closes, download_tase_israel_prices)
+
+
+# Holdings valuation only: never alter strategy/backtest price routing.
+# These specific ILS funds have ₪1 nominal units; MAYA redemption quotes
+# are percentages of nominal, so /100 gives actual ILS per held unit.
+# Verification documents and dates are recorded in docs/rebalance-holdings.md.
+MAYA_ILS_UNIT_FUNDS = {
+    "5117700": {"isin": "IL0051177009", "fund_type_id": 1},
+    "5131792": {"isin": "IL0051317928", "fund_type_id": 4},
+    "5140850": {"isin": "IL0051408503", "fund_type_id": 4},
+}
+
+
+def quote_from_maya_fund(published, instrument, as_of=None):
+    """Normalize only explicitly verified fund units; fail closed on changes."""
+    identifier = instrument["identifier"]
+    verified = MAYA_ILS_UNIT_FUNDS.get(identifier)
+    if not verified or instrument["market"] != "TASE" or instrument["currency"] != "ILS":
+        raise ValueError("This fund's native per-unit conversion is not verified.")
+    if (str(published.get("fundId")).lstrip("0") != identifier
+            or published.get("isin") != verified["isin"]
+            or published.get("fundTypeId") != verified["fund_type_id"]
+            or published.get("mutualFundSubType") != 1
+            or published.get("deleted") is not False
+            or "mergingLiquidationStatus" not in published
+            or published["mergingLiquidationStatus"] is not None):
+        raise ValueError("Fund identity or structure could not be verified; enter a dated manual price.")
+    currency_flags = [f.get("enabled") for f in published.get("features", [])
+                      if f.get("title") == "יחידות הקרן נקובות ב- $"]
+    if currency_flags != [False]:
+        raise ValueError("Fund currency metadata changed or is missing; no conversion was guessed.")
+    stamp = published.get("ratesAsOf")
+    if not isinstance(stamp, str):
+        raise ValueError("Published fund price needs its actual observation date.")
+    date.fromisoformat(stamp)
+    raw = number(published.get("redemptionPrice"), positive=True)
+    return assess_quote({"price": str(raw / 100), "currency": "ILS", "as_of": stamp,
+                         "fetched_at": utc_now(), "source": "Official MAYA via public tasekit endpoint; published redemption valuation, not a live execution price",
+                         "source_url": f"https://maya.tase.co.il/api/v1/funds/mutual/{identifier}",
+                         "field": "Published fund redemption valuation", "valuation_kind": "fund_nav",
+                         "raw_published_value": str(raw), "raw_unit": "% of ILS 1 nominal per unit",
+                         "quote_divisor": "100", "is_execution_price": False}, "TASE", as_of)
 
 
 def utc_now():
@@ -87,6 +129,9 @@ def fetch_unit_quote(instrument):
         if currency != instrument["currency"]:
             raise ValueError("Provider currency is missing or does not match this holding.")
         return quote_from_history(frame, instrument, "Yahoo Finance daily raw Close (not live)", 1)
+    if instrument["identifier"] in MAYA_ILS_UNIT_FUNDS and instrument["currency"] == "ILS":
+        from tasekit.api import TaseClient
+        return quote_from_maya_fund(TaseClient().fetch_maya_fund_info(instrument["identifier"]), instrument)
     known_exchange_ids = {TASE_ISRAEL_ASSET_IDS[asset] for asset in TASE_ETF_ASSETS}
     if instrument["identifier"] not in known_exchange_ids or instrument["currency"] != "ILS":
         # Surface an available publication, but do not mistake a NAV quoted
