@@ -107,6 +107,29 @@ def _preview_positions(account, instruments, rows):
     return positions, preview, errors
 
 
+def _entry_rows(edited, editor_key):
+    """The last edited value/units cell wins; never silently ignore value input."""
+    rows = edited.to_dict("records")
+    current = st.session_state.get(editor_key, {}).get("edited_rows", {})
+    previous = st.session_state.get("rebalance_entry_edits", {})
+    if previous.get("key") != editor_key:
+        previous = {"key": editor_key, "cells": {}, "modes": {}}
+    modes = dict(previous["modes"]) if current else {}
+    for index, row in enumerate(rows):
+        edits = current.get(index, current.get(str(index), {}))
+        old = previous["cells"].get(index, previous["cells"].get(str(index), {}))
+        changed = {field for field, value in edits.items() if field not in old or value != old[field]}
+        if "Enter as" in changed:
+            modes[index] = edits["Enter as"]
+        elif "Units" in changed:
+            modes[index] = "Units"
+        elif "Value (₪ / $)" in changed:
+            modes[index] = "Value"
+        row["Enter as"] = modes.get(index, "Units")
+    st.session_state["rebalance_entry_edits"] = {"key": editor_key, "cells": deepcopy(current), "modes": modes}
+    return rows
+
+
 def _render_editor(account, instruments, targets, commit_account):
     # Stable keys avoid replacing controls on every saved book revision.
     if st.session_state.get("rebalance_editor_seed") != account["revision"] or any(k not in st.session_state for k in ("rebalance_cash", "rebalance_fx", "rebalance_fx_date")):
@@ -115,7 +138,9 @@ def _render_editor(account, instruments, targets, commit_account):
         st.session_state["rebalance_fx_date"] = date.fromisoformat(account["manual_fx_date"]) if account.get("manual_fx_date") else date.today()
         st.session_state["rebalance_editor_seed"] = account["revision"]
     st.subheader("Your shared holdings")
-    st.caption("Choose Units or Value for each row. Values are ₪ for ILS funds and $ for US funds; only units are saved. TASE value entry rounds down to whole units; no difference is added to cash.")
+    if message := st.session_state.pop("rebalance_message", None):
+        st.success(message)
+    st.caption("Edit Value or Units; the last field edited sets the holding. Values are ₪ for ILS funds and $ for US funds; units are saved. TASE value entry rounds down to whole units; no difference is added to cash.")
     with st.expander("Add a holding", expanded=False):
         choice = st.selectbox("Fund", sorted(instruments), format_func=lambda key: f"{instruments[key]['label']} · {instruments[key]['currency']} · {key}", key="rebalance_add_choice") if instruments else None
         if st.button("Add selected fund", key="rebalance_add", disabled=not choice or choice in account["positions"]):
@@ -143,6 +168,7 @@ def _render_editor(account, instruments, targets, commit_account):
             except ValueError as exc:
                 st.error("Check the entered units, security details and dated manual prices.")
     visible_ids = sorted(set(account["positions"]) | set(targets))
+    editor_key = f"rebalance_editor_{account['revision']}_{fingerprint(visible_ids)[:12]}"
     editor_rows = []
     for key in visible_ids:
         row = account["positions"].get(key, {})
@@ -151,25 +177,40 @@ def _render_editor(account, instruments, targets, commit_account):
                             "Units": float(row.get("units", 0)), "Manual price per unit": float(row["manual_price"]) if row.get("manual_price") else None,
                             "Price date": date.fromisoformat(row["manual_price_date"]) if row.get("manual_price_date") else None,
                             "Minimum order (₪)": float(row.get("minimum_ils", 0)), "Remove": False})
+    base = st.session_state.get("rebalance_editor_base", {})
+    # Freeze the baseline while there are cell edits, so a quote refresh cannot
+    # reset an in-progress editor. New revisions start from confirmed units.
+    if base.get("key") != editor_key or not st.session_state.get(editor_key, {}).get("edited_rows"):
+        for editor_row in editor_rows:
+            key = editor_row["Security"]
+            quote = market_data.unit_quote(instruments[key], account["positions"].get(key, {}))
+            if quote.get("fresh") and not quote.get("error") and quote.get("price"):
+                editor_row["Value (₪ / $)"] = float(number(editor_row["Units"]) * number(quote["price"], positive=True))
+        base = {"key": editor_key, "rows": editor_rows}
+        st.session_state["rebalance_editor_base"] = base
+    editor_rows = base["rows"]
     editor_columns = ["Security", "Fund", "Currency", "Enter as", "Value (₪ / $)", "Units", "Manual price per unit", "Price date", "Minimum order (₪)", "Remove"]
     # Outside a form: edits rerun immediately so conversions are visible BEFORE saving.
     with st.container():
         edited = st.data_editor(pd.DataFrame(editor_rows, columns=editor_columns), hide_index=True,
             disabled=["Security", "Fund", "Currency"], use_container_width=True,
-            column_config={"Enter as": st.column_config.SelectboxColumn(options=["Units", "Value"], required=True),
-                           "Value (₪ / $)": st.column_config.NumberColumn(min_value=0., format="%.6f"),
-                           "Units": st.column_config.NumberColumn(min_value=0., format="%.6f"),
+            column_config={"Enter as": None,
+                           "Value (₪ / $)": st.column_config.NumberColumn(min_value=0., format="%.2f"),
+                           "Units": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Manual price per unit": st.column_config.NumberColumn(min_value=0., format="%.6f"),
                            "Price date": st.column_config.DateColumn(),
                            "Minimum order (₪)": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Remove": st.column_config.CheckboxColumn()},
-            key=f"rebalance_editor_{account['revision']}_{fingerprint(visible_ids)[:12]}")
+            key=editor_key)
         st.caption("Manual prices are native currency per ONE unit: ₪ for ILS funds, dollars for USD funds—not agorot or cents. Blank means automatic feed. Minimum 0 means unknown/not configured, not a verified broker minimum.")
         st.caption("Enter the date of the price you are copying.")
-        positions, preview, draft_errors = _preview_positions(account, instruments, edited.to_dict("records"))
+        entry_rows = _entry_rows(edited, editor_key)
+        positions, preview, draft_errors = _preview_positions(account, instruments, entry_rows)
         if preview:
             st.caption("Conversion preview — not saved")
-            st.dataframe(pd.DataFrame(preview), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(preview), hide_index=True, use_container_width=True,
+                         column_config={"Units to save": st.column_config.NumberColumn(format="%.2f"),
+                                        "Current value (₪ / $)": st.column_config.NumberColumn(format="%.2f")})
         for error in draft_errors:
             st.caption(error)
         cash = st.number_input("Unallocated account cash (₪)", min_value=0., value=None, step=1., key="rebalance_cash")
@@ -193,13 +234,12 @@ def _render_editor(account, instruments, targets, commit_account):
                            manual_fx_date=manual_fx_date.isoformat() if manual_fx else None,
                            updated_at=utc_now(), last_operation_id=str(uuid4()))
             if _save(updated, commit_account):
-                st.session_state["rebalance_message"] = "Shared holdings saved to your account."
+                st.session_state["rebalance_message"] = "Holdings saved."
                 st.rerun()
         except (ValueError, TypeError) as exc:
             st.error("Check the entered units, security details and dated manual prices.")
-    draft = {"rows": [{k: str(v) for k, v in row.items()} for row in edited.to_dict("records")],
+    draft = {"rows": [{k: str(v) for k, v in row.items()} for row in entry_rows],
              "cash": str(cash), "fx": str(manual_fx), "fx_date": str(manual_fx_date)}
-    editor_key = f"rebalance_editor_{account['revision']}_{fingerprint(visible_ids)[:12]}"
     dirty = bool(st.session_state.get(editor_key, {}).get("edited_rows")) or cash != float(account["cash_ils"]) or (manual_fx or 0) != float(account.get("manual_fx") or 0)
     if manual_fx:
         dirty = dirty or str(manual_fx_date) != str(account.get("manual_fx_date"))
@@ -247,12 +287,12 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     except (ValueError, KeyError, TypeError):
         st.error("Saved holdings could not be read. No saved data has been changed.")
         return
-    holdings_box = st.container()
-    value_box = st.container()
-    comparison_box = st.container()
     new_money = st.number_input("New money (₪)", min_value=0., value=0., step=100., format="%.0f", key="rebalance_new_money")
     action_box = st.container()
     results_box = st.container()
+    holdings_box = st.container()
+    value_box = st.container()
+    comparison_box = st.container()
     price_box = st.container()
     signals_box = st.container()
     with signals_box, st.expander("Portfolio & signal dates", expanded=False):
@@ -295,8 +335,6 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
                 "Retrieved / entered": fx.get("fetched_at"), "Source": fx.get("source"),
                 "Status": "Unavailable" if fx.get("error") else fx.get("status")}]), hide_index=True)
         st.caption("The workspace banner means another save advanced the revision. Reload before saving; safeguards remain active and no holdings are overwritten to dismiss it.")
-        if st.session_state.pop("rebalance_message", None):
-            st.caption("Shared account changes were confirmed saved.")
         st.caption("Existing unallocated cash is included. Unknown order minimums are not invented. Estimates exclude automatically calculated commissions and spreads.")
 
     with warning_box:

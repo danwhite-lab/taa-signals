@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import date
+import json
 
 import pytest
 
@@ -45,7 +46,7 @@ def visit():
 
 
 def edit_holdings(app, changes):
-    ids = sorted(app.dataframe[0].value['Security'])
+    ids = sorted(next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)['Security'])
     key = f"rebalance_editor_{app.session_state['holdings_account']['revision']}_{fingerprint(ids)[:12]}"
     app.session_state[key] = {'edited_rows': changes, 'added_rows': [], 'deleted_rows': []}
     app.run()
@@ -55,7 +56,7 @@ def edit_holdings(app, changes):
 def save_edited_holdings(app):
     # AppTest has no data-editor interaction API: re-submit its cell deltas
     # with the button event, as the browser does for the real widget.
-    ids = sorted(app.dataframe[0].value['Security'])
+    ids = sorted(next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)['Security'])
     key = f"rebalance_editor_{app.session_state['holdings_account']['revision']}_{fingerprint(ids)[:12]}"
     app.session_state[key] = deepcopy(app.session_state[key])
     button(app, 'Save holdings').click().run()
@@ -162,18 +163,19 @@ def visible_nodes(node):
         yield from visible_nodes(child)
 
 
-def test_holdings_first_open_and_single_cash_fx_controls_after_repeated_saves(rebalance_account):
+def test_money_and_buy_button_first_holdings_open_and_single_cash_fx_controls(rebalance_account):
     app = visit()
     for _ in range(3):
         visible = list(visible_nodes(app.main))
-        assert [n.label for n in visible if n.type == 'number_input'] == ['Unallocated account cash (₪)', 'New money (₪)']
-        assert [n.label for n in visible if n.type == 'button'] == ['Save holdings', 'What to buy']
+        assert [n.label for n in visible if n.type == 'number_input'] == ['New money (₪)', 'Unallocated account cash (₪)']
+        assert [n.label for n in visible if n.type == 'button'] == ['What to buy', 'Save holdings']
         tables = [n for n in visible if n.type in ('arrow_data_frame', 'dataframe')]
         assert len(tables) == 3, [n.type for n in visible]
         assert 'Units' in tables[0].value.columns
         assert 'Units to save' in tables[1].value.columns
         assert list(tables[2].value.columns) == ['Fund', 'Target %', 'Actual %', 'Status']
-        assert visible.index(tables[0]) < next(i for i, n in enumerate(visible) if n.type == 'number_input' and n.label == 'New money (₪)')
+        assert next(i for i, n in enumerate(visible) if n.type == 'number_input' and n.label == 'New money (₪)') < visible.index(tables[0])
+        assert next(i for i, n in enumerate(visible) if n.type == 'button' and n.label == 'What to buy') < visible.index(tables[0])
         assert list(app.expander)[-1].label == 'Portfolio & signal dates'
         assert len([n for n in app.number_input if n.label == 'Unallocated account cash (₪)']) == 1
         assert len([n for n in app.number_input if n.label == 'Manual ₪ per $1 (0 = automatic)']) == 1
@@ -412,3 +414,62 @@ def test_bottom_portfolio_selector_still_changes_targets(rebalance_account, acco
     assert not app.exception
     comparison = next(t.value for t in app.dataframe if 'Target %' in t.value)
     assert comparison.loc[comparison['Fund'] == 'IEF', 'Target %'].iloc[0] == 1.
+
+
+def test_value_only_edit_saves_and_repopulates_values_on_reload(rebalance_account):
+    app = visit()
+    assert app.dataframe[0].value.iloc[0]['Value (₪ / $)'] == 50.
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 6.5
+    save_edited_holdings(app)
+    assert float(rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units']) == 6.5
+    assert app.dataframe[0].value.iloc[0]['Value (₪ / $)'] == 65.
+    assert app.dataframe[0].value.iloc[0]['Units'] == 6.5
+    assert any(s.value == 'Holdings saved.' for s in app.success)
+    assert any(n.type == 'success' and n.value == 'Holdings saved.' for n in visible_nodes(app.main))
+    phone = visit()
+    assert phone.dataframe[0].value.iloc[0]['Value (₪ / $)'] == 65.
+    assert phone.dataframe[0].value.iloc[0]['Units'] == 6.5
+
+
+def test_last_edited_value_or_units_cell_drives_save(rebalance_account):
+    app = visit()
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 6.5
+    edit_holdings(app, {0: {'Value (₪ / $)': 65., 'Units': 8.}})
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 8.
+    edit_holdings(app, {0: {'Value (₪ / $)': 35., 'Units': 8.}})
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 3.5
+    save_edited_holdings(app)
+    assert float(rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units']) == 3.5
+
+
+def test_failed_value_save_keeps_draft_and_never_shows_saved(rebalance_account, monkeypatch):
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    monkeypatch.setattr(sync, 'save_workspace', lambda *a: None)
+    save_edited_holdings(app)
+    assert not app.exception
+    assert rebalance_account['payload']['holdings_account'] == before
+    assert app.dataframe[1].value.iloc[0]['Units to save'] == 6.5
+    assert not app.success
+    assert any('not confirmed saved' in e.value for e in app.error)
+
+
+def test_missing_price_is_blank_not_zero_when_rehydrating_saved_values(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'unavailable', 'fresh': False})
+    app = visit()
+    assert app.dataframe[0].value['Value (₪ / $)'].isna().all()
+    assert app.dataframe[0].value.iloc[0]['Units'] == 5.
+
+
+def test_units_display_two_decimals_without_rounding_saved_positions(rebalance_account):
+    rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units'] = '5.12345'
+    app = visit()
+    editor_config = json.loads(app.dataframe[0].proto.columns)
+    preview_config = json.loads(app.dataframe[1].proto.columns)
+    assert editor_config['Units']['type_config']['format'] == '%.2f'
+    assert preview_config['Units to save']['type_config']['format'] == '%.2f'
+    button(app, 'Save holdings').click().run()
+    assert float(rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units']) == 5.12345
