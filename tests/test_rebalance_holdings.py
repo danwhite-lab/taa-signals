@@ -53,6 +53,20 @@ def test_most_underweight_first_and_never_sell_overweight_or_removed_targets():
     assert next(r for r in rows if r['id'] == 'TASE:1149038')['Status'] == 'Overweight'
 
 
+def test_small_deposit_can_fund_only_the_largest_gap_even_when_two_funds_are_underweight():
+    account, instruments, quotes, targets = setup_book(prices=(1, 1))
+    other = security('BIL', 'US')
+    instruments[other['id']] = other
+    account['positions'][other['id']] = {**other, 'units': '100'}
+    quotes[other['id']] = {'price': '1', 'fresh': True}
+    rows, _, _ = compare_holdings(account, instruments, targets, quotes, 1)
+    assert all(r['Status'] == 'Underweight' for r in rows if r['id'] in targets)
+    small = make_buy_plan(account, instruments, targets, quotes, 1, 10, {})
+    assert [(r['id'], r['units']) for r in small['orders']] == [('TASE:1149038', 10)]
+    larger = make_buy_plan(account, instruments, targets, quotes, 1, 100, {})
+    assert {r['id']: r['units'] for r in larger['orders']} == {'TASE:1149038': 70, 'TASE:1187079': 30}
+
+
 def test_small_budget_and_minimum_order_leave_money_unallocated():
     account, instruments, quotes, targets = setup_book()
     account['positions']['TASE:1149038']['minimum_ils'] = '100'

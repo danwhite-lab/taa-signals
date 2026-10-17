@@ -581,3 +581,62 @@ def test_add_keeps_unpriced_value_draft_without_guessing_or_saving(rebalance_acc
     save_edited_holdings(app)
     assert rebalance_account['payload']['holdings_account'] == before
     assert button(app, 'What to buy').disabled
+
+
+def test_editor_shows_fetched_price_date_without_creating_manual_overrides(rebalance_account):
+    app = visit()
+    row = app.dataframe[0].value.iloc[0]
+    assert row['Price per unit (₪ / $)'] == 10.
+    assert str(row['Price observation date'])[:10] == '2026-10-15'
+    assert row['Price source'] == 'Automatic'
+    assert row['Price status'] == 'Current'
+    assert app.dataframe[0].value['Manual price per unit'].isna().all()
+    assert app.dataframe[0].value['Price date'].isna().all()
+    configs = json.loads(app.dataframe[0].proto.columns)
+    assert configs['Price per unit (₪ / $)']['disabled']
+    assert configs['Price observation date']['disabled']
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    preview = app.dataframe[1].value.iloc[0]
+    assert preview['Units to save'] == 6.5
+    assert preview['Price per unit (₪ / $)'] == 10.
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']['positions']['US:GLD']
+    assert float(saved['units']) == 6.5
+    assert saved['manual_price'] is None and saved['manual_price_date'] is None
+
+
+def test_fetched_stale_price_is_shown_with_its_real_date_and_stays_blocked(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'price': '10', 'fresh': False, 'as_of': '2026-09-01'})
+    app = visit()
+    row = app.dataframe[0].value.iloc[0]
+    assert row['Price per unit (₪ / $)'] == 10.
+    assert str(row['Price observation date'])[:10] == '2026-09-01'
+    assert row['Price status'] == 'Stale'
+    assert button(app, 'What to buy').disabled
+
+
+def test_missing_fetched_price_date_are_blank_not_invented(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'Unavailable', 'fresh': False})
+    app = visit()
+    assert app.dataframe[0].value['Price per unit (₪ / $)'].isna().all()
+    assert app.dataframe[0].value['Price observation date'].isna().all()
+    assert app.dataframe[0].value.iloc[0]['Price status'] == 'Unavailable'
+
+
+def test_editor_identifies_manual_quote_separately_from_automatic(rebalance_account, monkeypatch):
+    book = rebalance_account['payload']['holdings_account']
+    book['positions']['US:GLD'].update(manual_price='12', manual_price_date='2026-10-15')
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'price': '12', 'as_of': '2026-10-15', 'fresh': True, 'field': 'Manual per-unit price'})
+    app = visit()
+    row = app.dataframe[0].value.iloc[0]
+    assert row['Price per unit (₪ / $)'] == 12.
+    assert row['Price source'] == 'Manual override'
+
+
+def test_single_order_explanation_does_not_appear_before_a_buy_list(rebalance_account):
+    app = visit()
+    assert not any('largest ₪ shortfalls' in c.value for c in app.caption)
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    assert len(app.session_state['rebalance_pending']['orders']) == 1
+    assert any('largest ₪ shortfalls' in c.value for c in app.caption)
