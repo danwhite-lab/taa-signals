@@ -7,9 +7,9 @@ signal calculation, now shared in `portfolio_signals.py`.
 
 ## One account, many comparisons
 
-Your shared holdings is always open at the top, including the editor, cash and
-Save holdings. Account value, a four-column target/actual comparison, new money,
-and What to buy follow. Results show whole units, estimated costs and leftover
+New money and What to buy are at the top. Your shared holdings remains always
+open below them, including the editor, cash and Save holdings. Account value
+and a four-column target/actual comparison follow. Results show whole units, estimated costs and leftover
 cash; Record these buys appears only when there is at least one order. Price/FX
 sources and dates remain collapsed. Portfolio & signal dates is collapsed at the
 bottom; moving it does not change the selected portfolio or signal computation.
@@ -37,7 +37,15 @@ US positions can be recorded, but proposed purchases use whole units: broker
 fractional-share support is not assumed. Users must update units after splits
 or other corporate actions; the app does not infer them from adjusted prices.
 
-Each editor row explicitly selects Units or Value. Value is entered in the
+Each editor row accepts Units or Value; the last edited cell controls conversion,
+without a separate entry-mode selector that could silently ignore value edits.
+After saving, value cells are rebuilt from confirmed units and a current actual
+price, rather than going blank. The editor baseline stays fixed while there are
+draft cell edits. A visible Holdings saved confirmation appears only after the
+save callback confirms success, outside collapsed sections.
+Unit and value displays use two decimal places; existing stored unit precision
+and native per-unit price precision are not rounded away.
+Value is entered in the
 fund's native currency (ILS or USD), not an implied FX conversion. The live draft
 preview shows the represented current value and units side by side before saving.
 Value divided by a current actual per-unit quote produces units; TASE entries
