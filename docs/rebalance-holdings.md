@@ -50,6 +50,14 @@ minimums as the sorted list changes. Cash and FX edits remain in place. Save
 holdings saves the complete draft, and failed saves keep that draft available.
 Unit and value displays use two decimal places; existing stored unit precision
 and native per-unit price precision are not rounded away.
+The editor also populates read-only native Price per unit, Price date, Price
+source and Price status columns. These describe the editor's quoted snapshot;
+the live conversion preview shows the price/date actually used after draft
+manual-price edits. Automatic quotes are never copied into stored manual
+overrides. Existing manual inputs are explicitly labelled as overrides and
+Manual price date; they can stay blank when the automatic source is usable.
+Stale observations retain their actual price/date and stale label; unavailable
+quotes remain blank, not zero or today's date.
 Value is entered in the
 fund's native currency (ILS or USD), not an implied FX conversion. The live draft
 preview shows the represented current value and units side by side before saving.
@@ -159,6 +167,9 @@ the available budget. Unknown broker minimums are marked not configured. A
 minimum commission is never treated as a minimum purchase. Infeasible cash
 remains unallocated. Whole-unit costs retain their actual decimal precision;
 the UI does not round per-unit prices to whole shekels before sizing.
+A small deposit may all go to the largest shortfall while other funds remain
+underweight. This is not a fixed-weight split of every deposit. Single-order
+results have a short explanatory note; the allocation calculation is unchanged.
 
 Quoted costs exclude automatically modeled commissions/spreads. Users should
 allow a cash buffer. After trading, enter actual units purchased and actual ILS

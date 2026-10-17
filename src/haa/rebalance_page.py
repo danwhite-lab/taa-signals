@@ -65,6 +65,19 @@ def _load_targets(portfolios, known_instruments, account, ticker_items, replacem
     return portfolio, targets, instruments, source_rows, errors
 
 
+def _quote_cells(quote):
+    available = not quote.get("error") and quote.get("price") is not None
+    stamp = quote.get("as_of")
+    try:
+        observed = pd.Timestamp(stamp).date() if stamp else None
+    except (ValueError, TypeError, OverflowError):
+        observed = None
+    return {"Price per unit (₪ / $)": float(number(quote["price"], positive=True)) if available else None,
+            "Price observation date": observed,
+            "Price source": "Manual override" if quote.get("field") == "Manual per-unit price" else "Automatic",
+            "Price status": "Unavailable" if not available else "Current" if quote.get("fresh") else "Stale"}
+
+
 def _preview_positions(account, instruments, rows):
     """Draft value-to-unit entry only; use the existing actual-price checks."""
     positions, preview, errors = {}, [], []
@@ -103,6 +116,8 @@ def _preview_positions(account, instruments, rows):
             preview.append({"Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],
                             "Current value (₪ / $)": float(number(position["units"]) * number(quote["price"], positive=True)) if current else None,
                             "Units to save": float(position["units"]),
+                            "Price per unit (₪ / $)": _quote_cells(quote)["Price per unit (₪ / $)"],
+                            "Price observation date": _quote_cells(quote)["Price observation date"],
                             "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" else "Current") if current else "Missing / stale — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
@@ -202,23 +217,28 @@ def _render_editor(account, instruments, targets, commit_account):
                 editor_row["Value (₪ / $)"] = float(number(editor_row["Units"]) * number(quote["price"], positive=True))
             if key in st.session_state.get("rebalance_carried_rows", {}):
                 editor_row.update(st.session_state["rebalance_carried_rows"][key])
+            editor_row.update(_quote_cells(quote))
         base = {"key": editor_key, "rows": editor_rows}
         st.session_state["rebalance_editor_base"] = base
     editor_rows = base["rows"]
-    editor_columns = ["Security", "Fund", "Currency", "Enter as", "Value (₪ / $)", "Units", "Manual price per unit", "Price date", "Minimum order (₪)", "Remove"]
+    editor_columns = ["Security", "Fund", "Currency", "Enter as", "Value (₪ / $)", "Units",
+                      "Price per unit (₪ / $)", "Price observation date", "Price source", "Price status",
+                      "Manual price per unit", "Price date", "Minimum order (₪)", "Remove"]
     # Outside a form: edits rerun immediately so conversions are visible BEFORE saving.
     with st.container():
         edited = st.data_editor(pd.DataFrame(editor_rows, columns=editor_columns), hide_index=True,
-            disabled=["Security", "Fund", "Currency"], use_container_width=True,
+            disabled=["Security", "Fund", "Currency", "Price per unit (₪ / $)", "Price observation date", "Price source", "Price status"], use_container_width=True,
             column_config={"Enter as": None,
                            "Value (₪ / $)": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Units": st.column_config.NumberColumn(min_value=0., format="%.2f"),
-                           "Manual price per unit": st.column_config.NumberColumn(min_value=0., format="%.6f"),
-                           "Price date": st.column_config.DateColumn(),
+                           "Price per unit (₪ / $)": st.column_config.NumberColumn(format="%.6f"),
+                           "Price observation date": st.column_config.DateColumn("Price date"),
+                           "Manual price per unit": st.column_config.NumberColumn("Manual override per unit", min_value=0., format="%.6f"),
+                           "Price date": st.column_config.DateColumn("Manual price date"),
                            "Minimum order (₪)": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Remove": st.column_config.CheckboxColumn()},
             key=editor_key)
-        st.caption("Manual prices are native currency per ONE unit: ₪ for ILS funds, dollars for USD funds—not agorot or cents. Blank means automatic feed. Minimum 0 means unknown/not configured, not a verified broker minimum.")
+        st.caption("Price and date are fetched automatically. Manual override fields can stay blank. Prices are native currency per ONE unit, not agorot or cents. Minimum 0 means unknown/not configured.")
         st.caption("Enter the date of the price you are copying.")
         entry_rows = _entry_rows(edited, editor_key)
         positions, preview, draft_errors = _preview_positions(account, instruments, entry_rows)
@@ -226,7 +246,9 @@ def _render_editor(account, instruments, targets, commit_account):
             st.caption("Conversion preview — not saved")
             st.dataframe(pd.DataFrame(preview), hide_index=True, use_container_width=True,
                          column_config={"Units to save": st.column_config.NumberColumn(format="%.2f"),
-                                        "Current value (₪ / $)": st.column_config.NumberColumn(format="%.2f")})
+                                        "Current value (₪ / $)": st.column_config.NumberColumn(format="%.2f"),
+                                        "Price per unit (₪ / $)": st.column_config.NumberColumn(format="%.6f"),
+                                        "Price observation date": st.column_config.DateColumn("Price date used")})
         for error in draft_errors:
             st.caption(error)
         cash = st.number_input("Unallocated account cash (₪)", min_value=0., value=None, step=1., key="rebalance_cash")
@@ -422,6 +444,8 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             rows = [{"Fund": instruments[r["id"]]["label"], "Whole units to buy": r["units"], "Estimated cost (₪)": float(r["estimated_ils"])} for r in pending["orders"]]
             if rows:
                 st.dataframe(pd.DataFrame(rows).style.format({"Estimated cost (₪)": "{:,.2f}"}), hide_index=True, use_container_width=True)
+                if len(rows) == 1:
+                    st.caption("Buy-only funding prioritises the largest ₪ shortfalls, subject to whole units and minimum orders—not a fixed split of each deposit.")
             else:
                 st.caption("No whole-unit order fits the budget, targets and configured minimums.")
             st.caption(f"Leftover: ₪{float(pending['leftover_ils']):,.2f}")
