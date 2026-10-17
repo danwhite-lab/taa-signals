@@ -13,6 +13,10 @@ cash; Record these buys opens actual-fill confirmation. Portfolio selection and
 signal dates, the holdings/units editor and manual overrides, and price/FX sources
 and dates remain available in collapsed sections. They have not been removed.
 Cash and FX controls use stable widget identities across saved book revisions.
+Only relevant one-line notes explain overweight funds (no top-up at current
+weights; no selling suggestions) and an invalidated buy list (select What to buy
+again). The latter clears after generating a new list. An empty cash field on
+Save holdings has its own prompt; enter zero explicitly when there is no cash.
 
 `holdings_account` is a single versioned JSON record in the signed-in user's
 existing `user_settings.payload`, not a separate record for each portfolio.
@@ -69,6 +73,8 @@ observation. A manual observation can be intraday and is identified as manual,
 not mislabelled as an exchange close. Future dates are rejected for valuation.
 
 A small main-screen warning offers a dated native-currency manual price. An
+inline manual-price observation date starts empty and must be entered explicitly;
+the app never assigns today's date to a copied price by default. An
 unpriced or stale target with zero units can be excluded while sizing the other
 funds, retaining their original weights (no redistribution). If the affected
 fund has units, its value is necessary to calculate account weights: sizing

@@ -18,7 +18,8 @@ def _save(candidate, commit_account):
     try:
         validate_account(candidate)
         commit_account(candidate)
-        st.session_state.pop("rebalance_pending", None)
+        if st.session_state.pop("rebalance_pending", None):
+            st.session_state["rebalance_inputs_changed"] = True
         return True
     except Exception:
         st.error("Holdings were not confirmed saved. Check sync status and reload before retrying.")
@@ -122,6 +123,9 @@ def _render_editor(account, instruments, targets, commit_account):
             manual_fx_date = st.date_input("FX observation date", value=None, key="rebalance_fx_date")
         save = st.form_submit_button("Save holdings", type="primary")
     if save:
+        if cash is None:
+            st.error("Enter unallocated account cash, or enter 0 if there is none.")
+            return
         try:
             updated = deepcopy(account)
             for row in edited.to_dict("records"):
@@ -177,6 +181,7 @@ def _record_step(account, pending, context, commit_account):
             updated["updated_at"] = utc_now()
             if _save(updated, commit_account):
                 st.session_state["rebalance_reset_money"] = True
+                st.session_state.pop("rebalance_inputs_changed", None)
                 st.session_state["rebalance_message"] = "Confirmed units and remaining cash saved to your shared account."
                 st.rerun()
         except ValueError as exc:
@@ -188,9 +193,12 @@ def _manual_price(key, account, instrument, commit_account):
     with st.form(f"rebalance_manual_{fingerprint(key)[:12]}"):
         left, middle, right = st.columns([1.3, 1.2, 1])
         price = left.number_input(f"Manual per-unit price ({instrument['currency']})", min_value=0., value=0., format="%.6f", key=f"quick_price_{key}")
-        observed = middle.date_input("Observation date", value=date.today(), key=f"quick_date_{key}")
+        observed = middle.date_input("Observation date", value=None, key=f"quick_date_{key}")
         save = right.form_submit_button("Use manual price")
     if save:
+        if observed is None:
+            st.error("Enter the date of the price you are copying.")
+            return
         try:
             updated = deepcopy(account)
             position = updated["positions"].setdefault(key, {**instrument, "units": "0"})
@@ -239,7 +247,8 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     with st.expander("Prices, FX & sync details", expanded=False):
         if st.button("Refresh prices and targets", key="rebalance_refresh"):
             market_data.clear_rebalance_quotes()
-            st.session_state.pop("rebalance_pending", None)
+            if st.session_state.pop("rebalance_pending", None):
+                st.session_state["rebalance_inputs_changed"] = True
             st.rerun()
         st.caption("Actual unadjusted prices only. Public/delayed observations are not guaranteed fills. Five-minute caches. Manual prices are native currency per ONE unit, not agorot or cents.")
         if quotes:
@@ -286,6 +295,8 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             table["Target %"] = None
             table["Status"] = "Target unavailable"
         st.dataframe(table.style.format({"Target %": "{:.2%}", "Actual %": "{:.2%}"}, na_rep="—"), hide_index=True, use_container_width=True)
+        if portfolio and not errors and any(row["Status"] == "Overweight" for row in comparison):
+            st.caption("Overweight funds get no buys at the current targets: this page is buy-only and never suggests selling.")
 
     # Preserve the allocator and its price rules. Skipping an UNHELD fund
     # does not alter account value; keep remaining target weights unchanged.
@@ -296,6 +307,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     pending = st.session_state.get("rebalance_pending")
     if pending and (pending["account_hash"] != fingerprint(account) or pending["context_hash"] != fingerprint(context)):
         st.session_state.pop("rebalance_pending", None)
+        st.session_state["rebalance_inputs_changed"] = True
         pending = None
     with action_box:
         generate = st.button("What to buy", key="rebalance_generate", disabled=not ready)
@@ -303,8 +315,12 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         try:
             pending = make_buy_plan(account, instruments, eligible, quotes, fx["price"], new_money, context)
             st.session_state["rebalance_pending"] = pending
+            st.session_state.pop("rebalance_inputs_changed", None)
         except (ValueError, KeyError, TypeError):
             st.error("A current valuation is required. Check the price and FX details.")
+    if st.session_state.get("rebalance_inputs_changed"):
+        with action_box:
+            st.caption("Inputs changed—select What to buy for a new buy list.")
     if held_blocked:
         with warning_box:
             st.caption("A held fund needs a current manual price before accurate account weights or buys can be calculated.")

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import date
 
 import pytest
 
@@ -186,11 +187,13 @@ def test_inline_dated_manual_price_unblocks_a_held_fund(rebalance_account, monke
     app = visit()
     assert button(app, 'What to buy').disabled
     app.number_input(key='quick_price_US:GLD').set_value(12.)
+    assert app.date_input(key='quick_date_US:GLD').value is None
+    app.date_input(key='quick_date_US:GLD').set_value(date(2026, 10, 15))
     button(app, 'Use manual price').click().run()
     assert not app.exception
     saved = rebalance_account['payload']['holdings_account']['positions']['US:GLD']
     assert float(saved['manual_price']) == 12
-    assert saved['manual_price_date']
+    assert saved['manual_price_date'] == '2026-10-15'
     assert not button(app, 'What to buy').disabled, [(n.label, n.disabled) for n in app.button]
 
 
@@ -232,3 +235,60 @@ def test_real_conflict_is_quiet_but_keeps_the_save_guard(rebalance_account, monk
     button(app, 'Save holdings').click().run()
     assert rebalance_account['payload']['holdings_account'] == before
     assert any('not confirmed saved' in error.value for error in app.error)
+
+
+def test_manual_price_requires_explicit_observation_date(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'Cannot price', 'fresh': False})
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    assert app.date_input(key='quick_date_US:GLD').value is None
+    app.number_input(key='quick_price_US:GLD').set_value(12.)
+    button(app, 'Use manual price').click().run()
+    assert not app.exception
+    assert any(e.value == 'Enter the date of the price you are copying.' for e in app.error)
+    assert rebalance_account['payload']['holdings_account'] == before
+    assert button(app, 'What to buy').disabled
+
+
+def test_empty_cash_has_specific_error_and_does_not_save(rebalance_account):
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    app.number_input(key='rebalance_cash').set_value(None)
+    button(app, 'Save holdings').click().run()
+    assert not app.exception
+    assert [e.value for e in app.error] == ['Enter unallocated account cash, or enter 0 if there is none.']
+    assert rebalance_account['payload']['holdings_account'] == before
+    app.number_input(key='rebalance_cash').set_value(0.)
+    button(app, 'Save holdings').click().run()
+    assert not app.error
+
+
+def test_overweight_note_only_appears_when_relevant(rebalance_account, monkeypatch):
+    app = visit()
+    assert not any('Overweight funds get no buys' in c.value for c in app.caption)
+    monkeypatch.setattr(market, 'load_portfolio_signals', lambda labels, *a: ([
+        {'name': labels[0], 'currency': 'USD', 'target_weights': {'GLD': .5, 'IEF': .5},
+         'signal_date': '2026-09-30', 'source_notes': []}], []))
+    app.run()
+    assert any('Overweight funds get no buys' in c.value and 'buy-only' in c.value for c in app.caption)
+    app.number_input(key='rebalance_new_money').set_value(35.).run()
+    button(app, 'What to buy').click().run()
+    assert all(r['id'] != 'US:GLD' for r in app.session_state['rebalance_pending']['orders'])
+
+
+def test_changed_inputs_note_clears_after_new_buy_list(rebalance_account):
+    app = visit()
+    assert not any('Inputs changed' in c.value for c in app.caption)
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    app.number_input(key='rebalance_new_money').set_value(200.).run()
+    assert 'rebalance_pending' not in app.session_state
+    assert any(c.value == 'Inputs changed—select What to buy for a new buy list.' for c in app.caption)
+    app.run()
+    assert any('Inputs changed' in c.value for c in app.caption)
+    button(app, 'What to buy').click().run()
+    assert not any('Inputs changed' in c.value for c in app.caption)
+    editor = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[editor] = {'edited_rows': {0: {'Units': 6.}}, 'added_rows': [], 'deleted_rows': []}
+    button(app, 'Save holdings').click().run()
+    assert any('Inputs changed' in c.value for c in app.caption)
