@@ -145,8 +145,8 @@ def test_empty_account_without_portfolio_can_add_funds_and_save_units(rebalance_
     button(app, 'Add selected fund').click().run()
     assert not app.exception
     saved = rebalance_account['payload']['holdings_account']
-    assert saved['positions']['TASE:5131792']['units'] == '0'
-    editor = f"rebalance_editor_1_{fingerprint(['TASE:5131792'])[:12]}"
+    assert saved['positions'] == {}
+    editor = f"rebalance_editor_0_{fingerprint(['TASE:5131792'])[:12]}"
     app.session_state[editor] = {'edited_rows': {0: {'Units': 20.}}, 'added_rows': [], 'deleted_rows': []}
     button(app, 'Save holdings').click().run()
     assert not app.exception
@@ -473,3 +473,111 @@ def test_units_display_two_decimals_without_rounding_saved_positions(rebalance_a
     assert preview_config['Units to save']['type_config']['format'] == '%.2f'
     button(app, 'Save holdings').click().run()
     assert float(rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units']) == 5.12345
+
+
+def test_add_fund_preserves_value_draft_cash_and_fx_without_saving(rebalance_account):
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    app.selectbox(key='rebalance_add_choice').set_value('TASE:5131792').run()
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    key = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    app.number_input(key='rebalance_cash').set_value(25.)
+    app.number_input(key='rebalance_fx').set_value(4.)
+    app.date_input(key='rebalance_fx_date').set_value(date(2026, 10, 15))
+    button(app, 'Add selected fund').click().run()
+    assert not app.exception
+    assert rebalance_account['payload']['holdings_account'] == before
+    editor = next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)
+    assert list(editor['Security']) == ['TASE:5131792', 'US:GLD']
+    assert editor.loc[editor['Security'] == 'US:GLD', 'Value (₪ / $)'].iloc[0] == 65.
+    preview = next(t.value for t in app.dataframe if 'Units to save' in t.value)
+    assert preview.loc[preview['Fund'] == 'GLD', 'Units to save'].iloc[0] == 6.5
+    assert app.number_input(key='rebalance_cash').value == 25.
+    assert app.number_input(key='rebalance_fx').value == 4.
+    assert button(app, 'What to buy').disabled
+    assert not app.success
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']
+    assert float(saved['positions']['US:GLD']['units']) == 6.5
+    assert saved['positions']['TASE:5131792']['units'] == '0.0'
+    assert float(saved['cash_ils']) == 25.
+    assert float(saved['manual_fx']) == 4.
+
+
+def test_add_custom_preserves_unit_and_dated_price_drafts(rebalance_account):
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    changes = {0: {'Units': 7.25, 'Manual price per unit': 12.,
+                   'Price date': date(2026, 10, 15), 'Minimum order (₪)': 50.}}
+    edit_holdings(app, changes)
+    key = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    app.text_input(key='rebalance_custom_identifier').set_value('ZZTEST')
+    button(app, 'Add custom holding').click().run()
+    assert not app.exception
+    assert rebalance_account['payload']['holdings_account'] == before
+    editor = next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)
+    row = editor.loc[editor['Security'] == 'US:GLD'].iloc[0]
+    assert row['Units'] == 7.25
+    assert row['Manual price per unit'] == 12.
+    assert row['Minimum order (₪)'] == 50.
+    assert str(row['Price date'])[:10] == '2026-10-15'
+    assert 'US:ZZTEST' in list(editor['Security'])
+    save_edited_holdings(app)
+    assert float(rebalance_account['payload']['holdings_account']['positions']['US:GLD']['units']) == 7.25
+
+
+def test_repeated_additions_keep_drafts_attached_to_security_not_row_index(rebalance_account):
+    app = visit()
+    app.selectbox(key='rebalance_add_choice').set_value('US:IEF').run()
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    key = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    button(app, 'Add selected fund').click().run()
+    app.selectbox(key='rebalance_add_choice').set_value('TASE:5131792').run()
+    button(app, 'Add selected fund').click().run()
+    assert not app.exception
+    preview = next(t.value for t in app.dataframe if 'Units to save' in t.value)
+    assert preview.loc[preview['Fund'] == 'GLD', 'Units to save'].iloc[0] == 6.5
+    save_edited_holdings(app)
+    saved = rebalance_account['payload']['holdings_account']['positions']
+    assert float(saved['US:GLD']['units']) == 6.5
+    assert float(saved['US:IEF']['units']) == 0
+    assert float(saved['TASE:5131792']['units']) == 0
+
+
+def test_failed_save_after_add_retains_both_new_row_and_original_draft(rebalance_account, monkeypatch):
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    app.selectbox(key='rebalance_add_choice').set_value('US:IEF').run()
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    key = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    button(app, 'Add selected fund').click().run()
+    monkeypatch.setattr(sync, 'save_workspace', lambda *a: None)
+    save_edited_holdings(app)
+    assert not app.exception
+    assert rebalance_account['payload']['holdings_account'] == before
+    editor = next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)
+    assert 'US:IEF' in list(editor['Security'])
+    assert editor.loc[editor['Security'] == 'US:GLD', 'Value (₪ / $)'].iloc[0] == 65.
+    assert not app.success
+
+
+def test_add_keeps_unpriced_value_draft_without_guessing_or_saving(rebalance_account, monkeypatch):
+    monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'missing', 'fresh': False})
+    app = visit()
+    before = deepcopy(rebalance_account['payload']['holdings_account'])
+    app.selectbox(key='rebalance_add_choice').set_value('US:IEF').run()
+    edit_holdings(app, {0: {'Value (₪ / $)': 65.}})
+    key = f"rebalance_editor_0_{fingerprint(['US:GLD'])[:12]}"
+    app.session_state[key] = deepcopy(app.session_state[key])
+    button(app, 'Add selected fund').click().run()
+    assert not app.exception
+    editor = next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)
+    assert editor.loc[editor['Security'] == 'US:GLD', 'Value (₪ / $)'].iloc[0] == 65.
+    assert any('value entry needs a current price' in c.value for c in app.caption)
+    save_edited_holdings(app)
+    assert rebalance_account['payload']['holdings_account'] == before
+    assert button(app, 'What to buy').disabled

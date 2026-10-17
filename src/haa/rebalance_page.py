@@ -19,6 +19,8 @@ def _save(candidate, commit_account):
     try:
         validate_account(candidate)
         commit_account(candidate)
+        st.session_state.pop("rebalance_added_positions", None)
+        st.session_state.pop("rebalance_carried_rows", None)
         if st.session_state.pop("rebalance_pending", None):
             st.session_state["rebalance_inputs_changed"] = True
         return True
@@ -125,12 +127,29 @@ def _entry_rows(edited, editor_key):
             modes[index] = "Units"
         elif "Value (₪ / $)" in changed:
             modes[index] = "Value"
-        row["Enter as"] = modes.get(index, "Units")
+        row["Enter as"] = modes.get(index, row.get("Enter as", "Units"))
     st.session_state["rebalance_entry_edits"] = {"key": editor_key, "cells": deepcopy(current), "modes": modes}
     return rows
 
 
+def _stage_holding(item):
+    """Add a draft row without saving an older book over in-progress edits."""
+    base = st.session_state.get("rebalance_editor_base", {})
+    if base:
+        rows = deepcopy(base["rows"])
+        edits = st.session_state.get(base["key"], {}).get("edited_rows", {})
+        for index, row in enumerate(rows):
+            row.update(edits.get(index, edits.get(str(index), {})))
+        carried = _entry_rows(pd.DataFrame(rows), base["key"])
+        st.session_state["rebalance_carried_rows"] = {row["Security"]: row for row in carried}
+    st.session_state.setdefault("rebalance_added_positions", {})[item["id"]] = item
+    if st.session_state.pop("rebalance_pending", None):
+        st.session_state["rebalance_inputs_changed"] = True
+
+
 def _render_editor(account, instruments, targets, commit_account):
+    staged = st.session_state.get("rebalance_added_positions", {})
+    instruments.update(staged)
     # Stable keys avoid replacing controls on every saved book revision.
     if st.session_state.get("rebalance_editor_seed") != account["revision"] or any(k not in st.session_state for k in ("rebalance_cash", "rebalance_fx", "rebalance_fx_date")):
         st.session_state["rebalance_cash"] = float(account["cash_ils"])
@@ -141,14 +160,12 @@ def _render_editor(account, instruments, targets, commit_account):
     if message := st.session_state.pop("rebalance_message", None):
         st.success(message)
     st.caption("Edit Value or Units; the last field edited sets the holding. Values are ₪ for ILS funds and $ for US funds; units are saved. TASE value entry rounds down to whole units; no difference is added to cash.")
+    st.caption("Adding a fund keeps your entries. New rows and edits are saved together with Save holdings.")
     with st.expander("Add a holding", expanded=False):
         choice = st.selectbox("Fund", sorted(instruments), format_func=lambda key: f"{instruments[key]['label']} · {instruments[key]['currency']} · {key}", key="rebalance_add_choice") if instruments else None
-        if st.button("Add selected fund", key="rebalance_add", disabled=not choice or choice in account["positions"]):
-            updated = deepcopy(account)
-            updated["positions"][choice] = {**instruments[choice], "units": "0"}
-            updated.update(revision=account["revision"]+1, updated_at=utc_now(), last_operation_id=str(uuid4()))
-            if _save(updated, commit_account):
-                st.rerun()
+        if st.button("Add selected fund", key="rebalance_add", disabled=not choice or choice in account["positions"] or choice in staged):
+            _stage_holding(instruments[choice])
+            st.rerun()
         with st.form("rebalance_custom_fund"):
             st.caption("Not listed? Add the actual security, not a proxy or index.")
             market = st.selectbox("Market", ("US", "TASE"), key="rebalance_custom_market")
@@ -158,16 +175,13 @@ def _render_editor(account, instruments, targets, commit_account):
         if custom_add:
             try:
                 item = security(identifier, market, None if currency == "Market default" else currency)
-                if item["id"] in account["positions"]:
+                if item["id"] in account["positions"] or item["id"] in staged:
                     raise ValueError("This holding already exists.")
-                updated = deepcopy(account)
-                updated["positions"][item["id"]] = {**item, "units": "0"}
-                updated.update(revision=account["revision"]+1, updated_at=utc_now(), last_operation_id=str(uuid4()))
-                if _save(updated, commit_account):
-                    st.rerun()
+                _stage_holding(instruments.get(item["id"], item))
+                st.rerun()
             except ValueError as exc:
                 st.error("Check the entered units, security details and dated manual prices.")
-    visible_ids = sorted(set(account["positions"]) | set(targets))
+    visible_ids = sorted(set(account["positions"]) | set(targets) | set(staged))
     editor_key = f"rebalance_editor_{account['revision']}_{fingerprint(visible_ids)[:12]}"
     editor_rows = []
     for key in visible_ids:
@@ -180,12 +194,14 @@ def _render_editor(account, instruments, targets, commit_account):
     base = st.session_state.get("rebalance_editor_base", {})
     # Freeze the baseline while there are cell edits, so a quote refresh cannot
     # reset an in-progress editor. New revisions start from confirmed units.
-    if base.get("key") != editor_key or not st.session_state.get(editor_key, {}).get("edited_rows"):
+    if base.get("key") != editor_key or (not staged and not st.session_state.get(editor_key, {}).get("edited_rows")):
         for editor_row in editor_rows:
             key = editor_row["Security"]
             quote = market_data.unit_quote(instruments[key], account["positions"].get(key, {}))
             if quote.get("fresh") and not quote.get("error") and quote.get("price"):
                 editor_row["Value (₪ / $)"] = float(number(editor_row["Units"]) * number(quote["price"], positive=True))
+            if key in st.session_state.get("rebalance_carried_rows", {}):
+                editor_row.update(st.session_state["rebalance_carried_rows"][key])
         base = {"key": editor_key, "rows": editor_rows}
         st.session_state["rebalance_editor_base"] = base
     editor_rows = base["rows"]
@@ -240,7 +256,7 @@ def _render_editor(account, instruments, targets, commit_account):
             st.error("Check the entered units, security details and dated manual prices.")
     draft = {"rows": [{k: str(v) for k, v in row.items()} for row in entry_rows],
              "cash": str(cash), "fx": str(manual_fx), "fx_date": str(manual_fx_date)}
-    dirty = bool(st.session_state.get(editor_key, {}).get("edited_rows")) or cash != float(account["cash_ils"]) or (manual_fx or 0) != float(account.get("manual_fx") or 0)
+    dirty = bool(staged or st.session_state.get(editor_key, {}).get("edited_rows")) or cash != float(account["cash_ils"]) or (manual_fx or 0) != float(account.get("manual_fx") or 0)
     if manual_fx:
         dirty = dirty or str(manual_fx_date) != str(account.get("manual_fx_date"))
     return fingerprint(draft), dirty
