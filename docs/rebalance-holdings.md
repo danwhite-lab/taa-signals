@@ -7,11 +7,12 @@ signal calculation, now shared in `portfolio_signals.py`.
 
 ## One account, many comparisons
 
-The default screen shows account value, a four-column target/actual comparison,
-new money, and What to buy. Results show whole units, estimated costs and leftover
-cash; Record these buys opens actual-fill confirmation. Portfolio selection and
-signal dates, the holdings/units editor and manual overrides, and price/FX sources
-and dates remain available in collapsed sections. They have not been removed.
+Your shared holdings is always open at the top, including the editor, cash and
+Save holdings. Account value, a four-column target/actual comparison, new money,
+and What to buy follow. Results show whole units, estimated costs and leftover
+cash; Record these buys appears only when there is at least one order. Price/FX
+sources and dates remain collapsed. Portfolio & signal dates is collapsed at the
+bottom; moving it does not change the selected portfolio or signal computation.
 Cash and FX controls use stable widget identities across saved book revisions.
 Only relevant one-line notes explain overweight funds (no top-up at current
 weights; no selling suggestions) and an invalidated buy list (select What to buy
@@ -35,6 +36,22 @@ rounding inside the allocator. TASE units must be whole. Existing fractional
 US positions can be recorded, but proposed purchases use whole units: broker
 fractional-share support is not assumed. Users must update units after splits
 or other corporate actions; the app does not infer them from adjusted prices.
+
+Each editor row explicitly selects Units or Value. Value is entered in the
+fund's native currency (ILS or USD), not an implied FX conversion. The live draft
+preview shows the represented current value and units side by side before saving.
+Value divided by a current actual per-unit quote produces units; TASE entries
+round down to whole units, explicitly disclosed, without crediting any difference
+to cash. Exact units can be entered directly. Missing, stale or undated prices
+never support value conversion. Manual prices and their actual dates are entered
+in that fund's row; new dates start empty. Draft edits are not saved until Save
+holdings, and buy sizing is paused while those edits are unsaved. Stored holdings
+contain units, not an entered account valuation.
+
+Signal dates identify the latest actionable strategy decisions supplying the
+target weights. The allocator consumes those weights, not the displayed date
+strings; it does not schedule an order for the signal date or use a provisional
+signal. This distinction is unchanged by moving the details section.
 
 ## Prices and freshness
 
@@ -72,8 +89,8 @@ silently excused. Delayed fund publication may therefore require a dated broker
 observation. A manual observation can be intraday and is identified as manual,
 not mislabelled as an exchange close. Future dates are rejected for valuation.
 
-A small main-screen warning offers a dated native-currency manual price. An
-inline manual-price observation date starts empty and must be entered explicitly;
+A single short warning directs users to the affected editor rows. Each row's
+manual-price observation date starts empty and must be entered explicitly;
 the app never assigns today's date to a copied price by default. An
 unpriced or stale target with zero units can be excluded while sizing the other
 funds, retaining their original weights (no redistribution). If the affected
@@ -108,8 +125,8 @@ actual ILS equivalent used. Partial or skipped orders are allowed. Confirmed
 units cannot exceed the proposed whole-unit order; unexpected additional buys
 must be recorded by correcting holdings or generating a new plan. Actual spend
 cannot exceed available cash. Done records those confirmed units and remaining
-cash, not an assumed fill at the indicative quote. A deposit with no feasible
-orders may be confirmed as unallocated cash without fabricating purchases.
+cash, not an assumed fill at the indicative quote. An empty order list does not
+show Record these buys; unallocated account cash remains editable in holdings.
 
 Holdings, target, quote, FX, portfolio or budget changes invalidate a pending
 plan. A unique operation ID and the updated book are saved in the same
