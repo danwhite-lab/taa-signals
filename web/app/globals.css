@@ -21,3 +21,46 @@ li { display: flex; justify-content: space-between; gap: 20px; padding: 14px 0; 
 button { background: #17202a; color: white; border: 0; border-radius: 6px; padding: 10px 16px; font: inherit; cursor: pointer; }
 button:focus-visible { outline: 3px solid #4f8ad9; outline-offset: 3px; }
 footer { margin-top: 24px; font-size: 0.85rem; }
+
+.topbar { background: #fff; border-bottom: 1px solid #dce2e8; margin: 0; }
+.topbar-inner { max-width: 1280px; margin: 0 auto; padding: 18px 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 20px 32px; }
+.brand { font-weight: 700; font-size: 1rem; white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+.preview-badge { background: #edf2f7; color: #52606d; border-radius: 4px; padding: 3px 6px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.primary-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.primary-nav a, .primary-nav span { padding: 9px 10px; font-size: 0.85rem; text-decoration: none; border-radius: 5px; white-space: nowrap; }
+.primary-nav span[aria-disabled] { color: #7b8794; cursor: default; }
+.primary-nav a { color: #244f53; font-weight: 600; }
+.primary-nav a:hover { background: #f0f5f4; }
+.primary-nav a[aria-current="page"] { background: #e9f2ef; color: #1c5343; }
+a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #4f8ad9; outline-offset: 3px; }
+.rules-page { max-width: 940px; padding-top: 44px; }
+.rules-heading { margin-bottom: 30px; }
+.rules-heading .eyebrow { margin: 0; color: #326454; font-weight: 600; }
+.lede { font-size: 1rem; max-width: 660px; }
+.rule-picker { max-width: 600px; margin-bottom: 24px; }
+.rule-picker label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 9px; }
+.rule-picker select { width: 100%; min-width: 0; background: #fff; color: #17202a; border: 1px solid #b7c2cc; border-radius: 7px; padding: 12px; font: inherit; font-size: 0.95rem; }
+.rule-card { padding: 32px; }
+.rule-card h2 { font-size: 1.35rem; margin: 18px 0 24px; letter-spacing: -0.02em; }
+.rule-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.rule-meta span { background: #f2f5f7; border-radius: 4px; padding: 4px 8px; color: #52606d; font-size: 0.75rem; }
+.rule-copy { font-size: 0.97rem; line-height: 1.85; overflow-wrap: anywhere; }
+.rule-copy p { color: #344350; line-height: inherit; margin: 0 0 20px; }
+.rule-copy p:last-child { margin-bottom: 0; }
+.rule-copy a { color: #245f82; text-underline-offset: 3px; }
+.rule-copy code { background: #f0f3f6; border-radius: 3px; padding: 2px 5px; font-size: 0.87em; }
+.rule-copy ul, .rule-copy ol { list-style: revert; padding-left: 24px; margin: 16px 0; }
+.rule-copy li { display: list-item; border: 0; padding: 3px 0; }
+.rule-warning { margin-top: 20px; background: #fff8e9; border: 1px solid #eadbb7; border-radius: 8px; padding: 20px 24px; }
+.rule-warning .rule-copy { font-size: 0.9rem; }
+.rule-notes { background: #fff; border: 1px solid #dce2e8; border-radius: 8px; margin-top: 24px; padding: 20px 24px; }
+.rule-notes summary { font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+.rule-notes .rule-copy { margin-top: 20px; font-size: 0.9rem; }
+.rules-error pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.missing-rule { color: #6a5a2e; }
+@media (max-width: 600px) {
+  .topbar-inner { padding: 16px; gap: 12px; }
+  .primary-nav a, .primary-nav span { padding: 8px; font-size: 0.8rem; }
+  .rules-page { padding: 30px 18px; }
+  .rule-card { padding: 22px; }
+}

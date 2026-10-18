@@ -13,6 +13,6 @@ const nextConfig: NextConfig = development
         ];
       },
     }
-  : { output: "export" };
+  : { output: "export", trailingSlash: true };
 
 export default nextConfig;

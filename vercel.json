@@ -7,7 +7,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
-      "includeFiles": "src/haa/**",
+      "includeFiles": "{src/haa/**,app.py}",
       "excludeFiles": "{web/**,tests/**,api/tests/**,docs/**,static/**,.streamlit/**,**/__pycache__/**}"
     }
   },

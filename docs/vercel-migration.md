@@ -11,15 +11,17 @@ and backtest diagnostic is available; it is not a general backtest service.
 - `web/`: Next.js App Router, TypeScript, React, plain CSS, exact package versions
   and an npm lockfile. The page fetches `/api/strategies` in the browser and lists
   the Python catalogue labels/currencies, with loading, error and retry states.
-- `api/index.py`: a FastAPI ASGI `app`, exposing `GET /api/strategies` and
-  `GET /api/price-check`.
+- `api/index.py`: a FastAPI ASGI `app`, exposing `GET /api/strategies`,
+  `GET /api/rules` and `GET /api/price-check`.
   It adds the existing repository `src/` to `sys.path`, then imports the real
   `haa.model_catalog.MODEL_CATALOG`. No strategy/data/backtest code is duplicated.
   JSON preserves every catalogue metadata field except the non-JSON Python class
   reference `model_class`. No private user data is read or returned.
 - `vercel.json`: builds Next.js to `web/out`, serves those static assets, and
-  rewrites `/api/*` to the Python function. The function includes `src/haa`.
-  Clean URLs serve `/price-check` from the exported HTML. The diagnostic function
+  rewrites `/api/*` to the Python function. The function includes `src/haa` and
+  the unchanged `app.py` rule-text source. `cleanUrls` stays disabled: it breaks
+  the rewrite's `.py` destination. Next.js exports directory indexes so static
+  pages work at `/rules/` and `/price-check/` without changing API routing. The diagnostic function
   has a 300-second maximum duration; account/plan limits still apply.
 - `api/requirements.txt`: pinned API/engine runtime dependencies. Tasekit uses the
   same pinned Git commit as the existing engine. Uvicorn supports local testing.
@@ -111,6 +113,33 @@ backtests may need more time/memory and persistent storage than serverless
 functions provide; this diagnostic is not a general backtest service.
 No cloud deployment or account changes
 are performed just by adding these files.
+
+## Rules preview and shared methodology
+
+`/rules/` is a lightweight, client-rendered methodology page. It fetches only
+`/api/rules`, not prices, portfolio/account data or backtests. The shared top bar
+lists the exact eight current app pages; Rules is the only enabled navigation
+link. Existing catalogue/diagnostic URLs remain available directly.
+
+The existing `app.py` is unchanged and remains the one source for `MODEL_RULES`
+and its static implementation/data notes. The API parses that trusted repository
+file using Python's AST and evaluates only the existing `MODEL_RULES`
+declarations and catalogue-derived rule augmentation. It never imports or runs
+the Streamlit application, authentication, data downloads or UI. The selected
+block allows only the existing `getattr` metadata call and uses no builtins.
+It is not supplied by a request. This narrow compatibility reader avoids copying
+the prose or changing the live app; future source refactoring must preserve the
+declarations or update this reader and its parity tests. Source-read failures
+are explicit API errors, not empty invented text.
+
+`app.py` is bundled server-side for this purpose, not exposed as a static asset.
+The API returns all 45 catalogue implementations with exact Markdown, original
+strategy risk warnings and the common static notes. React Markdown renders the
+API response without executing raw HTML. Four existing implementations lack
+`MODEL_RULES` entries: the three Israel Inflation Compass variants and
+Momentum-Correlation Triplet. These remain clearly marked as missing, with no
+substituted methodology. Coverage/audit tables and dynamic results from the
+Streamlit Rules page are intentionally not migrated.
 
 ## Live price and A-RVol diagnostic
 

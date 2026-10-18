@@ -1,7 +1,9 @@
 """Read-only Vercel ASGI entrypoint; the existing engine remains authoritative."""
 from dataclasses import fields
+import ast
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 import logging
 import math
 from pathlib import Path
@@ -11,7 +13,7 @@ from time import perf_counter
 import traceback
 import warnings
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
 
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
@@ -44,6 +46,82 @@ def strategies() -> list[dict]:
         }
         for model in MODEL_CATALOG
     ]
+
+
+@lru_cache(maxsize=1)
+def _shared_rules():
+    """Read trusted repository rule declarations, never import/run Streamlit.
+
+    app.py remains the one text source. Only assignments to MODEL_RULES and
+    its existing catalogue-derived augmentation are evaluated. Imports, UI,
+    authentication, market-data calls and all other app statements are omitted.
+    """
+    source = Path(__file__).resolve().parents[1] / "app.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+
+    def writes_rules(node):
+        return isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "MODEL_RULES"
+            or isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+            and target.value.id == "MODEL_RULES"
+            for target in node.targets
+        )
+
+    declarations = [node for node in tree.body if writes_rules(node) or (
+        isinstance(node, ast.For) and isinstance(node.iter, ast.Name)
+        and node.iter.id == "MODEL_CATALOG"
+        and any(writes_rules(child) for child in ast.walk(node))
+    )]
+    block = ast.Module(body=declarations, type_ignores=[])
+    # Fail closed if future edits put function calls other than the existing
+    # metadata getattr in this block. No source or code comes from a request.
+    if any(isinstance(node, ast.Call) and not (
+        isinstance(node.func, ast.Name) and node.func.id == "getattr"
+    ) for node in ast.walk(block)):
+        raise ValueError("The shared rule declarations contain an unsupported function call.")
+    namespace = {"__builtins__": {}, "getattr": getattr, "MODEL_CATALOG": MODEL_CATALOG}
+    exec(compile(block, str(source) + ":rule-definitions", "exec"), namespace)
+    rules = namespace.get("MODEL_RULES")
+    if not isinstance(rules, dict) or not rules or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in rules.items()
+    ):
+        raise ValueError("No valid shared rule descriptions were found in app.py.")
+    notes = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.With):
+            continue
+        if not any(isinstance(item.context_expr, ast.Call)
+                   and isinstance(item.context_expr.func, ast.Attribute)
+                   and item.context_expr.func.attr == "expander"
+                   and item.context_expr.args
+                   and isinstance(item.context_expr.args[0], ast.Constant)
+                   and item.context_expr.args[0].value == "Implementation and data notes"
+                   for item in node.items):
+            continue
+        for child in ast.walk(node):
+            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+                    and child.func.attr == "markdown" and child.args
+                    and isinstance(child.args[0], ast.Constant)
+                    and isinstance(child.args[0].value, str)):
+                notes.append(child.args[0].value)
+    return rules, "\n\n".join(notes)
+
+
+@app.get("/api/rules")
+def rules(response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        descriptions, notes = _shared_rules()
+        return {"source": "app.py:MODEL_RULES", "implementation_notes": notes,
+                "models": [{"label": item.label, "strategy": item.strategy,
+                            "variant": item.variant, "implementation": item.implementation,
+                            "execution_currency": item.execution_currency,
+                            "markdown": descriptions.get(item.label),
+                            "description_missing": item.label not in descriptions,
+                            "risk_warning": getattr(item.model_class, "risk_warning", None)}
+                           for item in MODEL_CATALOG]}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
 _diagnostic_lock = Lock()

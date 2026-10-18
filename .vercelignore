@@ -1,7 +1,6 @@
 # Vercel-only packaging: never alter the live Streamlit dependency files.
 /requirements.txt
 /pyproject.toml
-/app.py
 /.streamlit
 /.venv
 **/__pycache__
