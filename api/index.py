@@ -27,7 +27,7 @@ from haa.model_catalog import MODEL_CATALOG  # noqa: E402
 from haa import data as engine_data, tase_data as engine_tase  # noqa: E402
 from haa.engine import run_backtest  # noqa: E402
 from haa.strategies.rvol_shifter import RVolShifterCashOnly  # noqa: E402
-from server import private_api, cron, market_cache, signals as signals_page  # noqa: E402
+from server import private_api, cron, market_cache, signals as signals_page, backtest as backtest_page  # noqa: E402
 from server.cache import ResultCache, data_version, digest  # noqa: E402
 from server.signals_wire import SignalsCompression  # noqa: E402
 
@@ -45,7 +45,7 @@ app.add_middleware(SignalsCompression)
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -53,7 +53,7 @@ async def private_headers(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def invalid_input(request, exc):
     # FastAPI's default validation output includes the submitted private values.
-    return JSONResponse(status_code=422, content={"detail": "Check the request fields and try again."})
+    return JSONResponse(status_code=400 if request.url.path.startswith("/api/backtest") else 422, content={"detail": "Check the request fields and try again."})
 
 
 @app.get("/api/strategies")
@@ -322,3 +322,20 @@ def signals(label: str = "HAA-Simple", as_of: str | None = None,
         except ValueError:
             raise HTTPException(400, "as_of must be YYYY-MM-DD.") from None
     return signals_page.signals_payload(label, as_of, _engine_code_version())
+
+
+@app.get("/api/backtest/options")
+def backtest_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
+    return backtest_page.options(label)
+
+
+@app.post("/api/backtest")
+def backtest(body: backtest_page.Inputs, session=Depends(private_api.authenticated)):
+    return backtest_page.run(body, _engine_code_version())
+
+
+@app.get("/api/backtest/download")
+def backtest_download(key: str, kind: str, session=Depends(private_api.authenticated)):
+    item = backtest_page.download(key, kind)
+    return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'})

@@ -4,7 +4,8 @@ This is an opt-in migration preview on `vercel-migration`. Nothing in
 `app.py`, `src/haa`, the Streamlit dependency manifests, the existing dashboard,
 or its hosting configuration is changed. Do not merge or point the live domain
 at this skeleton. Browser login and private saved-data endpoints are available (setup below). A fixed-universe live-data
-and backtest diagnostic is available; it is not a general backtest service.
+and backtest diagnostic is available, alongside the authenticated single-strategy
+Backtest page described below. Portfolio backtests and Deep History are not ported.
 
 ## What runs
 
@@ -12,7 +13,8 @@ and backtest diagnostic is available; it is not a general backtest service.
   and an npm lockfile. The page fetches `/api/strategies` in the browser and lists
   the Python catalogue labels/currencies, with loading, error and retry states.
 - `api/index.py`: a FastAPI ASGI `app`, exposing `GET /api/strategies`,
-  `GET /api/rules`, `GET /api/price-check` and authenticated `GET /api/signals`.
+  `GET /api/rules`, `GET /api/price-check`, authenticated `GET /api/signals`, and
+  the authenticated single-strategy `/api/backtest` routes described below.
   It adds the existing repository `src/` to `sys.path`, then imports the real
   `haa.model_catalog.MODEL_CATALOG`. No strategy/data/backtest code is duplicated.
   JSON preserves every catalogue metadata field except the non-JSON Python class
@@ -25,7 +27,7 @@ and backtest diagnostic is available; it is not a general backtest service.
   has a 300-second maximum duration; account/plan limits still apply.
 - `api/requirements.txt`: pinned API/engine runtime dependencies. Tasekit uses the
   same pinned Git commit as the existing engine. Uvicorn supports local testing.
-  Plotly is intentionally absent: this endpoint returns no charts. The direct
+  Plotly is intentionally absent: browser charts use native SVG. The direct
   dependencies are pinned; the Python transitive dependencies are not fully locked.
 - `.vercelignore`: Vercel-only exclusions keep the existing root Streamlit
   `requirements.txt` and `pyproject.toml` out of this deployment. Python discovery
@@ -388,8 +390,8 @@ History rows are displayed newest first; downloaded CSV uses the original
 ascending dataframe and `to_csv()` bytes/filename, not a browser reconstruction.
 Full daily history plus CSV initially measured 5,440,285 JSON bytes for 4,196 V3
 decisions. Redundant identical display-row copies are now omitted (all raw rows
-remain), and Signals-only gzip transport is enabled for clients accepting gzip.
-No other API response is compressed by this adapter. The initial full response
+remain), and gzip transport covers Signals and Backtest for clients accepting gzip.
+Other API responses are not compressed by this adapter. The initial full response
 compressed to 804,688 bytes even before removing duplication. These are local
 measurements, not proof of deployed gateway behaviour; very long histories and
 non-gzip clients still warrant a cloud check. No history is truncated or paginated.
@@ -448,3 +450,137 @@ Also confirm provisional previews are never labelled official; stale/missing inp
 reasons remain visible; warnings match; the footer disclaimer appears in every
 mode; and the browser downloads Python's CSV unchanged. This change performs no
 Google login, database settings changes, production promotion or manual account saves.
+
+## Backtest page migration — Step 4, single strategy
+
+`/backtest/` is now enabled in navigation, alongside Rules, Portfolio and Signals.
+Portfolio backtesting and Deep History / Proxy remain disabled, labelled Coming
+soon. There is no blend engine, proxy selector, custom ticker, saved backtest or
+new database configuration. Streamlit, strategy/data/engine code under `src/haa`,
+and the original dependency manifests remain untouched.
+
+### Controls and accounting
+
+Three catalogue selectors expose only `backtest_available` entries. Date limits,
+data validation and captions come from the same existing loaders and preprocessing
+as Streamlit. US daily execution obtains adjusted opens and closes together from
+the existing Yahoo bars loader; it never substitutes closes for missing opens.
+TASE inputs retain their existing loader rules. Source/fallback warnings remain
+visible. Reference replay appears only for the US-signals / TASE implementations.
+
+Initial capital defaults to 100,000 in the implementation's currency. Daniel's
+requested after-tax view is ON at 25%; fees default to 0%. Percentage fees are
+converted to fractions before the existing engine call; fixed fees are passed
+unchanged. Monthly contributions are optional. The actual submitted settings and
+engine arguments remain visible with results, including percentage/fraction labels.
+
+The fee audit found **no minimum commission** in
+`haa.backtest_options.order_fee`, `haa.engine._simulate_weighted_execution`,
+`haa.daily_engine.run_daily_backtest` or
+`haa.tase_daily_engine.run_tase_daily_backtest`. These implement percentage and/or
+fixed fees, not `max(percentage fee, 2 NIS)`. Holdings' `minimum_ils` is a minimum
+order size, not a commission. Existing monthly/daily fee conventions are preserved;
+no brokerage fee rule was added. Every result shows:
+**Minimum fee of 2 NIS is not modelled by this backtest**.
+
+Tax uses the existing per-asset average-cost sale ledger, carried-forward losses
+and proportional basis on partial disposals. It is not FIFO, has no final sale of
+unsold holdings, and is not a legally validated Israeli broker calculation. No
+flat 25% deduction, FX/indexation rule or new tax treatment was introduced.
+
+`server/backtest_presentation.py` ports Streamlit's performance metrics, audit
+column selection, captions, annual returns and CSV naming/formatting. It calls the
+existing metrics and tax engine rather than importing/executing `app.py`. Some
+unchanged captions describe capabilities of Streamlit; the page explicitly says
+only Single strategy is available here. These presentation copies must be checked
+deliberately when Streamlit wording changes. New page-owned labels/help live in
+`web/content/backtest.json`; no CMS or dependency was added.
+
+### API, cache and display limits
+
+- `GET /api/backtest/options?label=...`: compatible catalogue entries, source
+  metadata, source-derived bounds, replay eligibility and defaults.
+- `POST /api/backtest`: validated settings in the body, not financial amounts in
+  URLs. Runs existing decisions and `run_backtest`; returns metrics, curves,
+  audit/tax/return previews, warnings, settings, timing and download manifest.
+- `GET /api/backtest/download?key=...&kind=...`: exact Python-produced audit,
+  tax-event or daily-NAV CSV from the result cache, not a browser reconstruction.
+
+All three use the existing verified-user Bearer authentication and private response
+headers. No user holdings or amounts are logged. Timings only (input load, signal,
+engine) are logged and displayed. Invalid requests and failed runs return errors,
+not partial results, and failures are not cached. An in-flight guard prevents
+duplicate clicks. Gateway/time-limit errors show the brief's exact five-minute
+message; the function's existing 300-second setting is unchanged.
+
+The existing bounded memory/Supabase `ResultCache` is reused. Keys include all
+parameters, adjusted price **and open** observations, metadata/warnings, engine
+code version, UTC date and daily completed cutoff. Cache hits retain the original
+calculation timestamp/timing; the current request timing separately reports zero
+signal/engine work on a hit. Live inputs are still checked before cache lookup.
+No SQL, database settings or tables were changed. If the full cached bundle is
+unavailable on a cold instance, downloads return an explicit 404 asking for a new
+run; they do not silently recalculate different data.
+
+The main JSON response is guarded below 3,000,000 bytes. Tables preview at most
+150 rows and say so. Charts show at most 700 evenly spaced display observations,
+including first/last, with a reduction notice. Metrics, maxima, returns and all
+CSV downloads use **unreduced** engine frames. Native SVG charts add no package.
+Full CSV strings stay in the authenticated cache/download route rather than the
+main JSON. Very large histories may still challenge cache or download limits;
+there is no asynchronous job queue or split download service in this step.
+
+### Verification and measured local runs
+
+Offline tests compare independent existing-engine calls for HAA-Simple, Inflation
+Compass Standard, HAA-Simple Israel, A-RVol Shifter V3 Cash-Only and Buy and Hold
+SPY, each with tax OFF/ON at 25% and contributions OFF/ON. Final pre-/after-tax
+values, benchmark, CAGR and drawdown agree within 1e-9; complete tax-event CSVs
+and daily NAV CSVs match exactly. Additional tests cover both US-signals / TASE
+replay settings, adjusted opens in cache keys, fee conversion, bounds/errors,
+failure non-caching, missing/bad-token 401s, downloads, UI defaults/validation,
+timeout/no partial result, duplicate-click prevention and content-file wording.
+Mocks are confined to tests; no production example data is returned.
+
+Verification: original Python suite **467 passed**, API suite **95 passed**, web
+suite **29 passed**; TypeScript typecheck and production build passed. Existing
+Python suites emit timestamp-attrs and Starlette/httpx deprecation warnings. The
+protected-file diff against main is empty.
+
+Separate public-data measurements on October 18, 2026 used full available real
+history, default capital, 0% fees, 25% tax and no contributions. Supabase credentials
+were removed from that process. These are cold **result-cache** runs in a warm
+local interpreter, not Vercel cold starts, browser timings or remote-cache writes.
+
+| Model | Input load | Signal | Engine | Local total | Main JSON bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HAA-Simple | 1.256 s | 0.019 s | 0.111 s | 1.650 s | 140,007 |
+| Inflation Compass Standard | 1.940 s | 0.113 s | 0.184 s | 3.004 s | 258,770 |
+| HAA-Simple Israel | 1.537 s | 0.009 s | 0.016 s | 1.747 s | 35,763 |
+| A-RVol Shifter V3 Cash-Only | 0.765 s | 0.234 s | 0.666 s | 2.886 s | 175,481 |
+| Buy and Hold SPY | 0.826 s | 0.005 s | 0.202 s | 1.147 s | 119,845 |
+
+Cumulative peak process memory was 234.17 MiB. A-RVol retained 4,195 daily result
+rows; its display chart used 700 points and its separate full daily CSV measured
+1,899,589 bytes. The largest main response was 258,770 bytes before gzip. These
+measurements are representative rather than cloud guarantees: provider stalls,
+cloud quotas, deployment protection and Supabase cache capacity remain unverified
+in this local benchmark. No run approached five minutes locally.
+
+### Backtest side-by-side manual checklist (not yet claimed complete)
+
+For each of the five models above, open Streamlit and signed-in preview
+`/backtest/` together. Select identical Strategy / Variant / Implementation,
+currency, available start/end dates, initial value, fee type/value, tax ON 25%,
+and contributions OFF; repeat with tax OFF and monthly contributions ON. Check
+source observations and date bounds first (Streamlit may have older cached prices).
+Compare final pre-/after-tax and benchmark values, CAGR, max fall, report row count,
+first/last dates, complete tax-ledger count/last row/CSV, audit CSV, captions and
+warnings. Include one full-history A-RVol run and a contribution-enabled run.
+Confirm display reduction is labelled, downloads remain full, changing inputs
+clears the old result, Run disables while running, and timeout yields no partial
+report. Do not adjust methodology to force a match when source data differ.
+
+No production promotion, manual account writes, database changes or merge are
+part of this step. Frontend tests/build and engine parity checks do not substitute
+for this signed-in cloud/browser comparison.

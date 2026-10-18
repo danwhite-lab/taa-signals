@@ -4,7 +4,7 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function authorizedResponse(path: string, init: RequestInit = {}): Promise<Response> {
   const { data, error } = await supabaseBrowser().auth.getSession();
   if (error || !data.session) throw new ApiError(401, "Sign in to continue.");
   const headers = new Headers(init.headers);
@@ -13,6 +13,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try { response = await fetch(path, { ...init, headers, cache: "no-store" }); }
   catch { throw new ApiError(0, "Connection interrupted. Reload to confirm the saved state before retrying."); }
+  return response;
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await authorizedResponse(path, init);
   if (!response.ok) {
     // Don't display raw proxy/SDK bodies: they may echo submitted private data.
     throw new ApiError(response.status,

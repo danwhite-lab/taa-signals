@@ -45,7 +45,7 @@ def selector(definition):
             "implementations": implementations(selected.strategy, selected.variant)}
 
 
-def load_inputs(definition):
+def load_inputs(definition, *, daily_bars=False):
     strategy = definition.model_class()
     assets = tuple(getattr(strategy, "data_assets", ASSETS))
     # Same selected-model scope as app.assets_for_models, including its benchmark.
@@ -57,7 +57,11 @@ def load_inputs(definition):
     mapping = data.default_ticker_map(yahoo)
     strict = tuple(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None) == "XNYS" else ()
     try:
-        downloaded = (data.download_yahoo_prices(mapping, require_adjusted_assets=strict) if strict
+        opens = None
+        if daily_bars:
+            downloaded, opens = data.download_yahoo_daily_bars(mapping)
+        else:
+            downloaded = (data.download_yahoo_prices(mapping, require_adjusted_assets=strict) if strict
                       else data.download_yahoo_prices(mapping)) if yahoo else pd.DataFrame()
     except Exception as exc:
         raise RuntimeError(f"Yahoo Finance download failed: {safe_error(exc)}") from None
@@ -92,11 +96,14 @@ def load_inputs(definition):
     metadata = metadata.reindex(runtime)
     if strict:
         metadata.loc[list(strict), "price_field"] = "Required adjusted close; no raw Close fallback"
+    if daily_bars:
+        metadata.loc[list(yahoo), "price_field"] = "Adjusted close and adjusted open from the same source; no raw Close fallback"
     for asset in fred:
         metadata.loc[asset] = {"source": "FRED", "identifier": asset, "price_field": "Daily observation"}
     if oecd:
         metadata.loc[OECD_CLI_DIFFUSION_ASSET] = {"source": "OECD SDMX", "identifier": "CLI diffusion (dynamic country panel)", "price_field": "Monthly observation; one-month lag"}
-    return data.combine_replacements(downloaded, {}, runtime), metadata, failures
+    result = data.combine_replacements(downloaded, {}, runtime), metadata, failures
+    return (*result, opens) if daily_bars else result
 
 
 def call_decisions(strategy, prices, as_of, **kwargs):

@@ -4,6 +4,18 @@
   color: #17202a;
   background: #f5f7f9;
 }
+.backtest-page { max-width: 1160px; padding-top: 36px; }
+.backtest-page section { margin: 24px 0; }
+.backtest-controls { margin: 24px 0; border: 1px solid #dce2e8; border-radius: 8px; padding: 20px; }
+.backtest-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; }
+.backtest-page label { display: block; font-size: .85rem; }
+.backtest-page input:not([type=checkbox]), .backtest-page select { display: block; width: 100%; padding: 10px; margin: 8px 0; background: white; border: 1px solid #b7c2cc; border-radius: 5px; font: inherit; }
+.backtest-page input[type=checkbox] { margin: 12px; }
+.backtest-page svg { width: 100%; height: auto; }
+.backtest-page details { margin: 20px 0; }
+.backtest-page summary { cursor: pointer; }
+.backtest-page dl { display: flex; flex-wrap: wrap; gap: 20px; font-size: .85rem; }
+.backtest-page dd { margin: 8px 0; }
 .signals-page { max-width: 1160px; padding-top: 36px; }
 .signal-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
 .signal-selector label { font-size: .85rem; font-weight: 600; }

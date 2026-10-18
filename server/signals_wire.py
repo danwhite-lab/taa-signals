@@ -46,12 +46,13 @@ def table(frame, *, formats=None, index=True):
 
 
 class SignalsCompression:
-    """Compress only Signals transport; other API responses stay untouched."""
+    """Compress Signals and Backtest transport, not other API responses."""
     def __init__(self, app):
         from starlette.middleware.gzip import GZipMiddleware
         self.app = app
         self.compressed = GZipMiddleware(app, minimum_size=1000)
 
     async def __call__(self, scope, receive, send):
-        target = self.compressed if scope.get("type") == "http" and scope.get("path") == "/api/signals" else self.app
+        path = scope.get("path", "")
+        target = self.compressed if scope.get("type") == "http" and (path == "/api/signals" or path.startswith("/api/backtest")) else self.app
         await target(scope, receive, send)
