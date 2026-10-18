@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import TopNavigation from "../components/top-navigation";
+import AuthGate from "../components/AuthGate";
 
 export const metadata: Metadata = {
   title: "TAA Signals — migration preview",
@@ -13,7 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <TopNavigation />
-        {children}
+        <AuthGate>{children}</AuthGate>
       </body>
     </html>
   );

@@ -70,12 +70,17 @@ def test_price_operations_delegate_to_existing_history_loaders(monkeypatch):
 
 
 def test_backtest_uses_adjusted_opens_original_signals_and_existing_engine(monkeypatch):
-    closes, opens, monthly = object(), object(), object()
+    closes = pd.DataFrame({"QQQ": [1.], "SPY": [2.]}, index=pd.to_datetime(["2026-10-14"]))
+    opens, monthly = closes.copy(), object()
     strategy = SimpleNamespace(name="Original V3", data_assets=("QQQ", "SPY"), benchmark_asset="SPY")
+    strategy.completed_cutoff = lambda: "2026-10-14"
     decision_frame = pd.DataFrame(index=pd.to_datetime(["2026-10-14"]))
     strategy.decisions = lambda data: decision_frame if data is closes else pytest.fail("Wrong signal data")
     monkeypatch.setattr(module, "RVolShifterCashOnly", lambda: strategy)
     monkeypatch.setattr(module.engine_data, "download_yahoo_daily_bars", lambda mapping: (closes, opens))
+    monkeypatch.setattr(module.market_cache, "arvol_inputs", lambda assets: (closes, opens, "Mock", []))
+    from server.cache import ResultCache
+    monkeypatch.setattr(module, "_results", ResultCache())
     monkeypatch.setattr(module.engine_data, "to_month_end", lambda data: monthly)
     calls = []
     def engine(*args, **kwargs):
@@ -88,6 +93,9 @@ def test_backtest_uses_adjusted_opens_original_signals_and_existing_engine(monke
     assert calls[0][1]["daily_prices"] is closes and calls[0][1]["daily_open_prices"] is opens
     assert calls[0][1]["tax_enabled"] is True and row["daily_rows"] == 2
     assert all(row[field] >= 0 for field in ("data_seconds", "signal_seconds", "engine_seconds"))
+    cached = {}
+    module._arvol_backtest(cached)
+    assert len(calls) == 1 and cached["cache"]["hit"] == "memory"
 
 
 def test_backtest_download_failure_never_claims_an_engine_run(monkeypatch):

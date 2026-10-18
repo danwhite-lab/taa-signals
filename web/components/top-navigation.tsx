@@ -12,8 +12,8 @@ export default function TopNavigation() {
       <div className="topbar-inner">
         <div className="brand">TAA Signals <span className="preview-badge">Preview</span></div>
         <nav aria-label="Primary navigation" className="primary-nav">
-          {pages.map((page) => page === "Rules" ? (
-            <Link key={page} href="/rules/" aria-current={pathname.replace(/\/$/, "") === "/rules" ? "page" : undefined}>
+          {pages.map((page) => page === "Rules" || page === "Portfolio" ? (
+            <Link key={page} href={page === "Rules" ? "/rules/" : "/portfolio/"} aria-current={pathname.replace(/\/$/, "") === `/${page.toLowerCase()}` ? "page" : undefined}>
               {page}
             </Link>
           ) : (

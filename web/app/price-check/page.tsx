@@ -44,9 +44,9 @@ export default function PriceCheck() {
       <a href="/">Strategy catalogue</a>
       <h1>Price check</h1>
       <p>Live checks for SPY, QQQ, VXUS, TASE 1159250 (CSPX), 1187079 and 5134713.</p>
-      <p>Also runs the original USD A-RVol V3 daily backtest over its available real history.
+      <p>Also calculates or retrieves a data-versioned cached result for the original USD A-RVol V3 daily backtest.
         This is a diagnostic, not a trading quote. It may take several minutes.</p>
-      <p>Press once to run. No automatic polling, retries, proxy history or hidden errors.</p>
+      <p>Press once to run. Prices are checked live. Backtest cache status, data source and original calculation timings are shown below. No automatic polling, retries or proxy history.</p>
       <button type="button" disabled={running} onClick={() => void runChecks()}>
         {running ? "Running live checks…" : "Run live checks"}
       </button>

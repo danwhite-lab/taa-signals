@@ -84,7 +84,7 @@ export default function Home() {
           </>
         )}
       </section>
-      <footer>Read-only skeleton. No login, holdings or backtests on this page yet.</footer>
+      <footer>Migration preview. Saved portfolios are available from Portfolio; other heavy pages are not migrated yet.</footer>
     </main>
   );
 }

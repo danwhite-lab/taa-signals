@@ -1,4 +1,4 @@
-"""Read-only Vercel ASGI entrypoint; the existing engine remains authoritative."""
+"""Vercel ASGI entrypoint; the existing engine remains authoritative."""
 from dataclasses import fields
 import ast
 from contextlib import contextmanager
@@ -13,10 +13,13 @@ from time import perf_counter
 import traceback
 import warnings
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
@@ -24,6 +27,8 @@ from haa.model_catalog import MODEL_CATALOG  # noqa: E402
 from haa import data as engine_data, tase_data as engine_tase  # noqa: E402
 from haa.engine import run_backtest  # noqa: E402
 from haa.strategies.rvol_shifter import RVolShifterCashOnly  # noqa: E402
+from server import private_api, cron, market_cache  # noqa: E402
+from server.cache import ResultCache, data_version, digest  # noqa: E402
 
 
 app = FastAPI(
@@ -33,6 +38,20 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+
+@app.middleware("http")
+async def private_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron")):
+        response.headers["Cache-Control"] = "no-store, private"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_input(request, exc):
+    # FastAPI's default validation output includes the submitted private values.
+    return JSONResponse(status_code=422, content={"detail": "Check the request fields and try again."})
 
 
 @app.get("/api/strategies")
@@ -125,8 +144,17 @@ def rules(response: Response) -> dict:
 
 
 _diagnostic_lock = Lock()
+_results = ResultCache()
 TASE_CHECKS = (("CSPX_IL", "1159250"), ("RVOL_3X_IL", "1187079"),
                ("TA125_SMART_MOMENTUM", "5134713"))
+
+
+@lru_cache(maxsize=1)
+def _engine_code_version():
+    root = Path(__file__).resolve().parents[1]
+    files = sorted((root / "src" / "haa").rglob("*.py"))
+    files += sorted((root / "server").rglob("*.py")) + [Path(__file__).resolve()]
+    return digest({str(path.relative_to(root)): path.read_text() for path in files})
 
 
 @contextmanager
@@ -211,10 +239,29 @@ def _arvol_backtest(result):
                   phase="download adjusted closes and opens")
     started = perf_counter()
     try:
-        closes, opens = engine_data.download_yahoo_daily_bars({a: a for a in strategy.data_assets})
+        closes, opens, origin, data_warnings = market_cache.arvol_inputs(strategy.data_assets)
     finally:
         result["data_seconds"] = round(perf_counter() - started, 6)
-    result["phase"] = "generate original daily signals"
+    result.update(data_source=origin, data_warnings=data_warnings)
+    rows = {asset: cron.bars_rows(closes, opens, asset) for asset in strategy.data_assets}
+    # Code identity and completed-session cutoff also invalidate stale decisions
+    # when prices are unchanged but a deployment/session boundary has changed.
+    params = {**result["parameters"], "engine_code": _engine_code_version(),
+              "completed_cutoff": str(strategy.completed_cutoff())}
+    result["phase"] = "calculate or read the data-versioned backtest"
+    computed, cache_info = _results.run(
+        model="Original USD A-RVol V3 diagnostic", params=params,
+        start=min(row["date"] for series in rows.values() for row in series),
+        end=max(row["date"] for series in rows.values() for row in series),
+        version=data_version(rows),
+        compute=lambda: _calculate_arvol(strategy, closes, opens, result["parameters"]),
+    )
+    result.update(computed, cache=cache_info,
+                  timing_note="Signal/engine timings describe the original calculation, not cache lookup time.")
+
+
+def _calculate_arvol(strategy, closes, opens, parameters):
+    result = {"phase": "generate original daily signals"}
     started = perf_counter()
     try:
         decisions = strategy.decisions(closes)
@@ -226,21 +273,22 @@ def _arvol_backtest(result):
     try:
         backtest = run_backtest(decisions, monthly, daily_prices=closes,
                                daily_open_prices=opens, benchmark_asset=strategy.benchmark_asset,
-                               **result["parameters"])
+                               **parameters)
     finally:
         result["engine_seconds"] = round(perf_counter() - started, 6)
     result.update(phase="completed", signals=len(decisions), daily_rows=len(backtest.daily),
                   first_date=backtest.daily.index.min().isoformat(),
                   last_date=backtest.daily.index.max().isoformat())
+    return result
 
 
 @app.get("/api/price-check")
 def price_check(response: Response) -> dict:
-    """Uncached, fixed-universe live diagnostics; failures remain in the JSON."""
+    """Live price diagnostics plus data-versioned fixed backtest; errors stay visible."""
     response.headers["Cache-Control"] = "no-store"
     started = perf_counter()
     # Serialise diagnostics per worker to keep provider log/warning capture
-    # attributable to its check. No cache, retries, proxy or data replacement.
+    # attributable to its check. Price checks remain uncached and unsubstituted.
     with _diagnostic_lock:
         checks = [_timed_check(ticker, lambda row, t=ticker: _us_price(t, row))
                   for ticker in ("SPY", "QQQ", "VXUS")]
@@ -250,6 +298,10 @@ def price_check(response: Response) -> dict:
     return {"checked_at_utc": datetime.now(timezone.utc).isoformat(),
             "note": "Actual existing app history loaders, not guaranteed live execution prices. "
                     "Provider errors, warnings and tracebacks are returned verbatim. "
-                    "Timing belongs to the server running this request, not another deployment.",
+                    "Outer timing measures this request; cached engine timings describe the original calculation.",
             "prices": checks, "backtest": backtest,
             "total_seconds": round(perf_counter() - started, 6)}
+
+
+app.include_router(private_api.router)
+app.include_router(cron.router)
