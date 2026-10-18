@@ -13,7 +13,7 @@ from time import perf_counter
 import traceback
 import warnings
 
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Response, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -27,8 +27,9 @@ from haa.model_catalog import MODEL_CATALOG  # noqa: E402
 from haa import data as engine_data, tase_data as engine_tase  # noqa: E402
 from haa.engine import run_backtest  # noqa: E402
 from haa.strategies.rvol_shifter import RVolShifterCashOnly  # noqa: E402
-from server import private_api, cron, market_cache  # noqa: E402
+from server import private_api, cron, market_cache, signals as signals_page  # noqa: E402
 from server.cache import ResultCache, data_version, digest  # noqa: E402
+from server.signals_wire import SignalsCompression  # noqa: E402
 
 
 app = FastAPI(
@@ -38,12 +39,13 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+app.add_middleware(SignalsCompression)
 
 
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -305,3 +307,18 @@ def price_check(response: Response) -> dict:
 
 app.include_router(private_api.router)
 app.include_router(cron.router)
+
+
+@app.get("/api/signals")
+def signals(label: str = "HAA-Simple", as_of: str | None = None,
+            session=Depends(private_api.authenticated)):
+    from datetime import date
+    if label not in {model.label for model in MODEL_CATALOG}:
+        raise HTTPException(400, "Unknown strategy catalogue label.")
+    if as_of is not None:
+        try:
+            if date.fromisoformat(as_of).isoformat() != as_of:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(400, "as_of must be YYYY-MM-DD.") from None
+    return signals_page.signals_payload(label, as_of, _engine_code_version())

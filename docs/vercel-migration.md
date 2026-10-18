@@ -12,7 +12,7 @@ and backtest diagnostic is available; it is not a general backtest service.
   and an npm lockfile. The page fetches `/api/strategies` in the browser and lists
   the Python catalogue labels/currencies, with loading, error and retry states.
 - `api/index.py`: a FastAPI ASGI `app`, exposing `GET /api/strategies`,
-  `GET /api/rules` and `GET /api/price-check`.
+  `GET /api/rules`, `GET /api/price-check` and authenticated `GET /api/signals`.
   It adds the existing repository `src/` to `sys.path`, then imports the real
   `haa.model_catalog.MODEL_CATALOG`. No strategy/data/backtest code is duplicated.
   JSON preserves every catalogue metadata field except the non-JSON Python class
@@ -118,7 +118,7 @@ are performed just by adding these files.
 
 `/rules/` is a lightweight, client-rendered methodology page. It fetches only
 `/api/rules`, not prices, portfolio/account data or backtests. The shared top bar
-lists the exact eight current app pages; Rules and the minimal Portfolio page are enabled.
+lists the exact eight current app pages; Rules, Signals and the minimal Portfolio page are enabled.
 Catalogue/diagnostic URLs remain available directly behind the browser login gate.
 
 The existing `app.py` is unchanged and remains the one source for `MODEL_RULES`
@@ -304,3 +304,147 @@ Implementation references: [Supabase PKCE](https://supabase.com/docs/guides/auth
 [server user verification](https://supabase.com/docs/reference/python/auth-getuser),
 [explicit grants and RLS](https://supabase.com/docs/guides/api/securing-your-api),
 [Vercel cron deployment rules](https://vercel.com/docs/cron-jobs).
+
+## Signals page migration
+
+`/signals/` is now enabled in the shared navigation, behind the existing AuthGate.
+`GET /api/signals?label=HAA-Simple` verifies the same Bearer token as `/api/me`.
+Unknown catalogue labels and invalid `as_of` dates return 400. No workspace,
+holdings, account or user-specific information enters shared signal caches.
+No SQL, settings, dependencies, Streamlit or `src/haa` files change for this page.
+
+Only the chosen model's assets and its existing benchmark are loaded. Signals
+use the existing `download_yahoo_prices` (not opening bars), default ticker map,
+strict adjusted-US requirement for XNYS models, TASE adapter, FRED loader and OECD
+diffusion loader. FRED/OECD remain live and are not added to the cron cache.
+Retrieval failures retain the app's empty macro/TASE frames and warning wording;
+no alternate feed, CSV, proxy or filled observation is introduced. The existing
+GGCEM failsafe remains the existing strategy's decision, not API replacement logic.
+
+Chosen data-cache option: **complete live inputs plus results caching**. The
+current Yahoo cache does not retain the general Signals loader's price-field
+fallback provenance, and TASE snapshots lack same-refresh markers. Rather than
+change producer/row schemas or mix sources, Signals uses the complete existing
+live-loader path and says so visibly on every response. This deliberately does
+not extend `market_cache.py`, change `cron.py`, or redesign cache tables.
+
+Results use the existing `ResultCache` with model label, parameters, data version,
+engine/adapter code hash, source metadata and `as_of` behaviour. Data version
+hashes every exact input observation, including live macro values. Default-now
+keys also include the UTC date and the daily model's completed-session cutoff,
+so a result cannot survive a daily completion boundary. Historical revisions on
+the same date invalidate cached values. Failed inputs, failed computations and
+unavailable signals are not cached. Cache failures are visible; they never rerun
+the calculation twice in a request or substitute an older signal.
+
+`as_of=YYYY-MM-DD` is optional, for verification. It is passed to existing helpers
+as a date at midnight, **not the end of that day**. Daily models therefore use the
+prior completed session according to their existing cutoff. Omitting it uses the
+actual current UTC timestamp. Inputs are truncated at the supplied date; the
+shared monthly helper receives completed-month observations, preventing a partial
+historical month from being treated as final merely because wall-clock time is
+later. Strategies accepting `as_of` receive it directly. Other daily-input monthly
+strategies receive the eligible completed-month frame for official decisions and
+the existing `include_current_month=True` preview call. No strategy is monkeypatched.
+This freezes observation eligibility, not historical provider vintages/revisions.
+
+Every number comes from existing strategy `decisions`, `monthly_strategy_input`,
+`latest_actionable_signal`, `month_to_date_snapshot`, `latest_preview_signal`,
+`execution_assets` and `first_trading_day_after`. JavaScript only selects catalogue
+entries and renders Python-provided values/text. The three dropdowns retain a
+compatible variant/implementation as the Streamlit selector does. Default is
+HAA-Simple. Optional workspace persistence of the selection is intentionally
+skipped: a fresh visit resets to HAA-Simple; no private workspace writes occur.
+
+Daily models show the exact experimental/risk/timing captions and daily decision
+table; buy-and-hold models show continuous holding without timing instructions,
+including the TA-125 special case. Monthly models show current allocation,
+instruction, effective start, provisional preview, rationale inputs, history and
+source/date metadata. Unavailable engine reasons are shown verbatim, not replaced
+with an earlier allocation. The disclaimer is present in all modes, including
+daily/unavailable screens (the old daily Streamlit early stop skips its footer).
+
+### Deliberate verbatim presentation duplication
+
+`server/signals_presentation.py` ports the existing Signals Rationale block:
+all per-strategy branches, paragraph/f-string text, captions, table field names,
+input expressions and Python display formats. `display_allocation` is copied
+verbatim, still using `execution_security_label`. Only Streamlit collection and
+Pandas Styler rendering become JSON table collection; there is no new computation
+dependency. An AST parity test verifies all literal/f-string chunks and the exact
+allocation function against unchanged `app.py`. The running Signals code never
+reads, imports, evaluates or executes `app.py`.
+
+`server/signals.py` also deliberately ports the current-allocation/action labels,
+No-prior-allocation handling, preview warning/caption, daily captions/table labels,
+continuous-holding/TA-125 text, source/provenance warnings, history column/weight
+formatting, filenames, pandas CSV generation, completed-month caption and disclaimer.
+These presentation copies can drift if Streamlit wording changes; update parity
+tests/port deliberately. Existing generic rationale fall-through wording is
+retained even where a newer strategy could merit a dedicated explanation; this
+migration does not invent or correct methodology. Missing Rules entries stay missing.
+
+History rows are displayed newest first; downloaded CSV uses the original
+ascending dataframe and `to_csv()` bytes/filename, not a browser reconstruction.
+Full daily history plus CSV initially measured 5,440,285 JSON bytes for 4,196 V3
+decisions. Redundant identical display-row copies are now omitted (all raw rows
+remain), and Signals-only gzip transport is enabled for clients accepting gzip.
+No other API response is compressed by this adapter. The initial full response
+compressed to 804,688 bytes even before removing duplication. These are local
+measurements, not proof of deployed gateway behaviour; very long histories and
+non-gzip clients still warrant a cloud check. No history is truncated or paginated.
+
+### Verification and observed local timings
+
+All tests remain offline with mocks. New tests directly compare API selections,
+regimes, exact numeric weights, dates, effective starts, preview values, all history
+rows and CSV bytes to independent calls into the same engine for HAA-Simple,
+Inflation Compass Standard, HAA-Simple Israel, original USD A-RVol and Buy and Hold
+SPY. Further coverage includes local/US-to-TASE daily modes, TA-125 continuous
+holding, strict adjusted inputs, FRED/OECD failures, unchanged unavailable reasons,
+no future-observation influence, cache hits/revisions, authentication, selector
+behaviour, three rendered modes, warnings, CSV download and gzip round-trip.
+
+Separate from tests, public-data local cold-result-cache runs (October 18, 2026)
+used the existing loaders, with Supabase credentials removed from that process:
+
+| Model | Live input load | Calculation/cache handling | End-to-end local call |
+| --- | ---: | ---: | ---: |
+| HAA-Simple | 1.371 s | 0.381 s | 1.760 s |
+| Inflation Compass Standard | 1.996 s | 1.554 s | 3.555 s |
+| HAA-Simple Israel | 1.564 s | 0.206 s | 1.770 s |
+| A-RVol Shifter V3 Cash-Only | 0.675 s | 1.241 s | 1.995 s |
+| Buy and Hold SPY | 0.649 s | 0.280 s | 0.933 s |
+
+All five returned an available signal. These measure cold **result caches**, in
+a warm local Python process, before HTTP/gateway/browser rendering. They do not
+measure a cold Vercel interpreter, Supabase cache writes, cloud provider access or
+worst-case delays. No sampled calculation approached the unchanged 300-second
+limit locally; live provider stalls/throttling and large response limits remain
+cloud risks. Do not treat these numbers as guaranteed Vercel timings.
+
+Full verification commands remain the Verify section above: API pytest, npm
+typecheck, npm test, npm build, and original `PYTHONPATH=src python -m pytest tests -q`.
+The required protected-file check is `git diff main -- app.py src requirements.txt pyproject.toml`.
+
+### Manual side-by-side checklist (not claimed as already completed)
+
+Open Streamlit Signals beside the signed-in preview `/signals/` on the same day,
+without an `as_of` query parameter. For each row below choose the exact matching
+Strategy / Variant / Implementation. Compare input source/date metadata first;
+Streamlit's data cache can be older than the preview's live download. If data
+differs, refresh/align the observations before attributing a discrepancy to math.
+Never force results to match by changing inputs or a strategy rule.
+
+| Model | Check |
+| --- | --- |
+| HAA-Simple | Signal date, regime, instruction, target allocation, effective start, provisional preview values/date, history row count and downloaded CSV |
+| Inflation Compass Standard | Same checks; also lagged T5YIE dates/values and all rationale input fields |
+| HAA-Simple Israel | Same checks; verify TASE identifiers/source dates and broker-facing allocation labels |
+| A-RVol Shifter V3 Cash-Only | Decision date, scheduled next-open date, target, Hold/Switch heading, state/regime, RVol/VR/trend/credit, history row count/CSV; preview must be absent |
+| Buy and Hold SPY | Completed signal date/regime in history, 100% SPY continuous allocation, no timing instruction or preview, history row count/CSV |
+
+Also confirm provisional previews are never labelled official; stale/missing input
+reasons remain visible; warnings match; the footer disclaimer appears in every
+mode; and the browser downloads Python's CSV unchanged. This change performs no
+Google login, database settings changes, production promotion or manual account saves.
