@@ -31,8 +31,8 @@ def test_catalogue_is_exact_live_engine_metadata():
     assert all("model_class" not in item for item in response.json())
 
 
-def test_only_read_only_catalogue_endpoint_is_exposed():
-    assert [route.path for route in module.app.routes] == ["/api/strategies"]
+def test_only_read_only_diagnostic_endpoints_are_exposed():
+    assert [route.path for route in module.app.routes] == ["/api/strategies", "/api/price-check"]
     assert client.post("/api/strategies", json={}).status_code == 405
     assert client.get("/api/holdings").status_code == 404
     assert client.get("/api/not-a-route").status_code == 404
@@ -63,8 +63,10 @@ def test_vercel_keeps_frontend_and_python_under_one_repository_root():
     assert config["installCommand"] == "npm --prefix web ci"
     assert config["buildCommand"] == "npm --prefix web run build"
     assert config["outputDirectory"] == "web/out"
+    assert config["cleanUrls"] is True
     assert config["rewrites"] == [{"source": "/api/:path*", "destination": "/api/index.py"}]
     assert config["functions"]["api/index.py"]["includeFiles"] == "src/haa/**"
+    assert config["functions"]["api/index.py"]["maxDuration"] == 300
     assert (ROOT / "web" / "app" / "page.tsx").is_file()
     assert "/requirements.txt" in (ROOT / ".vercelignore").read_text().splitlines()
     assert "/pyproject.toml" in (ROOT / ".vercelignore").read_text().splitlines()

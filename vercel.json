@@ -4,8 +4,10 @@
   "installCommand": "npm --prefix web ci",
   "buildCommand": "npm --prefix web run build",
   "outputDirectory": "web/out",
+  "cleanUrls": true,
   "functions": {
     "api/index.py": {
+      "maxDuration": 300,
       "includeFiles": "src/haa/**",
       "excludeFiles": "{web/**,tests/**,api/tests/**,docs/**,static/**,.streamlit/**,**/__pycache__/**}"
     }

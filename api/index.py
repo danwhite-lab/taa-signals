@@ -1,9 +1,17 @@
 """Read-only Vercel ASGI entrypoint; the existing engine remains authoritative."""
 from dataclasses import fields
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import logging
+import math
 from pathlib import Path
 import sys
+from threading import Lock
+from time import perf_counter
+import traceback
+import warnings
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
@@ -11,6 +19,9 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from haa.model_catalog import MODEL_CATALOG  # noqa: E402
+from haa import data as engine_data, tase_data as engine_tase  # noqa: E402
+from haa.engine import run_backtest  # noqa: E402
+from haa.strategies.rvol_shifter import RVolShifterCashOnly  # noqa: E402
 
 
 app = FastAPI(
@@ -33,3 +44,134 @@ def strategies() -> list[dict]:
         }
         for model in MODEL_CATALOG
     ]
+
+
+_diagnostic_lock = Lock()
+TASE_CHECKS = (("CSPX_IL", "1159250"), ("RVOL_3X_IL", "1187079"),
+               ("TA125_SMART_MOMENTUM", "5134713"))
+
+
+@contextmanager
+def _provider_messages():
+    """Retain provider log errors even when a loader wraps the exception."""
+    messages = []
+
+    class Collector(logging.Handler):
+        def emit(self, record):
+            messages.append(self.format(record))
+
+    handler = Collector()
+    handler.setFormatter(logging.Formatter("%(name)s %(levelname)s: %(message)s"))
+    loggers = [logging.getLogger(name) for name in ("yfinance", "tasekit")]
+    for logger in loggers:
+        logger.addHandler(handler)
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            yield messages
+            messages.extend(f"{type(item.message).__name__}: {item.message}" for item in caught)
+    finally:
+        for logger in loggers:
+            logger.removeHandler(handler)
+
+
+def _timed_check(identifier, operation):
+    result = {"identifier": identifier, "success": False, "price": None,
+              "price_date": None, "error": None, "error_type": None,
+              "traceback": None, "provider_messages": []}
+    started = perf_counter()
+    with _provider_messages() as messages:
+        try:
+            operation(result)
+            result["success"] = True
+        except Exception as exc:
+            result.update(error=str(exc), error_type=type(exc).__name__,
+                          traceback=traceback.format_exc())
+    result["provider_messages"] = messages
+    result["seconds"] = round(perf_counter() - started, 6)
+    return result
+
+
+def _latest(series, result):
+    available = series.dropna().sort_index()
+    if available.empty:
+        raise ValueError("The existing loader returned no usable price observations.")
+    price = float(available.iloc[-1])
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("The latest provider price is not finite and positive.")
+    result.update(price=price, price_date=available.index[-1].isoformat(),
+                  observations=len(available))
+
+
+def _us_price(ticker, result):
+    result.update(source="haa.data.download_yahoo_prices → yfinance",
+                  price_field="Existing history loader: Adj Close preferred, Close fallback",
+                  price_units="USD history series; not an executable spot quote")
+    prices = engine_data.download_yahoo_prices({ticker: ticker})
+    _latest(prices[ticker], result)
+
+
+def _tase_price(asset, result):
+    # In particular, RVOL_3X_IL follows the app's published-EOD route, not
+    # an invented alternative tasekit endpoint or a US proxy.
+    result.update(source="haa.tase_data.TasePriceSource → existing TASE/Maya route", asset=asset)
+    item = engine_tase.TasePriceSource().fetch_asset(asset)
+    result.update(source=item.source, price_field=item.field,
+                  price_units="Unmodified provider history units; not a broker per-unit conversion")
+    _latest(item.prices, result)
+
+
+def _arvol_backtest(result):
+    strategy = RVolShifterCashOnly()
+    result.update(strategy=strategy.name, implementation="Original USD daily V3",
+                  data_assets=list(strategy.data_assets),
+                  window="Full real Yahoo history; engine uses completed sessions only",
+                  parameters={"initial_investment": 10000, "transaction_cost": 0,
+                              "tax_enabled": True, "tax_rate": .25,
+                              "monthly_contribution": 0, "fixed_fee": 0},
+                  data_seconds=None, signal_seconds=None, engine_seconds=None,
+                  phase="download adjusted closes and opens")
+    started = perf_counter()
+    try:
+        closes, opens = engine_data.download_yahoo_daily_bars({a: a for a in strategy.data_assets})
+    finally:
+        result["data_seconds"] = round(perf_counter() - started, 6)
+    result["phase"] = "generate original daily signals"
+    started = perf_counter()
+    try:
+        decisions = strategy.decisions(closes)
+        monthly = engine_data.to_month_end(closes)
+    finally:
+        result["signal_seconds"] = round(perf_counter() - started, 6)
+    result["phase"] = "run existing backtest engine"
+    started = perf_counter()
+    try:
+        backtest = run_backtest(decisions, monthly, daily_prices=closes,
+                               daily_open_prices=opens, benchmark_asset=strategy.benchmark_asset,
+                               **result["parameters"])
+    finally:
+        result["engine_seconds"] = round(perf_counter() - started, 6)
+    result.update(phase="completed", signals=len(decisions), daily_rows=len(backtest.daily),
+                  first_date=backtest.daily.index.min().isoformat(),
+                  last_date=backtest.daily.index.max().isoformat())
+
+
+@app.get("/api/price-check")
+def price_check(response: Response) -> dict:
+    """Uncached, fixed-universe live diagnostics; failures remain in the JSON."""
+    response.headers["Cache-Control"] = "no-store"
+    started = perf_counter()
+    # Serialise diagnostics per worker to keep provider log/warning capture
+    # attributable to its check. No cache, retries, proxy or data replacement.
+    with _diagnostic_lock:
+        checks = [_timed_check(ticker, lambda row, t=ticker: _us_price(t, row))
+                  for ticker in ("SPY", "QQQ", "VXUS")]
+        checks.extend(_timed_check(identifier, lambda row, a=asset: _tase_price(a, row))
+                      for asset, identifier in TASE_CHECKS)
+        backtest = _timed_check("A-RVol", _arvol_backtest)
+    return {"checked_at_utc": datetime.now(timezone.utc).isoformat(),
+            "note": "Actual existing app history loaders, not guaranteed live execution prices. "
+                    "Provider errors, warnings and tracebacks are returned verbatim. "
+                    "Timing belongs to the server running this request, not another deployment.",
+            "prices": checks, "backtest": backtest,
+            "total_seconds": round(perf_counter() - started, 6)}
