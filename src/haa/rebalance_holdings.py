@@ -97,6 +97,8 @@ def validate_account(account):
         if instrument["id"] != key or row.get("id") != key:
             raise ValueError("Holdings security ID mismatch.")
         units = number(row["units"])
+        if not isinstance(row.get("outside_rebalance", False), bool):
+            raise ValueError("Outside the rebalance must be on or off.")
         if row["market"] == "TASE" and units != units.to_integral_value():
             raise ValueError("TASE holdings require whole units.")
         if row.get("manual_price") is not None:
@@ -113,10 +115,24 @@ def validate_account(account):
     return deepcopy(account)
 
 
+def rebalance_targets(account, targets):
+    """Remove explicitly excluded funds, retaining relative included targets."""
+    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
+    if not excluded.intersection(targets):
+        return dict(targets)
+    included = {k: number(w) for k, w in targets.items() if k not in excluded}
+    weight = sum(included.values(), Decimal(0))
+    return {k: float(w / weight) for k, w in included.items()} if weight else {}
+
+
 def compare_holdings(account, instruments, targets, quotes, fx):
     validate_account(account)
+    targets = rebalance_targets(account, targets)
+    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
     values = {}
     for key in set(targets) | set(account["positions"]):
+        if key in excluded:
+            continue
         units = number(account["positions"].get(key, {}).get("units", 0))
         quote = quotes.get(key)
         if units and (not quote or quote.get("error")):
@@ -133,11 +149,15 @@ def compare_holdings(account, instruments, targets, quotes, fx):
                      "Target %": float(target), "Actual %": float(actual) if actual is not None else None,
                      "Gap (₪)": float(gap), "Status": "Not held yet" if actual is None else
                      "Underweight" if gap > Decimal("0.01") else "Overweight" if gap < Decimal("-0.01") else "On target"})
+    rows.extend({"id": key, "Fund": instruments[key]["label"], "Value (₪)": None,
+                 "Target %": None, "Actual %": None, "Gap (₪)": None,
+                 "Status": "Outside the rebalance"} for key in sorted(excluded))
     return rows, values, total
 
 
 def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context):
     """Water-fill largest post-deposit shortfalls, then allocate feasible lots."""
+    targets = rebalance_targets(account, targets)
     rows, values, total = compare_holdings(account, instruments, targets, quotes, fx)
     new_money = number(new_money)
     budget = number(account["cash_ils"]) + new_money
@@ -152,6 +172,8 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context)
         minimums[key] = max(1, int((minimum / costs[key]).to_integral_value(rounding=ROUND_CEILING)))
     # A stale non-target holding also invalidates account weights and the plan.
     for key, position in account["positions"].items():
+        if position.get("outside_rebalance", False):
+            continue
         if number(position["units"]) and not quotes[key].get("fresh"):
             raise ValueError(f"{key}: holding valuation is stale; refresh or enter a dated broker price.")
     low, high = Decimal(0), max(gaps.values(), default=Decimal(0))

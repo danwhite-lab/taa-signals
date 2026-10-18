@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from haa.rebalance_holdings import (apply_purchases, combined_targets, compare_holdings, empty_account,
-                                   execution_security, make_buy_plan, security, validate_account)
+                                   execution_security, make_buy_plan, rebalance_targets, security, validate_account)
 from haa.workspace_sync import snapshot, restore
 
 
@@ -18,6 +18,67 @@ def setup_book(units=(0, 0), prices=(10, 20), cash=0):
     quotes = {s['id']: {'price': str(p), 'fresh': True} for s, p in zip(securities, prices)}
     targets = dict(zip(instruments, [.6, .4]))
     return account, instruments, quotes, targets
+
+
+@pytest.mark.parametrize('targeted', [False, True])
+@pytest.mark.parametrize('quote_state', ['current', 'stale', 'missing'])
+def test_outside_holding_matches_removal_for_targets_and_buys(targeted, quote_state):
+    account, instruments, quotes, targets = setup_book(units=(7, 3), cash=23)
+    outside = security('GLD', 'US')
+    key = outside['id']
+    instruments[key] = outside
+    account['positions'][key] = {**outside, 'units': '90', 'outside_rebalance': True}
+    quotes[key] = {'price': '10', 'fresh': quote_state == 'current'} if quote_state != 'missing' else {'error': 'Missing'}
+    if targeted:
+        targets = {k: w / 2 for k, w in targets.items()} | {key: .5}
+    removed = deepcopy(account)
+    del removed['positions'][key]
+    remaining_targets = {k: w for k, w in targets.items() if k != key}
+    weight = sum(remaining_targets.values())
+    remaining_targets = {k: w / weight for k, w in remaining_targets.items()}
+    original = deepcopy(account)
+    rows, values, total = compare_holdings(account, instruments, targets, quotes, None)
+    expected_rows, expected_values, expected_total = compare_holdings(removed, instruments, remaining_targets, quotes, None)
+    assert total == expected_total and values == expected_values
+    assert [r for r in rows if r['id'] != key] == expected_rows
+    outside_row = next(r for r in rows if r['id'] == key)
+    assert outside_row['Status'] == 'Outside the rebalance'
+    assert outside_row['Target %'] is outside_row['Actual %'] is outside_row['Gap (₪)'] is None
+    actual = make_buy_plan(account, instruments, targets, quotes, None, 257, {})
+    expected = make_buy_plan(removed, instruments, remaining_targets, quotes, None, 257, {})
+    for field in ('orders', 'leftover_ils', 'available_ils', 'instruments'):
+        assert actual[field] == expected[field]
+    assert account == original
+
+
+def test_default_off_is_exactly_legacy_and_exclusion_invalidates_recording():
+    account, instruments, quotes, targets = setup_book(units=(3, 5), cash=10)
+    rows, values, total = compare_holdings(account, instruments, targets, quotes, 1)
+    plan = make_buy_plan(account, instruments, targets, quotes, 1, 200, {})
+    explicit = deepcopy(account)
+    for row in explicit['positions'].values():
+        row['outside_rebalance'] = False
+    assert compare_holdings(explicit, instruments, targets, quotes, 1) == (rows, values, total)
+    other = make_buy_plan(explicit, instruments, targets, quotes, 1, 200, {})
+    assert other['orders'] == plan['orders'] and other['leftover_ils'] == plan['leftover_ils']
+    explicit['positions']['TASE:1149038']['outside_rebalance'] = True
+    with pytest.raises(ValueError, match='changed'):
+        apply_purchases(explicit, plan, [], {})
+
+
+def test_all_targets_outside_leaves_budget_and_validates_flag():
+    account, instruments, quotes, targets = setup_book(units=(5, 9), cash=11)
+    for row in account['positions'].values():
+        row['outside_rebalance'] = True
+    assert rebalance_targets(account, targets) == {}
+    rows, values, total = compare_holdings(account, instruments, targets, {}, None)
+    assert total == 11 and not values
+    assert all(r['Status'] == 'Outside the rebalance' for r in rows)
+    plan = make_buy_plan(account, instruments, targets, {}, None, 100, {})
+    assert plan['orders'] == [] and Decimal(plan['leftover_ils']) == 111
+    account['positions']['TASE:1149038']['outside_rebalance'] = 'false'
+    with pytest.raises(ValueError, match='on or off'):
+        validate_account(account)
 
 
 def test_aliases_merge_actual_security_but_currencies_and_us_funds_stay_distinct():
