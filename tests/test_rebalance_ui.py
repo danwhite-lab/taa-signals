@@ -62,6 +62,63 @@ def save_edited_holdings(app):
     button(app, 'Save holdings').click().run()
 
 
+def test_outside_checkbox_saves_syncs_totals_and_only_buys_included_targets(rebalance_account, monkeypatch):
+    other = security('IEF', 'US')
+    book = rebalance_account['payload']['holdings_account']
+    book['positions'][other['id']] = {**other, 'units': '2'}
+    monkeypatch.setattr(market, 'load_portfolio_signals', lambda labels, *a: ([
+        {'name': label, 'currency': 'USD', 'target_weights': {'GLD': .5, 'IEF': .5},
+         'signal_date': '2026-09-30', 'source_notes': []} for label in labels], []))
+    app = visit()
+    editor = next(t.value for t in app.dataframe if 'Security' in t.value and 'Units' in t.value)
+    assert not editor['Outside the rebalance'].any()
+    edit_holdings(app, {0: {'Outside the rebalance': True}})
+    assert button(app, 'What to buy').disabled
+    save_edited_holdings(app)
+    assert not app.exception
+    saved = rebalance_account['payload']['holdings_account']
+    assert saved['positions']['US:GLD']['outside_rebalance'] is True
+    assert saved['positions']['US:GLD']['units'] == '5.0'
+    metrics = {m.label: m.value for m in app.metric}
+    assert metrics['Rebalance account value (included holdings + cash)'] == '₪70.00'
+    assert metrics['Full account value (including outside holdings + cash)'] == '₪245.00'
+    comparison = next(t.value for t in app.dataframe if 'Actual %' in t.value)
+    assert comparison.loc[comparison['Fund'] == 'GLD', 'Status'].item() == 'Outside the rebalance'
+    assert comparison.loc[comparison['Fund'] == 'GLD', 'Target %'].isna().all()
+    assert comparison.loc[comparison['Fund'] == 'IEF', 'Target %'].item() == 1
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    assert {o['id'] for o in app.session_state['rebalance_pending']['orders']} == {'US:IEF'}
+    phone = visit()
+    assert phone.session_state['holdings_account']['positions']['US:GLD']['outside_rebalance'] is True
+    edit_holdings(app, {0: {'Outside the rebalance': False}})
+    assert 'rebalance_pending' not in app.session_state
+    save_edited_holdings(app)
+    assert not app.session_state['holdings_account']['positions']['US:GLD']['outside_rebalance']
+
+
+def test_missing_excluded_us_price_and_fx_do_not_block_included_ils_buys(rebalance_account, monkeypatch):
+    book = rebalance_account['payload']['holdings_account']
+    book['positions']['US:GLD']['outside_rebalance'] = True
+    monkeypatch.setattr(market, 'load_portfolio_signals', lambda labels, *a: ([
+        {'name': label, 'currency': 'ILS', 'target_weights': {'QQQ': 1.},
+         'signal_date': '2026-09-30', 'source_notes': []} for label in labels], []))
+    monkeypatch.setattr(market, 'unit_quote', lambda instrument, *a:
+        {'error': 'Missing', 'fresh': False} if instrument['currency'] == 'USD' else
+        {'price': '10', 'fresh': True, 'as_of': '2026-10-15'})
+    monkeypatch.setattr(market, 'fx_quote', lambda *a: {'error': 'Missing', 'fresh': False})
+    app = visit()
+    metrics = {m.label: m.value for m in app.metric}
+    assert metrics['Rebalance account value (included holdings + cash)'] == '₪0.00'
+    assert metrics['Full account value (including outside holdings + cash)'] == 'Unavailable'
+    assert not button(app, 'What to buy').disabled
+    app.number_input(key='rebalance_new_money').set_value(100.).run()
+    button(app, 'What to buy').click().run()
+    assert not app.exception
+    assert all(o['id'].startswith('TASE:') for o in app.session_state['rebalance_pending']['orders'])
+    assert not any('A held fund needs' in c.value for c in app.caption)
+
+
 def test_page_uses_one_book_when_switching_portfolios_and_on_fresh_device(rebalance_account):
     app = visit()
     original = deepcopy(app.session_state['holdings_account'])
@@ -71,7 +128,7 @@ def test_page_uses_one_book_when_switching_portfolios_and_on_fresh_device(rebala
     assert rebalance_account['payload']['holdings_account'] == original
     phone = visit()
     assert phone.session_state['holdings_account'] == original
-    assert any(metric.label == 'Account value' and metric.value == '₪175.00' for metric in phone.metric)
+    assert any(metric.label == 'Rebalance account value (included holdings + cash)' and metric.value == '₪175.00' for metric in phone.metric)
 
 
 def test_edit_units_then_done_records_only_actual_units_and_unspent_cash(rebalance_account):
