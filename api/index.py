@@ -30,6 +30,7 @@ from haa.strategies.rvol_shifter import RVolShifterCashOnly  # noqa: E402
 from server import private_api, cron, market_cache, signals as signals_page, backtest as backtest_page  # noqa: E402
 from server.cache import ResultCache, data_version, digest  # noqa: E402
 from server.signals_wire import SignalsCompression  # noqa: E402
+from server import rebalance  # noqa: E402
 
 
 app = FastAPI(
@@ -45,7 +46,7 @@ app.add_middleware(SignalsCompression)
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -53,7 +54,7 @@ async def private_headers(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def invalid_input(request, exc):
     # FastAPI's default validation output includes the submitted private values.
-    return JSONResponse(status_code=400 if request.url.path.startswith("/api/backtest") else 422, content={"detail": "Check the request fields and try again."})
+    return JSONResponse(status_code=400 if request.url.path.startswith(("/api/backtest", "/api/rebalance")) else 422, content={"detail": "Check the request fields and try again."})
 
 
 @app.get("/api/strategies")
@@ -307,6 +308,7 @@ def price_check(response: Response) -> dict:
 
 app.include_router(private_api.router)
 app.include_router(cron.router)
+app.include_router(rebalance.router)
 
 
 @app.get("/api/signals")

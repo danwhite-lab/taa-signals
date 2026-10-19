@@ -98,6 +98,13 @@ def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
             old_id = remote["payload"].get("holdings_account", {}).get("last_operation_id")
             if account["last_operation_id"] == old_id:
                 raise HTTPException(409, "This holdings operation ID was already used. Reload before editing.")
+            old_revision = remote["payload"].get("holdings_account", {}).get("revision", 0)
+            if account["revision"] != old_revision + 1:
+                raise HTTPException(409, "Holdings changed. Reload before saving.")
+        allowed = {"version", "revision", "positions", "cash_ils", "last_operation_id", "manual_fx", "manual_fx_date", "updated_at"}
+        position_fields = {"id", "identifier", "market", "currency", "label", "units", "outside_rebalance", "minimum_ils", "manual_price", "manual_price_date", "manual_entered_at"}
+        if set(account) - allowed or any(set(p) - position_fields for p in account["positions"].values()):
+            raise HTTPException(422, "Holdings contain unsupported fields; prices and pending plans must not be saved.")
     # An identical operation retry needs no write, even if the response was lost.
     if payload == remote["payload"]:
         return remote

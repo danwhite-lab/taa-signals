@@ -12,8 +12,8 @@ export default function TopNavigation() {
       <div className="topbar-inner">
         <div className="brand">TAA Signals <span className="preview-badge">Preview</span></div>
         <nav aria-label="Primary navigation" className="primary-nav">
-          {pages.map((page) => ["Rules", "Portfolio", "Signals", "Backtest"].includes(page) ? (
-            <Link key={page} href={`/${page.toLowerCase()}/`} aria-current={pathname.replace(/\/$/, "") === `/${page.toLowerCase()}` ? "page" : undefined}>
+          {pages.map((page) => ["Rules", "Portfolio", "Signals", "Backtest", "Rebalance Holdings"].includes(page) ? (
+            <Link key={page} href={`/${page.toLowerCase().replaceAll(" ", "-")}/`} aria-current={pathname.replace(/\/$/, "") === `/${page.toLowerCase().replaceAll(" ", "-")}` ? "page" : undefined}>
               {page}
             </Link>
           ) : (

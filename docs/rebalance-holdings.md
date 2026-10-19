@@ -37,6 +37,31 @@ US positions can be recorded, but proposed purchases use whole units: broker
 fractional-share support is not assumed. Users must update units after splits
 or other corporate actions; the app does not infer them from adjusted prices.
 
+### Outside holdings
+
+Each fund has an **Outside the rebalance** checkbox, saved with that holding in
+the shared account. It defaults off for old and new holdings. Save holdings
+confirms checkbox changes just like unit edits; unsaved changes invalidate an
+existing buy list. The setting is shared across portfolio selections and devices.
+
+Outside holdings remain visible in the editor and comparison, labelled
+**Outside the rebalance**, without target percentages, actual percentages or
+underweight/overweight status. They contribute nothing to the rebalance account
+value, target amounts, shortfalls or orders. If an outside holding is a target
+fund, its target is removed and remaining target weights scale proportionally to
+100%; strategy signals and saved portfolio weights are not changed. With no
+outside holdings, calculations are unchanged. With all targets outside, no buy
+orders are proposed. Unallocated ILS cash remains included in both totals.
+
+The page separately labels **Rebalance account value (included holdings + cash)**
+and **Full account value (including outside holdings + cash)**. Full value uses
+the same actual prices and dated FX, not invented prices or proxies. Missing
+outside prices or FX make the full value unavailable, but do not prevent sizing
+included funds that have the required current prices/FX. Stale observations stay
+flagged. Excluding a fund does not relax the price rules for included holdings,
+value-to-unit entry, or manual overrides. An outside fund with no usable price
+can still be recorded by entering units directly.
+
 Each editor row accepts Units or Value; the last edited cell controls conversion,
 without a separate entry-mode selector that could silently ignore value edits.
 After saving, value cells are rebuilt from confirmed units and a current actual

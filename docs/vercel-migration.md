@@ -1,11 +1,13 @@
 # Vercel migration skeleton
 
 This is an opt-in migration preview on `vercel-migration`. Nothing in
-`app.py`, `src/haa`, the Streamlit dependency manifests, the existing dashboard,
+`app.py`, strategy/data/engine code, the Streamlit dependency manifests, the existing dashboard,
 or its hosting configuration is changed. Do not merge or point the live domain
 at this skeleton. Browser login and private saved-data endpoints are available (setup below). A fixed-universe live-data
 and backtest diagnostic is available, alongside the authenticated single-strategy
 Backtest page described below. Portfolio backtests and Deep History are not ported.
+Step 5 additionally brings the five approved Rebalance Holdings feature files
+over byte-identically from main; no further edits to those source files are made.
 
 ## What runs
 
@@ -17,6 +19,7 @@ Backtest page described below. Portfolio backtests and Deep History are not port
   the authenticated single-strategy `/api/backtest` routes described below.
   It adds the existing repository `src/` to `sys.path`, then imports the real
   `haa.model_catalog.MODEL_CATALOG`. No strategy/data/backtest code is duplicated.
+  Step 5 also exposes the private `/api/rebalance*` routes listed below.
   JSON preserves every catalogue metadata field except the non-JSON Python class
   reference `model_class`. Private saved-data routes are separately authenticated.
 - `vercel.json`: builds Next.js to `web/out`, serves those static assets, and
@@ -120,7 +123,8 @@ are performed just by adding these files.
 
 `/rules/` is a lightweight, client-rendered methodology page. It fetches only
 `/api/rules`, not prices, portfolio/account data or backtests. The shared top bar
-lists the exact eight current app pages; Rules, Signals and the minimal Portfolio page are enabled.
+lists the exact eight current app pages; Rules, Signals, Backtest, Rebalance Holdings
+and the minimal Portfolio page are enabled.
 Catalogue/diagnostic URLs remain available directly behind the browser login gate.
 
 The existing `app.py` is unchanged and remains the one source for `MODEL_RULES`
@@ -584,3 +588,167 @@ report. Do not adjust methodology to force a match when source data differ.
 No production promotion, manual account writes, database changes or merge are
 part of this step. Frontend tests/build and engine parity checks do not substitute
 for this signed-in cloud/browser comparison.
+
+## Rebalance Holdings migration — Step 5
+
+### Approved Step 0 and protected-file evidence
+
+Main was fetched at `2dd0f9b75c0cd540fdf0910066453c5c67257fc0`. Its only
+post-fork feature changes were the five files Daniel approved:
+
+- `src/haa/rebalance_holdings.py`
+- `src/haa/rebalance_page.py`
+- `tests/test_rebalance_holdings.py`
+- `tests/test_rebalance_ui.py`
+- `docs/rebalance-holdings.md`
+
+Only those files were restored from main, with no merge. Immediately afterward
+`git diff main --` followed by those five paths was empty, and the original suite
+passed **477 tests**, including the outside-rebalance tests. Those five files stay
+byte-identical to main. The final protected check
+`git diff main -- app.py src requirements.txt pyproject.toml` is also empty.
+No other main file was brought over. No database/SQL/RLS/RPC, strategy, allocator,
+price-rule, fee, tax, Streamlit hosting or domain change is part of this step.
+
+### Page, orchestration and save path
+
+`/rebalance-holdings/` is the fifth enabled page, behind the unchanged AuthGate.
+It starts with New money and What to buy, followed by the always-open shared
+holdings editor, the two labelled account totals, target/actual comparison, buy
+list, conditional recording form, collapsed price/FX/sync details and collapsed
+portfolio/signal dates. All new page-owned words are in
+`web/content/rebalance.json`; no dependency or CMS was added.
+
+The browser keeps drafts by security ID. Adding, marking for removal, editing
+units/value/manual prices, changing Outside the rebalance, cash or FX never
+autosaves an older snapshot. The last edited units/value cell supplies the entry
+mode to the server; JavaScript performs no currency, unit, shortfall, target or
+allocation calculation. Explicit preview and field blur request the server's
+conversion preview. Displayed units/values have two decimals, while unchanged
+stored US fractional-unit strings retain their full precision. Dates start blank,
+not today. Quotes remain distinct from stored manual overrides.
+
+`server/rebalance.py` calls the original `validate_account`, `security`,
+`combined_targets`, `rebalance_targets`, `compare_holdings`, `make_buy_plan` and
+`apply_purchases`. `server/rebalance_editor.py` mechanically copies the original
+`_quote_cells` and `_preview_positions` bodies, changing only their import context;
+an AST test verifies identical bodies. No allocator or financial conversion is
+reimplemented. Presentation formatting and unchanged-cell precision preservation
+are separate from allocation. Record preparation revalidates the full proposed
+plan against freshly loaded holdings/targets/quote context before applying the
+existing purchase function. It never saves or calls a broker.
+
+All actual writes still use **PUT /api/workspace** and the existing
+`save_holdings_workspace` helper. That route additionally checks holdings revision
+increments exactly once, and rejects unsupported stored fields such as fetched
+prices or pending plans. A fresh operation ID accompanies a changed notebook;
+identical no-op accounts return the original saved record without a revision
+increment. Manually entered dated prices/FX remain supported notebook fields.
+An identical retry is acknowledged without a second mutation. The original
+helper still reads back after an uncertain server response.
+
+The browser makes one PUT only; if its response is uncertain, it reads back and
+compares the **entire candidate account**, not just the operation ID. Confirmed
+success alone shows Holdings saved. Conflicts and uncertainty preserve the draft
+and pause further writes until explicit Reload, including when read-back confirms
+an uncertain response. No prices, pending plans, confirmation drafts or tokens are
+persisted by this page. No actual user account was read or written during tests
+or the public-data benchmark.
+
+### Endpoints, quotes and caches
+
+All six routes verify the existing user Bearer token and return private no-store
+headers. None accepts a caller-supplied user ID or uses the service-role key:
+
+- `GET /api/rebalance?portfolio_id=...`: saved account, source-derived targets,
+  quotes/FX, editor rows, totals, comparison and readiness.
+- `POST /api/rebalance/refresh`: clears only this page's three quote/FX/target
+  caches and returns a new snapshot; it does not save or poll.
+- `POST /api/rebalance/security`: validates a custom actual security for staging.
+- `POST /api/rebalance/editor`: validates and previews rows, preparing a candidate
+  account; **no write**.
+- `POST /api/rebalance/plan`: runs the original buy-only whole-unit allocator;
+  **no write**.
+- `POST /api/rebalance/record`: revalidates and applies actual confirmed units
+  and spend to prepare a candidate account; **no write**. The browser then uses
+  the single workspace PUT above.
+
+`server/rebalance_quotes.py` mechanically ports the entire original market module,
+replacing only Streamlit imports/decorators with a bounded 300-second deep-copy
+memory cache (`server/rebalance_ttl.py`). Function-body AST checks plus behavioral
+parity tests compare it with the original. API production imports no Streamlit.
+All provider dependencies already existed in `api/requirements.txt`.
+
+Unadjusted Yahoo Close with verified currency, listed-TASE agorot/100, the exact
+three-fund MAYA identity/ISIN/type/currency allowlist, unverified raw-publication
+path, completed-session XNYS/XTAE freshness, manual precedence and dated indicative
+FX are unchanged. No price proxy, filling, publication-lag exception or guessed
+divisor was introduced. Held included funds with stale/missing prices block
+sizing; unpriced zero-unit targets may be skipped without redistributing weights.
+Outside holdings use the original main exclusion/rescaling logic. Their missing
+prices/FX can make the full total unavailable without blocking included holdings.
+Costs still exclude automatically modelled commissions/spreads; actual paid ILS
+can include fees charged to the budget when recording completed trades.
+
+Signals use the ported original `load_portfolio_signals` and original shared
+`portfolio_signal`, not provisional previews. Workspace `ticker_text` is parsed
+when present, with source-setting errors blocking targets rather than silently
+using defaults. If absent, defaults and the absence of uploaded replacements are
+explicitly disclosed. Uploaded replacement series are not in GET /api/workspace
+and cannot be recovered here; they are never guessed or silently recreated.
+
+### Deliberate web differences and verification limits
+
+There is no Streamlit five-second fragment or auto-polling. Requests occur on load,
+field blur/explicit preview, explicit Refresh and user actions. Pending plans live
+only in browser memory, not Streamlit session state or a database. Record checks
+rebuild the original plan and compare its complete inputs/orders before applying
+it. A quote refreshed on another Vercel worker, cache expiry, a completed session
+or target change may invalidate an old plan; regenerate rather than accepting an
+unverifiable price snapshot. There is no new queue or server-side private plan
+store. Raw private-service/gateway failures are masked; draft and sync-paused
+messages remain visible. Provider data/status remains available in price details.
+
+The original Python suite passed 477 tests after Step 0. API tests compare exact
+allocator outputs for empty/underweight/small-budget/minimum/decimal/USD/outside/
+partial cases, stale held/FX blocking, whole-unit rejection, default-off behavior,
+all-targets-outside behavior, exact recording, idempotency, duplicate/overspend/
+stale/forged-plan rejection, server save CAS/revision/operation-ID checks and lost
+responses. Quote tests compare original and ported functions for allowlist pass
+and fail-closed cases, raw closes, dates/calendars, FX and manual precedence,
+unverified funds and actionable targets with a frozen fixture clock. Cache tests
+cover expiry and copy isolation. Web tests cover auth gating, staged draft edits,
+last-edited-cell behavior, manual dates, conflicts, uncertain saves/read-back,
+record acknowledgement/cancel, no-op preparation and content-file wording.
+All automated tests use fake holdings and offline mocks, never production mocks.
+Final suites: **477 original Python**, **171 API** and **43 web** tests passed;
+TypeScript typecheck and production build passed. Existing timestamp-attrs and
+Starlette/httpx warnings remain. No test connects to real account storage.
+
+Separate public-data timing on October 19, 2026 used real SPY and TASE gold
+1147875 signals/quotes plus real indicative FX, a synthetic empty notebook and no
+Supabase environment credentials. Targets took **2.154 s**, quotes/FX **1.147 s**,
+and plan sizing **0.000426 s**, for **3.301 s local total**. Both quotes were fresh
+with actual observation date October 16, and FX was fresh. No amounts or real
+holdings were printed, no prices invented and nothing saved. This is not a Vercel
+cold-start, live MAYA verification, signed-in UI run or account-write benchmark.
+
+Cloud deployment, actual Google sign-in, cross-device writes, live provider access
+from Vercel and the following side-by-side checklist remain unverified here.
+
+### Daniel's manual side-by-side checklist — do not record test buys
+
+1. On the same day, open Streamlit beside the signed-in preview, selecting the
+   same saved portfolio and source settings.
+2. Compare rebalance and full account values; every fund's target %, actual % and
+   status; each buy-list fund's whole units and estimated cost, and leftover cash.
+   Repeat with new money zero and with a real planned deposit.
+3. Mark CSPX Outside the rebalance in both apps. Confirm it stays visible but is
+   excluded, remaining targets rescale and buy lists match.
+4. Confirm a held fund without an automatic price blocks sizing until a correctly
+   dated manual native per-unit price is entered, then compare again.
+5. Open Record these buys and compare its rows to the buy list, then **Cancel**.
+   Never record fictitious trades against real holdings.
+6. Save an unchanged holdings set; confirm no error or unexpected revision bump.
+   Edit then revert a value and check the save round-trip. Any uncertainty pauses
+   saving: keep the draft, inspect sync details and explicitly reload.

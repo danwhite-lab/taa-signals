@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from .rebalance_holdings import (apply_purchases, combined_targets, compare_holdings, empty_account,
-                                 fingerprint, make_buy_plan, number, security, validate_account)
+                                 fingerprint, make_buy_plan, number, rebalance_targets, security, validate_account)
 from . import rebalance_market as market_data
 from .rebalance_market import utc_now
 
@@ -94,6 +94,7 @@ def _preview_positions(account, instruments, rows):
                 errors.append(f"{instruments[key]['label']}: enter the date of the price you are copying.")
                 continue
             position = {**instruments[key], "units": str(number(0 if row["Enter as"] == "Value" else row["Units"])),
+                        "outside_rebalance": bool(row.get("Outside the rebalance", False)),
                         "minimum_ils": str(number(row["Minimum order (₪)"])),
                         "manual_price": str(number(price, positive=True)) if has_price else None,
                         "manual_price_date": price_date if has_price else None}
@@ -202,6 +203,7 @@ def _render_editor(account, instruments, targets, commit_account):
     for key in visible_ids:
         row = account["positions"].get(key, {})
         editor_rows.append({"Security": key, "Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],
+                            "Outside the rebalance": row.get("outside_rebalance", False),
                             "Enter as": "Units", "Value (₪ / $)": None,
                             "Units": float(row.get("units", 0)), "Manual price per unit": float(row["manual_price"]) if row.get("manual_price") else None,
                             "Price date": date.fromisoformat(row["manual_price_date"]) if row.get("manual_price_date") else None,
@@ -221,7 +223,7 @@ def _render_editor(account, instruments, targets, commit_account):
         base = {"key": editor_key, "rows": editor_rows}
         st.session_state["rebalance_editor_base"] = base
     editor_rows = base["rows"]
-    editor_columns = ["Security", "Fund", "Currency", "Enter as", "Value (₪ / $)", "Units",
+    editor_columns = ["Security", "Fund", "Currency", "Outside the rebalance", "Enter as", "Value (₪ / $)", "Units",
                       "Price per unit (₪ / $)", "Price observation date", "Price source", "Price status",
                       "Manual price per unit", "Price date", "Minimum order (₪)", "Remove"]
     # Outside a form: edits rerun immediately so conversions are visible BEFORE saving.
@@ -229,6 +231,7 @@ def _render_editor(account, instruments, targets, commit_account):
         edited = st.data_editor(pd.DataFrame(editor_rows, columns=editor_columns), hide_index=True,
             disabled=["Security", "Fund", "Currency", "Price per unit (₪ / $)", "Price observation date", "Price source", "Price status"], use_container_width=True,
             column_config={"Enter as": None,
+                           "Outside the rebalance": st.column_config.CheckboxColumn(),
                            "Value (₪ / $)": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Units": st.column_config.NumberColumn(min_value=0., format="%.2f"),
                            "Price per unit (₪ / $)": st.column_config.NumberColumn(format="%.6f"),
@@ -346,13 +349,17 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         warning_box = st.container()
         editor_state, unsaved = _render_editor(account, instruments, targets, commit_account) or ("", True)
 
+    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
+    targets = rebalance_targets(account, targets)
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
     quotes = {k: market_data.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(relevant)}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market_data.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
     blocked = {k for k, q in quotes.items() if q.get("error") or not q.get("fresh")}
-    held_blocked = {k for k in blocked if number(account["positions"].get(k, {}).get("units", 0))}
+    held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
     missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
+    needs_rebalance_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
+    rebalance_fx = fx if needs_rebalance_fx else {"price": "1", "fresh": True}
 
     with price_box, st.expander("Prices, FX & sync details", expanded=False):
         if st.button("Refresh prices and targets", key="rebalance_refresh"):
@@ -389,27 +396,42 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             st.caption("Sync is temporarily unavailable; saving will retry.")
 
     comparison, total = [], None
-    if not missing_held and not fx.get("error"):
+    if not missing_held and not rebalance_fx.get("error"):
         try:
-            comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"])
+            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"])
         except (ValueError, KeyError, TypeError):
             pass
+    full_total = None
+    try:
+        full_account = deepcopy(account)
+        for row in full_account["positions"].values():
+            row["outside_rebalance"] = False
+        if not fx.get("error"):
+            _, _, full_total = compare_holdings(full_account, instruments, {}, quotes, fx["price"])
+    except (ValueError, KeyError, TypeError):
+        pass
     with value_box:
-        st.metric("Account value", f"₪{total:,.2f}" if total is not None else "Unavailable")
+        st.metric("Rebalance account value (included holdings + cash)", f"₪{total:,.2f}" if total is not None else "Unavailable")
+        st.metric("Full account value (including outside holdings + cash)", f"₪{full_total:,.2f}" if full_total is not None else "Unavailable")
+        if full_total is None:
+            st.caption("Full account value unavailable: a holding price or FX rate is missing.")
     with comparison_box:
         if not comparison:
-            comparison = [{"Fund": instruments[k]["label"], "Target %": targets.get(k, 0), "Actual %": None,
+            comparison = [{"id": k, "Fund": instruments[k]["label"], "Target %": targets.get(k, 0), "Actual %": None,
                 "Status": "Cannot price" if k in blocked else "Valuation incomplete"} for k in sorted(set(targets) | set(account["positions"]))]
         table = pd.DataFrame(comparison, columns=["Fund", "Target %", "Actual %", "Status"])
         if not portfolio or errors:
             table["Target %"] = None
             table["Status"] = "Target unavailable"
+        outside_rows = [row.get("id") in excluded for row in comparison]
+        table.loc[outside_rows, ["Target %", "Actual %"]] = None
+        table.loc[outside_rows, "Status"] = "Outside the rebalance"
         st.dataframe(table.style.format({"Target %": "{:.2%}", "Actual %": "{:.2%}"}, na_rep="—"), hide_index=True, use_container_width=True)
 
     # Preserve the allocator and its price rules. Skipping an UNHELD fund
     # does not alter account value; keep remaining target weights unchanged.
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and total is not None and not held_blocked and fx.get("fresh") and eligible and not unsaved)
+    ready = bool(portfolio and not errors and total is not None and not held_blocked and rebalance_fx.get("fresh") and eligible and not unsaved)
     context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx,
                "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state}
     pending = st.session_state.get("rebalance_pending")
@@ -421,7 +443,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         generate = st.button("What to buy", key="rebalance_generate", disabled=not ready)
     if generate:
         try:
-            pending = make_buy_plan(account, instruments, eligible, quotes, fx["price"], new_money, context)
+            pending = make_buy_plan(account, instruments, eligible, quotes, rebalance_fx["price"], new_money, context)
             st.session_state["rebalance_pending"] = pending
             st.session_state.pop("rebalance_inputs_changed", None)
         except (ValueError, KeyError, TypeError):
@@ -449,7 +471,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             else:
                 st.caption("No whole-unit order fits the budget, targets and configured minimums.")
             st.caption(f"Leftover: ₪{float(pending['leftover_ils']):,.2f}")
-            if blocked:
+            if blocked - excluded:
                 st.caption("Partial buy list: unpriced, unheld funds were skipped. Targets were not redistributed.")
             if pending["orders"]:
                 _record_step(account, pending, context, commit_account)
