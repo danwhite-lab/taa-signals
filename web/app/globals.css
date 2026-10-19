@@ -117,3 +117,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-page td, .rebalance-page th { white-space: nowrap; padding: .45rem; text-align: left; }
 .rebalance-page details { margin: 1rem 0; }
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.today-page section, .today-page details { margin-top: 1.4rem; }
+.today-page td, .today-page th { padding: .6rem; text-align: left; }
+.today-action-changed { color: #8a5200; }
+.today-action-unchanged { color: #17645f; }

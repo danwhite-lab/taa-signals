@@ -123,7 +123,7 @@ are performed just by adding these files.
 
 `/rules/` is a lightweight, client-rendered methodology page. It fetches only
 `/api/rules`, not prices, portfolio/account data or backtests. The shared top bar
-lists the exact eight current app pages; Rules, Signals, Backtest, Rebalance Holdings
+lists the exact eight current app pages; Today, Rules, Signals, Backtest, Rebalance Holdings
 and the minimal Portfolio page are enabled.
 Catalogue/diagnostic URLs remain available directly behind the browser login gate.
 
@@ -752,3 +752,171 @@ from Vercel and the following side-by-side checklist remain unverified here.
 6. Save an unchanged holdings set; confirm no error or unexpected revision bump.
    Edit then revert a value and check the save round-trip. Any uncertainty pauses
    saving: keep the draft, inspect sync details and explicitly reload.
+
+## Today page migration — Step 6
+
+### Read-only route and payload
+
+`/today/` is enabled first in the existing navigation, behind the unchanged
+AuthGate. The existing home page and all other page routes are unchanged.
+**GET /api/today** uses the existing verified Bearer token and the same user-scoped
+portfolio-list helper as GET /api/portfolios. It selects `is_default` server-side;
+there is no caller user ID, model selector, portfolio ID or `as_of` parameter.
+Query parameters are rejected. Missing/bad tokens return 401, POST returns 405,
+and the route has private no-store response headers. No user workspace, holdings,
+portfolio, SQL, settings, policy or RPC writes are made. The only permitted writes
+are public result-cache entries through the already-existing ResultCache.
+
+The response has `has_default`, the private portfolio `caption`, validation
+`issues`, formatted `signals`, currency-separated `holdings`, a `monthly_action`
+state, `latest_caption`/`stale`, provisional `previews`/`preview_caption`, visible
+`warnings`, public per-model details in `public_sleeves`, and per-sleeve/request
+`timing`. No default is a normal 200 setup state. Missing or malformed payload
+fields, empty/invalid sleeves, unknown labels, invalid weights and missing capital
+or saved FX produce unavailable affected sections, not substituted values or 500s.
+Multiple defaults also produce an explicit unavailable selection rather than an
+arbitrary choice. Provider/private-service failures remain errors, never a fake
+empty portfolio. No amounts or portfolio details are logged.
+
+The page fetches only on mount or explicit Refresh, guards concurrent refreshes,
+and renders server-provided text/numbers. It has no save, edit, delete, allocation
+math, date math, automatic polling or order action. New page-owned words are in
+`web/content/today.json`; original captions/warnings are preserved verbatim.
+It shows the sleeve table before combined holdings, following the brief's numbered
+order. The existing Streamlit code actually places that table below Monthly action;
+this is a presentation-only ordering difference, not a calculation change.
+
+### Reused signal, preview, aggregation and saved-FX logic
+
+`server/today.py` loads each model sequentially through
+`server.signals.load_inputs`, truncates observations at the request's UTC clock,
+and calls the unchanged `haa.portfolio_signals.portfolio_signal` directly. It
+reuses `decision_record`, the shared presentation `display_allocation`, live-loader
+metadata, degraded-failure warnings and the exact Signals `LIVE_NOTICE`. There is
+no second data loader or signal implementation, no inferred price/proxy history
+and no new dependency. As specified, these are the migrated Signals page's default
+live sources; Streamlit-only workspace ticker overrides and uploaded replacement
+series are not ported here. Compare with matching source settings.
+
+The `next_portfolio_preview` helper is copied **verbatim** into a request-local
+nested function in `preview_for`: its frame is closure-local, not mutable global
+state shared by users. An AST test proves the entire original helper is identical.
+Production never imports, reads or executes app.py. Buy-and-hold and daily sleeves
+retain their distinct no-preview messages. Other previews use the original
+month-to-date snapshot, daily-input `include_current_month=True` path, preview
+status helper and unavailable reasons. A preview calculation failure leaves an
+otherwise valid current signal visible, but the partial result is never cached.
+
+Private composition is fresh on every request. It calls the original
+`total_weight`, `aggregate_holdings_by_currency`, `execution_security_label` and
+`convert_currency`; the amount expression is copied from Today. The exact
+`abs(saved_total_weight - 100.0) < 1e-9` gate, trade-flag action precedence, newest
+completed signal date, strictly-more-than-45-day warning, exact dictionary weight
+comparison for Yes/No, and existing Python percent/thousands/two-decimal formats
+are retained. Only the portfolio's **saved** `ils_per_usd` converts the amounts;
+no live FX or invented fallback capital/rate is substituted. UTC dates are used
+for the cache and stale boundary; no browser-local date calculation is introduced.
+
+### Public-only cache and performance limits
+
+The public function accepts only catalogue label, engine/adapter code hash and
+clock. `cached_sleeve` accepts only public model definition and observed input
+frames/metadata/warnings. ResultCache keys use:
+
+`model + exact observed-row data_version + observation range + engine/adapter
+code hash + UTC date + daily completed-session cutoff + source-metadata digest
++ presentation="today-v1"`.
+
+Cached values contain only that strategy's public current decision/target weights,
+preview, metadata/ranges and source warnings. Portfolio name, ID, membership list,
+sleeve percentages, capital, saved FX and user/session data never enter the key or
+cached value. Tests spy on cache arguments and inspect stored warm values using
+distinct fake private markers/amounts. Private composition is never supplied to
+ResultCache. The source/engine code hash includes the new server adapter.
+
+Input retrieval failures, unavailable current signals, unavailable monthly
+previews and computation failures are not cached. Continuous/daily no-preview
+messages are expected states and may be cached with their valid current signal.
+Cache failures degrade visibly and do not recompute twice. Public cache operations
+are the only writes; no new schema/table or cron change is needed. The existing
+300-second function duration is unchanged.
+
+**A repeated visit is not guaranteed near-instant.** Every request still reloads
+the public observations to detect revisions. A changed intraday or historical
+price invalidates its key, as required; do not round away revisions or quietly
+serve an older preview to manufacture hits. Even real cache hits include network
+reload, hashing and JSON-copy cost. No input TTL cache, batching, extra workers or
+background job was added. Any further latency redesign needs a separate decision.
+
+### Tests and local timings
+
+All tests are offline with synthetic prices/portfolios and mocked services.
+Current signals for HAA-Simple, Orthogonal Alpha (multi-asset), Inflation Compass
+Standard (daily inputs), Buy and Hold SPY, USD A-RVol daily and HAA-Simple Israel
+match independent `portfolio_signal` calls on the original-style combined frame:
+exact weights, full decision fields, dates, regimes and trade flags. Preview tests
+compare the original isolated helper and direct engine path, including unavailable
+reasons. Further checks cover mixed currencies/saved FX, exact weight tolerance,
+Yes/No/em-dash, 45/46-day boundary, malformed saved data, no default, auth/no-store,
+read-only routes, revisions/future data/cutoff keys, public-only cache contents,
+failure non-caching, one computation after cache failure, content-file rendering,
+collapsed preview and explicit Refresh. No real portfolio/account was accessed.
+
+Verification: original suite **477 passed**, API suite **219 passed**, web suite
+**50 passed**; TypeScript typecheck and production build passed. Existing
+timestamp-attrs and Starlette/httpx warnings remain. Temporary missing test runtime
+packages were restored without changing repository dependency files. The final
+protected diff `git diff main -- app.py src requirements.txt pyproject.toml` is empty.
+
+Separate public-feed measurements on October 19, 2026 used a hypothetical equal-
+weight five-sleeve portfolio, no real saved records, no Supabase credentials and
+no mocked provider. In a warm local Python process, complete live requests were:
+
+| Model | First live load+calculation | Repeat live request |
+| --- | ---: | ---: |
+| Century Momentum | 1.510 s | 1.002 s |
+| Inflation Compass Standard | 3.354 s | 2.972 s |
+| Buy and Hold Gold GLD | 0.578 s | 0.598 s |
+| Buy and Hold IEF | 0.661 s | 0.642 s |
+| A-RVol Shifter V3 Cash-Only | 1.607 s | 1.316 s |
+| **Whole composition** | **7.720 s** | **6.537 s** |
+
+All current signals were available. Exact data-version hashes changed for **all
+five** on the repeat, so these were legitimate cache misses, not a warm-hit speed
+claim. A further prior-completed-observation cutoff run still saw provider revisions
+in four models (one true hit); it is not used as a stable-data performance claim.
+
+To measure genuine hits, the same production `cached_sleeve` helper was then called
+twice on identical, real downloaded public frames retained in memory. No loader
+was replaced or mocked. Those five real loads initially totalled **5.440 s**.
+The following numbers measure **only the cache/calculation phase**, not another
+full API request, network reload or private composition:
+
+| Model | Cold result cache | Warm result cache |
+| --- | ---: | ---: |
+| Century Momentum | 0.344 s | 0.059 s |
+| Inflation Compass Standard | 1.211 s | 0.244 s |
+| Buy and Hold Gold GLD | 0.081 s | 0.014 s |
+| Buy and Hold IEF | 0.065 s | 0.015 s |
+| A-RVol Shifter V3 Cash-Only | 0.891 s | 0.158 s |
+| **Total cache phase** | **2.591 s** | **0.490 s** |
+
+All five second calls were genuine memory hits. These are local warm-interpreter
+measurements, not Vercel cold-start, remote Supabase-cache latency or guaranteed
+visit times. Cloud deployment, real Google sign-in, provider behaviour on Vercel
+and the user side-by-side checklist below remain unverified.
+
+### Daniel's manual Today checklist — no edits or test trades needed
+
+1. On the same day, open Streamlit Today beside signed-in preview `/today/`, using
+   the same saved default portfolio and matching data-source settings.
+2. Compare every sleeve's weight, current holding and status, then each holding's
+   portfolio weight and amount in each separate currency.
+3. Compare Monthly action and Latest completed signal. If one shows the stale
+   warning, both should for the same observations/date.
+4. Expand both previews and compare projected allocation, Yes/No/em-dash, price
+   date and every unavailable reason; previews must remain non-instructions.
+5. Press Refresh once. With unchanged observations, figures should match; changed
+   public observations legitimately invalidate cache entries.
+6. If no default already exists, both should show the setup message. Do not clear
+   a real default just to test this. Confirm Today offers no save/edit/order action.

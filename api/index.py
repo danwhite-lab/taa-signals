@@ -31,6 +31,7 @@ from server import private_api, cron, market_cache, signals as signals_page, bac
 from server.cache import ResultCache, data_version, digest  # noqa: E402
 from server.signals_wire import SignalsCompression  # noqa: E402
 from server import rebalance  # noqa: E402
+from server import today as today_page  # noqa: E402
 
 
 app = FastAPI(
@@ -46,7 +47,7 @@ app.add_middleware(SignalsCompression)
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -309,6 +310,17 @@ def price_check(response: Response) -> dict:
 app.include_router(private_api.router)
 app.include_router(cron.router)
 app.include_router(rebalance.router)
+
+
+@app.get("/api/today")
+def today(request: Request, session=Depends(private_api.authenticated)):
+    if request.query_params:
+        raise HTTPException(400, "Today reads your saved default portfolio; query parameters are not supported.")
+    started = perf_counter()
+    portfolios = private_api.portfolios(session)
+    result = today_page.compose(portfolios, _engine_code_version())
+    result["timing"]["request_seconds"] = round(perf_counter()-started, 6)
+    return result
 
 
 @app.get("/api/signals")
