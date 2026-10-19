@@ -32,6 +32,26 @@
   "loading": "Loading completed sleeve signals and provisional previews…",
   "requestError": "Today could not be loaded. Refresh to try again; no saved data has been changed.",
   "unauthorized": "Your session expired. Sign in again.",
+  "invalidResponse": "Today received an unreadable server response. Refresh to try again; no saved data has been changed.",
+  "httpError": "Today request failed with HTTP status",
+  "unchanged": "No saved data has been changed.",
+  "requestErrors": {
+    "-1": "Today received an unreadable server response. Refresh to try again; no saved data has been changed.",
+    "0": "The server could not be reached. Check your connection and refresh; no saved data has been changed.",
+    "400": "Today rejected unexpected request parameters. Refresh the page; no saved data has been changed.",
+    "401": "Your session expired. Sign in again.",
+    "403": "Access to Today was denied. Check your sign-in and deployment access.",
+    "404": "The Today API endpoint is unavailable on this deployment. Check that the latest build is deployed.",
+    "429": "The service is receiving too many requests. Wait briefly, then refresh.",
+    "500": "The Today server encountered an internal error. Refresh to try again; no saved data has been changed.",
+    "502": "Today could not reach an upstream service (HTTP 502). Refresh to try again; no saved data has been changed.",
+    "503": "The Today service is unavailable (HTTP 503). Refresh to try again; no saved data has been changed.",
+    "504": "The Today request timed out. Refresh to try again; no saved data has been changed."
+  },
+  "requestDetails": {
+    "Sign-in service is not configured.": "The sign-in service is not configured on this deployment. Check its Supabase environment settings.",
+    "The private-data service could not confirm the operation. Reload before retrying.": "The saved-portfolio service is unavailable. Refresh to try again; no saved data has been changed."
+  },
   "errors": {
     "multiple_defaults": "The saved default portfolio selection is unavailable. Check the defaults on the Portfolio page.",
     "invalid_payload": "The saved portfolio data is unavailable. Check it on the Portfolio page.",

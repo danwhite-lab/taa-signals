@@ -257,6 +257,40 @@ def test_auth_read_only_no_user_id_and_no_mutations(frozen, monkeypatch):
     assert client.get("/api/today", headers=HEADERS).status_code == 401
 
 
+def test_vercel_rewrite_parameter_does_not_block_today(frozen, monkeypatch):
+    monkeypatch.setattr(private.sync, "list_portfolios", lambda *a: [])
+    direct = client.get("/api/today", headers=HEADERS)
+    rewritten = client.get("/api/today?path=today", headers=HEADERS)
+    assert rewritten.status_code == 200, rewritten.text
+    assert rewritten.json()["has_default"] == direct.json()["has_default"] is False
+    monkeypatch.setattr(private.sync, "list_portfolios", lambda *a: fake_portfolio(["Buy and Hold SPY"]))
+    direct = client.get("/api/today", headers=HEADERS).json()
+    rewritten = client.get("/api/today?path=today", headers=HEADERS)
+    assert rewritten.status_code == 200
+    for field in ("signals", "holdings", "previews", "monthly_action"):
+        assert rewritten.json()[field] == direct[field]
+    assert rewritten.headers["cache-control"] == "no-store, private"
+
+
+@pytest.mark.parametrize("query", ["path=other", "path=today&path=today", "path=today&path=other", "path=today&user_id=other", "label=SPY"])
+def test_today_rejects_options_even_with_routing_parameter(frozen, query):
+    response = client.get(f"/api/today?{query}", headers=HEADERS)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Today reads your saved default portfolio; query parameters are not supported."
+
+
+def test_today_configuration_and_private_read_errors_remain_safe(frozen, monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL")
+    response = client.get("/api/today?path=today", headers=HEADERS)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Sign-in service is not configured."
+    monkeypatch.setenv("SUPABASE_URL", "https://mock.invalid")
+    monkeypatch.setattr(private.sync, "list_portfolios", Mock(side_effect=RuntimeError("fake private provider details")))
+    response = client.get("/api/today?path=today", headers=HEADERS)
+    assert response.status_code == 502
+    assert "fake private provider details" not in response.text
+
+
 def test_future_observations_do_not_enter_cache_and_daily_cutoff_is_keyed(frozen, monkeypatch):
     prices = frozen[1]["A-RVol Shifter V3 Cash-Only"][0]
     result = page.public_sleeve("A-RVol Shifter V3 Cash-Only", "code", CLOCK)

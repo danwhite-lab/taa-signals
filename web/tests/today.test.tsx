@@ -12,6 +12,7 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
 } }) }));
 import Page from "../app/today/page";
 import AuthGate from "../components/AuthGate";
+import { ApiError } from "../lib/api";
 
 const payload = { has_default: true, caption: "Fake portfolio · private synced portfolio", issues: [],
   signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null }],
@@ -65,8 +66,33 @@ it("renders unavailable reasons, stale warning and provisional rows without gues
 it("does not expose raw request errors or keep an old report after failed refresh", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />); await screen.findByText(payload.caption);
   mock.response.mockResolvedValue(new Response("fake private error body", { status: 502 }));
-  fireEvent.click(screen.getByText(text.refresh)); await screen.findByText(text.requestError);
+  fireEvent.click(screen.getByText(text.refresh)); await screen.findByText(text.requestErrors["502"]);
   expect(screen.queryByText(payload.caption)).toBeNull(); expect(screen.queryByText("fake private error body")).toBeNull();
+});
+
+it.each([400, 401, 403, 404, 429, 500, 502, 503, 504])("shows a safe specific reason for HTTP %s", async status => {
+  mock.response.mockResolvedValue(new Response("fake private details", { status })); render(<Page />);
+  await screen.findByText((text.requestErrors as Record<string, string>)[String(status)]);
+  expect(screen.queryByText("fake private details")).toBeNull();
+});
+
+it("distinguishes connection failure from an unreadable successful response", async () => {
+  mock.response.mockRejectedValue(new ApiError(0, "fake private details")); render(<Page />);
+  await screen.findByText(text.requestErrors["0"]);
+  mock.response.mockResolvedValue(new Response("not JSON", { status: 200 }));
+  fireEvent.click(screen.getByText(text.refresh)); await screen.findByText(text.invalidResponse);
+  expect(screen.queryByText("not JSON")).toBeNull();
+});
+
+it.each(Object.entries(text.requestDetails))("recognizes only the safe server reason %s", async (detail, message) => {
+  mock.response.mockResolvedValue(json({ detail }, detail.startsWith("Sign-in") ? 503 : 502));
+  render(<Page />); await screen.findByText(message);
+});
+
+it.each(["fake private details", "toString", { private: "fake" }])("does not echo unrecognized JSON error details", async detail => {
+  mock.response.mockResolvedValue(json({ detail }, 502)); render(<Page />);
+  await screen.findByText(text.requestErrors["502"]);
+  expect(screen.queryByText("fake private details")).toBeNull();
 });
 
 it("uses content-file words with no browser financial/date math or user-data writes", () => {

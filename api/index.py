@@ -314,7 +314,9 @@ app.include_router(rebalance.router)
 
 @app.get("/api/today")
 def today(request: Request, session=Depends(private_api.authenticated)):
-    if request.query_params:
+    # Vercel forwards the rewrite capture as ?path=today even when the
+    # browser requested /api/today with no query. It is routing, not input.
+    if request.query_params and request.query_params.multi_items() != [("path", "today")]:
         raise HTTPException(400, "Today reads your saved default portfolio; query parameters are not supported.")
     started = perf_counter()
     portfolios = private_api.portfolios(session)

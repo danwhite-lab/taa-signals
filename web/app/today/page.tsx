@@ -13,6 +13,7 @@ type Today = { has_default: boolean; caption: string | null; issues: string[]; s
   previews: Preview[]; preview_caption: string | null; warnings: string[]; public_sleeves: unknown[]; timing: unknown };
 
 const issue = (key: string | null) => key ? (text.errors as Record<string, string>)[key] ?? text.unavailable : null;
+const requestError = (status: number) => (text.requestErrors as Record<string, string>)[String(status)] ?? `${text.httpError} (${status}). ${text.unchanged}`;
 
 export default function TodayPage() {
   const [value, setValue] = useState<Today | null>(null);
@@ -24,9 +25,23 @@ export default function TodayPage() {
     inFlight.current = true; setBusy(true); setError(""); setValue(null);
     try {
       const response = await authorizedResponse("/api/today");
-      if (!response.ok) throw new ApiError(response.status, text.requestError);
-      setValue(await response.json() as Today);
-    } catch (failure) { setError(failure instanceof ApiError && failure.status === 401 ? text.unauthorized : text.requestError); }
+      if (!response.ok) {
+        let message = requestError(response.status);
+        // Only recognized server reasons are displayed; never echo raw bodies.
+        try {
+          const body = await response.json();
+          if (typeof body.detail === "string" && Object.hasOwn(text.requestDetails, body.detail))
+            message = (text.requestDetails as Record<string, string>)[body.detail];
+        } catch { /* A platform error can be HTML, not JSON. Keep the HTTP reason. */ }
+        setError(message); return;
+      }
+      try { setValue(await response.json() as Today); }
+      catch { throw new ApiError(-1, text.invalidResponse); }
+    } catch (failure) {
+      setError(failure instanceof ApiError
+        ? requestError(failure.status)
+        : text.requestError);
+    }
     finally { inFlight.current = false; setBusy(false); }
   }
   useEffect(() => { void load(); }, []);
