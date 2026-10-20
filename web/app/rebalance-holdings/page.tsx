@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import text from "../../content/rebalance.json";
 import { rebalanceRequest as request, saveHoldings, RebalanceError } from "../../lib/rebalanceApi";
+import * as fmt from "../../lib/format";
 
 type Row = Record<string, string | boolean | null>;
 type Instrument = { id: string; identifier: string; market: string; currency: string; label: string };
@@ -17,7 +18,7 @@ type Plan = { id: string; orders: { id: string; units: number; estimated_ils: st
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const inputKeys = ["Value (₪ / $)", "Units", "Manual price per unit", "Price date", "Minimum order (₪)"];
 const label = (key: string) => text.columns[key as keyof typeof text.columns] ?? key;
-const show = (value: unknown) => value === null || value === undefined ? "—" : String(value);
+const show = (value: unknown, context="") => fmt.cell(value, context);
 
 export default function RebalanceHoldings() {
   const [state, setState] = useState<State | null>(null);
@@ -127,25 +128,25 @@ export default function RebalanceHoldings() {
               value={String(row[key] ?? "")} disabled={busy} onChange={event => edit(String(row.Security), key, event.target.value)}
               onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} /></td>)}
             <td><input type="checkbox" aria-label={`${label("Remove")} ${row.Security}`} checked={!!row.Remove} disabled={busy} onChange={event => edit(String(row.Security), "Remove", event.target.checked)} /></td>
-            {Object.keys(text.quoteColumns).map(key => <td key={key}>{show(state.quotes[String(row.Security)]?.[key])}</td>)}
+            {Object.keys(text.quoteColumns).map(key => <td key={key}>{show(state.quotes[String(row.Security)]?.[key],key)}</td>)}
           </tr>)}
         </tbody></table></div>
         <p>{text.automaticCaption}</p><p>{text.manualCaption}</p>
         <button disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
         {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
           <div className="signal-table-scroll"><table><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
-            <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.values(row).map((value, i) => <td key={i}>{show(value)}</td>)}</tr>)}</tbody></table></div></section>}
+            <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></div></section>}
         <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
         <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
           <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
         <button disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
       </section>
-      <section><h2>{text.rebalanceTotal}</h2><p>{state.total_display}</p><h2>{text.fullTotal}</h2><p>{state.full_total_display}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
+      <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
         {state.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
       {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
-        {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{order.units}</td><td>{order.estimated_ils}</td></tr>)}</tbody></table>
-        {plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {plan.leftover_ils}</p>{state.partial && <p>{text.partial}</p>}
+        {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
+        {plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
         {!!plan.orders.length && <button disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
         {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
@@ -156,10 +157,10 @@ export default function RebalanceHoldings() {
           <button disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
       </section>}
       <details><summary>{text.details}</summary><button disabled={busy || paused} onClick={() => void action(() => refresh())}>{text.refresh}</button><p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
-        <pre>{JSON.stringify({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision }, null, 2)}</pre></details>
+        <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre></details>
       <details><summary>{text.signals}</summary><label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
         {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        {!state.portfolios.length && <p>{text.noPortfolio}</p>}<p>{text.signalCaption}</p><p>{state.source_settings}</p>{state.errors.map((value, i) => <p key={i}>{value}</p>)}<pre>{JSON.stringify(state.signals, null, 2)}</pre></details>
+        {!state.portfolios.length && <p>{text.noPortfolio}</p>}<p>{text.signalCaption}</p><p>{state.source_settings}</p>{state.errors.map((value, i) => <p key={i}>{value}</p>)}<pre>{fmt.json(state.signals)}</pre></details>
     </>}
     <footer>{text.neverOrders}</footer>
   </main>;

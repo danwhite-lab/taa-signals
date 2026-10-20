@@ -20,7 +20,7 @@ from .signals_presentation import display_allocation, rationale
 from .signals_wire import clean, table
 
 DISCLAIMER = "Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution."
-LIVE_NOTICE = "Signals price-cache fallback: using the existing live Yahoo/TASE loaders for the complete selected-model input. The current cache does not preserve all Signals price-field and same-refresh metadata. No cached/live splice or substituted source."
+LIVE_NOTICE = "Public inputs use complete original-loader snapshots cached for up to five minutes, or the existing live Yahoo/TASE/macro loaders on a miss. Original source fields and dates are preserved. No cached/live splice, gap fill or substituted source."
 RESULTS = ResultCache()
 
 
@@ -46,6 +46,12 @@ def selector(definition):
 
 
 def load_inputs(definition, *, daily_bars=False):
+    from .input_cache import inputs
+    return inputs(definition.model_class(), daily_bars,
+                  lambda: live_inputs(definition, daily_bars=daily_bars))
+
+
+def live_inputs(definition, *, daily_bars=False):
     strategy = definition.model_class()
     assets = tuple(getattr(strategy, "data_assets", ASSETS))
     # Same selected-model scope as app.assets_for_models, including its benchmark.

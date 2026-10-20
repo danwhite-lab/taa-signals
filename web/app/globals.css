@@ -124,7 +124,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .today-page section, .today-page details { margin-top: 1.4rem; }
 .today-page td, .today-page th { padding: .6rem; text-align: left; }
-.today-sleeve-table table { table-layout: fixed; white-space: normal; }
-.today-sleeve-table th, .today-sleeve-table td { white-space: normal; overflow-wrap: anywhere; }
+.today-sleeve-table table { table-layout: auto; white-space: normal; min-width: 760px; }
+.today-sleeve-table th, .today-sleeve-table td { white-space: normal; overflow-wrap: normal; word-break: normal; }
 .today-action-changed { color: #8a5200; }
 .today-action-unchanged { color: #17645f; }

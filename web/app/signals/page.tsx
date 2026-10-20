@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import DisplayTable from "../../components/DisplayTable";
+import * as fmt from "../../lib/format";
 import { api } from "../../lib/api";
 
 type Row = Record<string, unknown>;
@@ -22,17 +24,7 @@ export type SignalsPayload = {
   data_origin?: string; timing?: Row; disclaimer: string;
 };
 
-function cell(value: unknown) {
-  return value === null || value === undefined ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-
-export function SignalTableView({ value, label }: { value: SignalTable; label: string }) {
-  return <div className="signal-table-scroll"><table aria-label={label}><thead><tr>
-    {value.columns.map(column => <th key={column} scope="col">{column}</th>)}
-  </tr></thead><tbody>{(value.display_rows ?? value.rows).map((row, index) => <tr key={index}>
-    {value.columns.map(column => <td key={column}>{cell(row[column])}</td>)}
-  </tr>)}</tbody></table>{!value.rows.length && <p>No rows available.</p>}</div>;
-}
+export function SignalTableView({value,label}:{value:SignalTable;label:string}) { return <DisplayTable value={value} label={label}/>; }
 
 export function downloadHistory(csv: string, filename: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -48,17 +40,17 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
   const current = value.current;
   return <>
     <h1>{value.heading}</h1>
-    {value.captions.map((caption, index) => <p key={index} className="signal-caption">{caption}</p>)}
-    {value.warnings.filter(Boolean).map((warning, index) => <div key={index} role="note" className="signal-warning"><Markdown>{warning}</Markdown></div>)}
-    {(value.fallback_warnings ?? []).map((warning, index) => <p key={index} className="signal-source-note">{warning}</p>)}
-    {(value.cache?.warnings ?? []).map((warning, index) => <p key={index} className="signal-source-note">{warning}</p>)}
+    {value.captions.map((caption, index) => <p key={index} className="signal-caption">{fmt.text(caption)}</p>)}
+    {value.warnings.filter(Boolean).map((warning, index) => <div key={index} role="note" className="signal-warning"><Markdown>{fmt.text(warning ?? "")}</Markdown></div>)}
+    {(value.fallback_warnings ?? []).map((warning, index) => <p key={index} className="signal-source-note">{fmt.text(warning)}</p>)}
+    {(value.cache?.warnings ?? []).map((warning, index) => <p key={index} className="signal-source-note">{fmt.text(warning)}</p>)}
     {!current.available && <p role="alert">{current.reason}</p>}
     {value.data?.warnings.map((warning, index) => <div key={index} role="note" className="signal-warning">{warning}</div>)}
     {current.table && <section><SignalTableView value={current.table} label="Current signal" /></section>}
     {current.information && <p className="signal-info">{current.information}</p>}
     {value.mode === "monthly" && current.available && <section className="current-allocation" aria-label="Current allocation">
       <p className="eyebrow">CURRENT ALLOCATION</p><h2>{current.allocation}</h2>
-      <dl><div><dt>Signal date</dt><dd>{current.signal_date}</dd></div><div><dt>Regime</dt><dd>{current.regime}</dd></div></dl>
+      <dl><div><dt>Signal date</dt><dd>{fmt.text(current.signal_date)}</dd></div><div><dt>Regime</dt><dd>{current.regime}</dd></div></dl>
       <p>{current.instruction}</p>
     </section>}
     <div className="signal-tabs" role="tablist" aria-label="Signal detail views">
@@ -68,24 +60,24 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
     <section role="tabpanel" id={`signal-panel-${selected}`} aria-labelledby={`signal-tab-${selected}`}>
       {selected === "Overview" && <>
         <details><summary>Signal summary</summary><dl>
-          <dt>signal date</dt><dd>{current.signal_date}</dd><dt>regime</dt><dd>{current.regime}</dd>
+          <dt>signal date</dt><dd>{fmt.text(current.signal_date)}</dd><dt>regime</dt><dd>{current.regime}</dd>
           <dt>instruction</dt><dd>{current.instruction}</dd><dt>target allocation</dt><dd>{current.allocation}</dd>
         </dl></details>
-        {current.effective_text && <div className={current.effective_start ? "signal-info" : "signal-warning"}><Markdown>{current.effective_text}</Markdown></div>}
+        {current.effective_text && <div className={current.effective_start ? "signal-info" : "signal-warning"}><Markdown>{fmt.text(current.effective_text ?? "")}</Markdown></div>}
         {value.preview && <details><summary>{value.preview.heading}</summary>
           {value.preview.decision ? <>
-            <div className="signal-warning"><Markdown>{value.preview.warning}</Markdown></div>
-            <dl><dt>price data through</dt><dd>{value.preview.price_as_of}</dd><dt>projected regime</dt><dd>{value.preview.regime}</dd>
+            <div className="signal-warning"><Markdown>{fmt.text(value.preview.warning ?? "")}</Markdown></div>
+            <dl><dt>price data through</dt><dd>{fmt.text(value.preview.price_as_of)}</dd><dt>projected regime</dt><dd>{value.preview.regime}</dd>
               <dt>projected allocation</dt><dd>{value.preview.allocation}</dd><dt>change vs current signal</dt><dd>{value.preview.changed ? "Yes" : "No"}</dd></dl>
-            <p className="signal-caption">{value.preview.caption}</p>
+            <p className="signal-caption">{fmt.text(value.preview.caption)}</p>
           </> : <p>{value.preview.unavailable_text}</p>}
         </details>}
       </>}
       {selected === "Rationale" && value.rationale && <>
         <h2>{value.rationale.heading}</h2>
-        {value.rationale.paragraphs.map((text, index) => <p key={index}>{text}</p>)}
+        {value.rationale.paragraphs.map((text, index) => <p key={index}>{fmt.text(text)}</p>)}
         {value.rationale.tables.map((value, index) => <SignalTableView key={index} value={value} label={`Rationale inputs ${index + 1}`} />)}
-        {value.rationale.captions.map((text, index) => <p key={index} className="signal-caption">{text}</p>)}
+        {value.rationale.captions.map((text, index) => <p key={index} className="signal-caption">{fmt.text(text)}</p>)}
       </>}
       {selected === "History" && value.history && <>
         <p>{value.history.count} decisions · newest first</p>
@@ -93,12 +85,12 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
         <SignalTableView value={value.history.table} label="Signal history" />
       </>}
       {selected === "Data" && value.data && <>
-        {value.data.captions.map((text, index) => <p key={index} className="signal-caption">{text}</p>)}
+        {value.data.captions.map((text, index) => <p key={index} className="signal-caption">{fmt.text(text)}</p>)}
         <SignalTableView value={value.data.sources} label="Data sources" />
         {value.mode !== "daily" && <SignalTableView value={value.data.ranges} label="Available date ranges" />}
         {value.data.provenance && <SignalTableView value={value.data.provenance} label="Plain buy-and-hold history sources" />}
-        <p>{value.data_origin}</p><p>Results cache: {value.cache?.hit ?? "Calculated this request"}</p>
-        {value.timing && <pre>{JSON.stringify(value.timing, null, 2)}</pre>}
+        <p>{fmt.text(value.data_origin)}</p><p>Results cache: {value.cache?.hit ?? "Calculated this request"}</p>
+        {value.timing && <pre>{fmt.json(value.timing)}</pre>}
       </>}
     </section>
     <footer>{value.disclaimer}</footer>

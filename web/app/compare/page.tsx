@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import DisplayTable from "../../components/DisplayTable";
+import * as fmt from "../../lib/format";
 import text from "../../content/compare.json";
 import { compareRequest, compareDownload } from "../../lib/compareApi";
 
@@ -13,19 +15,15 @@ type Result = {gate: string; reason?: string; mode: Mode; tax_enabled: boolean; 
   success: string | null; source_caption: string | null; coverage: Table; tables: Record<string, Table>; charts: Record<string, Chart>;
   downloads: {kind: string; label: string; filename: string}[]; cache: {key: string; hit: string | null}; warnings: string[]; timing: unknown; data_validation: Table};
 
-function DataTable({value}: {value: Table}) {
-  return <div className="signal-table-scroll">{value.total_rows !== undefined && <p>{text.preview}: {value.shown_rows} / {value.total_rows}</p>}
-    <table><thead><tr>{value.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{(value.display_rows ?? value.rows).map((row,index) => <tr key={index}>
-      {value.columns.map(column => <td key={column}>{row[column] === null ? "—" : typeof row[column] === "object" ? JSON.stringify(row[column]) : String(row[column] ?? "—")}</td>)}
-    </tr>)}</tbody></table>{!value.rows.length && <p>{text.empty}</p>}</div>;
-}
+function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayTable value={value} label={label}/>; }
+
 function Plot({value, title}: {value?: Chart; title: string}) {
   if (!value) return null;
   const colors = ["#17645f", "#6488a3", "#b58a52", "#7b799c", "#ad6971"];
   return <section><h3>{title}</h3><svg viewBox="0 0 930 300" role="img" aria-label={title}>
-    <text x="0" y="20" fontSize="11">{value.maximum}</text><text x="0" y="250" fontSize="11">{value.minimum}</text>
+    <text x="0" y="20" fontSize="11">{fmt.axis(value.maximum,title)}</text><text x="0" y="250" fontSize="11">{fmt.axis(value.minimum,title)}</text>
     {value.series.map((series,i) => <polyline key={series.label} points={series.svg_points} fill="none" stroke={colors[i%colors.length]} strokeWidth="1.5"><title>{series.label}</title></polyline>)}
-    <text x="55" y="285" fontSize="11">{value.start}</text><text x="870" y="285" fontSize="11" textAnchor="end">{value.end}</text>
+    <text x="55" y="285" fontSize="11">{fmt.date(value.start)}</text><text x="870" y="285" fontSize="11" textAnchor="end">{fmt.date(value.end)}</text>
     </svg><ul>{value.series.map((series,i)=><li style={{color:colors[i%colors.length]}} key={series.label}>{series.label}</li>)}</ul><p>{value.caption}</p></section>;
 }
 
@@ -61,12 +59,13 @@ export default function ComparePage() {
   const suffix=result?.tax_enabled ? "after" : "pre";
   return <main className="backtest-page"><h1>{models ? text.title : text.portfolioTitle}</h1>
     {error && <p role="alert">{error}</p>}
+    {error && options && <button disabled={running} onClick={()=>void run()}>{text.retry}</button>}
     {!options && !error && <p role="status">{text.loading}</p>}
     {!options && error && <button onClick={()=>setRetry(n=>n+1)}>{text.retry}</button>}
     {options && settings && <>
       <fieldset disabled={running}><label>{text.mode}<select value={settings.mode} onChange={e=>change({mode:e.target.value as Mode})}>{Object.entries(text.modes).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-      {models ? <label>{text.models}<select multiple value={settings.models} onChange={e=>change({models:Array.from(e.target.selectedOptions,o=>o.value)})}>{options.models.map(m=><option key={m.label}>{m.label}</option>)}</select></label> :
-        <label>{text.saved}<select multiple value={settings.portfolio_ids} onChange={e=>change({portfolio_ids:Array.from(e.target.selectedOptions,o=>o.value)})}>{options.portfolios.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
+      {models ? <fieldset aria-label={text.models}><legend>{text.models}</legend>{options.models.map(m=><label key={m.label}><input type="checkbox" checked={settings.models.includes(m.label)} onChange={e=>change({models:e.target.checked?[...settings.models,m.label]:settings.models.filter(label=>label!==m.label)})}/>{m.label}</label>)}</fieldset> :
+        <fieldset aria-label={text.saved}><legend>{text.saved}</legend>{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset>}
       </fieldset>
       {!enough ? <p className="signal-info">{models ? text.modelsGate : text.portfoliosGate}</p> : <>
       <p>{models ? text.modelsCaption : text.savedCaption}</p>
@@ -86,7 +85,7 @@ export default function ComparePage() {
     </>}
     {result?.gate === "selection" && <p className="signal-info">{result.reason}</p>}
     {result?.gate === "available" && <section aria-label={text.completed}>
-      <p>{text.completed}</p>{result.success && <Markdown>{result.success}</Markdown>}{result.source_caption && <p>{result.source_caption}</p>}
+      <p>{text.completed}</p>{result.success && <Markdown>{fmt.text(result.success ?? "")}</Markdown>}{result.source_caption && <p>{fmt.text(result.source_caption)}</p>}
       <p>{result.cache.hit ? text.cached : text.calculated}</p>{result.warnings.map((w,i)=><p className="signal-warning" key={i}>{w}</p>)}
       <details><summary>{text.coverage}</summary><DataTable value={result.coverage}/></details>
       <details><summary>{text.sections[0]}</summary>
@@ -105,7 +104,7 @@ export default function ComparePage() {
       </details>
       {!models && <p>{text.closing}</p>}
       <details><summary>{text.sources}</summary><DataTable value={result.data_validation}/></details>
-      <details><summary>{text.timing}</summary><pre>{JSON.stringify(result.timing,null,2)}</pre></details>
+      <details><summary>{text.timing}</summary><pre>{fmt.json(result.timing)}</pre></details>
     </section>}
   </main>;
 }

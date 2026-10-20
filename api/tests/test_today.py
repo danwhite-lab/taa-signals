@@ -66,6 +66,37 @@ def direct_preview(label, prices):
     return namespace["next_portfolio_preview"](label)
 
 
+def test_lazy_main_is_identical_but_never_computes_preview(frozen,monkeypatch):
+    rows=fake_portfolio(["HAA-Simple"])
+    before=page.compose(rows,"original",CLOCK)
+    monkeypatch.setattr(page,"preview_for",Mock(side_effect=AssertionError("Closed preview must not calculate")))
+    after=page.compose(rows,"lazy",CLOCK,include_preview=False)
+    for key in ("signals","holdings","monthly_action","latest_caption","stale"):
+        assert before[key]==after[key]
+    assert after["public_sleeves"][0]["preview"] is None
+    assert after["signals"][0]["amounts"]
+
+
+def test_lazy_route_and_generic_provenance(frozen,monkeypatch):
+    monkeypatch.setattr(private.sync,"list_portfolios",lambda *a:fake_portfolio(["Buy and Hold Gold GLD"]))
+    monkeypatch.setattr(page.signals_page,"load_inputs",lambda definition:fixtures(definition.label))
+    response=client.get("/api/today?preview=false",headers=HEADERS)
+    assert response.status_code==200
+    public=response.json()["public_sleeves"][0]
+    assert public["provenance"]["rows"] and "history_kind" in public["provenance_csv"]
+    assert "no automatic proxy" in public["history_note"]
+
+
+def test_shared_fund_line_only_for_shared_currency_scoped_funds(frozen,monkeypatch):
+    monkeypatch.setattr(page,"public_sleeve",lambda *a:fake_public())
+    result=page.compose(fake_portfolio(["HAA-Simple","Inflation Compass Standard"]),"code",CLOCK)
+    assert len(result["shared_holdings"])==1
+    assert result["shared_holdings"][0]["currency"]=="USD"
+    assert result["shared_holdings"][0]["amount"]==result["holdings"][0]["rows"][0]["amount"]
+    result=page.compose(fake_portfolio(["HAA-Simple"]),"code",CLOCK)
+    assert result["shared_holdings"]==[]
+
+
 @pytest.mark.parametrize("label", LABELS)
 def test_current_signal_matches_original_combined_frame_and_pure_helper(frozen, monkeypatch, label):
     combined, bundles = frozen
@@ -109,7 +140,8 @@ def test_preview_source_verbatim_and_all_original_page_words_preserved():
         assert phrase in values
     # The production helper is baked source, not an app.py runtime reader.
     production = (ROOT/"server/today.py").read_text()
-    assert "read_text" not in production and "exec(" not in production
+    assert '"web/content/today.json").read_text()' in production
+    assert '"app.py").read_text()' not in production and "exec(" not in production
 
 
 @pytest.mark.parametrize("label,reason,stamp", [("HAA-Simple", "No common current-month price row is available for the preview.", None),
@@ -219,7 +251,7 @@ def test_cache_hit_revised_data_parameters_and_no_private_cache_contents(frozen,
     serialized = json.dumps({"calls": calls, "cached": list(page.RESULTS.warm.values())})
     for private_value in ("PRIVATE-FAKE", "ANOTHER-PRIVATE", "1234567.89", "4.12345", "9999876.54", "9.87654", "total_ils", "ils_per_usd", "portfolio"):
         assert private_value not in serialized
-    assert calls[0]["params"]["presentation"] == "today-v1"
+    assert calls[0]["params"]["presentation"] == "today-v2"
     prices = bundles["Buy and Hold SPY"][0]
     prices.iloc[0,0] += .01
     assert page.compose(rows, "code", CLOCK)["public_sleeves"][0]["cache"]["hit"] is None

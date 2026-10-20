@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import * as fmt from "../../lib/format";
 
-function readable(value: unknown): string {
+function readable(value: unknown, context=""): string {
   if (value === null) return "Not available";
-  if (Array.isArray(value)) return value.map(readable).join("\n\n");
+  if (Array.isArray(value)) return value.map(item=>readable(item,context)).join("\n\n");
   if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => `${key.replaceAll("_", " ")}: ${readable(item)}`)
+      .map(([key, item]) => `${key.replaceAll("_", " ")}: ${readable(item,key)}`)
       .join("\n");
   }
-  return String(value);
+  return /error/i.test(context) ? String(value) : fmt.cell(value,context);
 }
 
 export default function PriceCheck() {

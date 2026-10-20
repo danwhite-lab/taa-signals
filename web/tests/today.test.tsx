@@ -15,7 +15,8 @@ import AuthGate from "../components/AuthGate";
 import { ApiError } from "../lib/api";
 
 const payload = { has_default: true, caption: "Fake portfolio · private synced portfolio", issues: [],
-  signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null }],
+  signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null,
+    amounts:[{holding:"Fake holding",amount:2500,currency:"USD"},{holding:"Fake local holding",amount:6000,currency:"ILS"}] }],
   holdings: [{ currency: "USD", rows: [{ holding: "Fake holding", weight_text: "40.00%", amount_text: "2,500.00" }] },
     { currency: "ILS", rows: [{ holding: "Fake local holding", weight_text: "60.00%", amount_text: "6,000.00" }] }],
   monthly_action: "unchanged", latest_caption: "Latest completed signal: 2026-09-30", stale: false,
@@ -31,11 +32,21 @@ it("does not mount or fetch Today before the existing login gate admits it", asy
 it("renders only server-formatted currency amounts and starts with preview collapsed", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />);
   await screen.findByText(payload.caption);
-  expect(screen.getByText("2,500.00")).toBeTruthy(); expect(screen.getByText("6,000.00")).toBeTruthy();
+  expect(screen.getByText("Fake holding: 2,500.00 USD")).toBeTruthy(); expect(screen.getByText("Fake local holding: 6,000.00 ILS")).toBeTruthy();
   expect(screen.getByText(text.preview).closest("details")).toHaveProperty("open", false);
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
   expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([text.refresh]);
-  expect(mock.response).toHaveBeenCalledWith("/api/today");
+  expect(mock.response).toHaveBeenCalledWith("/api/today?preview=false");
+});
+
+it("loads provisional preview only on opening and keeps action before the merged sleeve table",async()=>{
+  mock.response.mockImplementation(async()=>json(payload));render(<Page/>);await screen.findByText(payload.caption);
+  const action=screen.getByText(text.monthlyAction), table=screen.getByRole("table",{name:text.sleeveSignals});
+  expect(action.compareDocumentPosition(table)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(mock.response).toHaveBeenCalledTimes(1);
+  const details=screen.getByText(text.preview).closest("details")!;details.open=true;fireEvent(details,new Event("toggle"));
+  await waitFor(()=>expect(mock.response).toHaveBeenCalledWith("/api/today?preview=true"));
+  await screen.findByText("16 Oct 2026");
 });
 
 it("fetches only on load and explicit Refresh and prevents concurrent refreshes", async () => {
@@ -46,7 +57,7 @@ it("fetches only on load and explicit Refresh and prevents concurrent refreshes"
   expect(mock.response).toHaveBeenCalledTimes(2); expect(screen.getByText(text.loading)).toBeTruthy();
   expect(screen.queryByText(payload.caption)).toBeNull();
   resolve(json(payload)); await screen.findByText(payload.caption);
-  expect(mock.response.mock.calls.every(args => args.length === 1 && args[0] === "/api/today")).toBe(true);
+  expect(mock.response.mock.calls.every(args => args.length === 1 && args[0] === "/api/today?preview=false")).toBe(true);
 });
 
 it("shows the exact normal setup message when there is no default", async () => {

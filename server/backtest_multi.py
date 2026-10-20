@@ -22,6 +22,7 @@ from haa.synthetic_history import monthly_blend_input
 from . import backtest as base, signals
 from .cache import data_version, digest
 from .signals_wire import clean, table
+from .performance import decisions as cached_decisions
 
 WORDS = json.loads((Path(__file__).resolve().parents[1]/"web/content/backtest-multi.json").read_text())
 MODELS = {m.label: m.model_class for m in base.MODEL_CATALOG}
@@ -146,7 +147,7 @@ def live_inputs(request):
         daily = prices.loc[:, sleeve_assets]
         market = tuple(dict.fromkeys((*getattr(strategy, "market_data_assets", sleeve_assets), benchmark)))
         monthly, decision_monthly = monthly_strategy_input(daily, market)
-        decisions = strategy.decisions(daily if getattr(strategy, "uses_daily_signals", False) else decision_monthly)
+        decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else decision_monthly)
         key = f"{sleeve.model} ({sleeve.id})"
         models[key] = (sleeve.weight/100, ModelInput(key, decisions, monthly, daily, benchmark, opens, definition.execution_currency))
     observations = {str(a): [{"date": day.isoformat(), "value": clean(v)} for day, v in prices[a].items()] for a in prices}

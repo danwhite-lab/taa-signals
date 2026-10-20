@@ -71,7 +71,7 @@ it("keeps all added component wording in data files and scopes Today wrapping", 
   expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);
   expect(source).not.toMatch(/reduce\(|toFixed|\/api\/workspace|localStorage|sessionStorage/);
   const css = readFileSync("./app/globals.css", "utf8");
-  expect(css).toContain(".today-sleeve-table table { table-layout: fixed; white-space: normal; }");
+  expect(css).toContain(".today-sleeve-table table { table-layout: auto; white-space: normal; min-width: 760px; }");
   expect(css).toContain(".signal-table-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; white-space: nowrap; }");
   expect(readFileSync("./app/today/page.tsx", "utf8")).toContain("signal-table-scroll today-sleeve-table");
 });

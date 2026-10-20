@@ -24,6 +24,7 @@ from haa.tase_data import plain_holding_provenance
 from . import cache as store, signals
 from .cache import ResultCache, data_version, digest
 from .signals_wire import clean, table
+from .performance import decisions as cached_decisions
 
 RESULTS = ResultCache()
 PREVIEW_ROWS = 150
@@ -231,7 +232,7 @@ def run(request, code):
         def compute():
             signal_start = perf_counter()
             inputs = prices if getattr(strategy, "uses_daily_signals", False) else monthly_input
-            decisions = strategy.decisions(inputs, cash_start=start if request.reference_replay else None) if getattr(strategy, "signal_calendar", None) == "XNYS" else strategy.decisions(inputs)
+            decisions = cached_decisions(strategy, inputs, cash_start=start if request.reference_replay else None) if getattr(strategy, "signal_calendar", None) == "XNYS" else cached_decisions(strategy, inputs)
             if decisions.empty:
                 raise ValueError(f"Insufficient history for {strategy.name}.")
             signal_done = perf_counter()

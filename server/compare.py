@@ -13,7 +13,8 @@ import pandas as pd
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from haa.comparison import ModelInput, compare_models
-from haa.portfolio_comparison import compare_portfolios
+from .compare_execution import compare_portfolios
+from .performance import decisions as cached_decisions, span, measure
 from haa.portfolio_config import backtest_portfolio_config
 from . import backtest as base, backtest_multi as multi, signals, cache as store
 from .cache import ResultCache, digest, data_version
@@ -108,7 +109,7 @@ def load(request, chosen):
         daily = prices.loc[:, own]
         market = getattr(strategy, "market_data_assets", own)
         monthly = base.data.to_month_end(daily.loc[:, list(market)])
-        decisions = strategy.decisions(daily if getattr(strategy, "uses_daily_signals", False) else monthly)
+        decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else monthly)
         inputs[d.label] = ModelInput(d.label, decisions, monthly, daily, getattr(strategy, "benchmark_asset", "SPY"), execution_currency=d.execution_currency)
         first, last = base.data.common_monthly_period(monthly)
         if first is None or last is None: raise ValueError(WORDS["noMonthly"].format(name=d.label))
@@ -134,6 +135,8 @@ def calculate(request, loaded):
     lower, upper = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
     start, end = request.start or lower, request.end or upper
     if not lower <= start <= end <= upper: error("dateRange")
+    if start == lower and end == upper:
+        return preliminary, (lower, upper)
     return compare_portfolios(*args, pd.Timestamp(start), pd.Timestamp(end), drift=request.method == "daily"), (lower, upper)
 
 
@@ -158,7 +161,7 @@ def run_loaded(request, chosen, loaded, code, *, started=None, input_seconds=0.)
         for r in result.results.values():
             nav = r.daily if r.daily is not None else r.monthly
             if nav.empty or not np.isfinite(nav[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all(): error("invalidResult")
-        bundle = present(request, result, loaded, bounds)
+        with span("result_seconds"): bundle = present(request, result, loaded, bounds)
         bundle["public"]["calculation_timing"] = {"input_seconds": input_seconds, "engine_seconds": round(elapsed, 6)}
         if len(json.dumps({**bundle["public"], "warnings": loaded["warnings"], "downloads": manifest(bundle)}, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
         return bundle
@@ -176,8 +179,12 @@ def run(request, records, code):
     if len(chosen) < 2: return {"gate": "selection", "reason": WORDS["modelsGate" if request.mode == "models" else "portfoliosGate"]}
     started = perf_counter()
     try:
-        loaded = load(request, chosen)
-        return run_loaded(request, chosen, loaded, code, started=started, input_seconds=perf_counter()-started)
+        with measure() as phases:
+            with span("load_seconds"): loaded = load(request, chosen)
+            result = run_loaded(request, chosen, loaded, code, started=started, input_seconds=perf_counter()-started)
+            result["timing"]["phases"] = {k:round(v,6) for k,v in phases.items()}
+            LOG.info("compare phases %s", result["timing"]["phases"])
+            return result
     except HTTPException: raise
     except Exception as exc: raise HTTPException(400, signals.safe_error(exc)) from None
 

@@ -20,9 +20,11 @@ async function ready(){
   mock.download.mockResolvedValue(undefined);render(<Page/>);return screen.findByRole("button",{name:text.run});
 }
 function select(label:string,values:string[]){
-  const select=screen.getByLabelText(label) as HTMLSelectElement;
-  for(const option of Array.from(select.options)) option.selected=values.includes(option.value);
-  fireEvent.change(select);
+  const group=screen.getByRole("group",{name:label});
+  for(const input of Array.from(group.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+    const value=label===text.models?input.parentElement!.textContent:input.value;
+    if(input.checked!==values.includes(value!))fireEvent.click(input);
+  }
 }
 
 it("uses the existing sign-in gate",async()=>{

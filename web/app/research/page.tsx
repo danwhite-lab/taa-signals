@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import DisplayTable from "../../components/DisplayTable";
+import * as fmt from "../../lib/format";
 import text from "../../content/research.json";
 import { researchRequest, researchDownload } from "../../lib/researchApi";
 
@@ -17,24 +19,19 @@ type Report = {gate: string; reason: string | null; initial: number; currency: s
   cache: {hit: string | null; key: string}; timing: unknown; calculation_timing: unknown;
   downloads: {kind: string; label: string; filename: string}[]};
 
-function DataTable({value}: {value: Table}) {
-  return <div className="signal-table-scroll">{value.total_rows !== undefined && <p>{text.preview}: {value.shown_rows} / {value.total_rows}</p>}
-    <table><thead><tr>{value.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{value.rows.map((row, index) => <tr key={index}>
-      {value.columns.map(column => <td key={column}>{row[column] === null ? "—" : typeof row[column] === "object" ? JSON.stringify(row[column]) : String(row[column] ?? "—")}</td>)}
-    </tr>)}</tbody></table>{!value.rows.length && <p>{text.empty}</p>}</div>;
-}
+function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayTable value={value} label={label}/>; }
 
 function Plot({value, title}: {value: Chart | null; title: string}) {
   if (!value) return null;
   return <section><h3>{title}</h3><svg viewBox="0 0 1000 450" role="img" aria-label={title}>
     <line x1="60" y1={value.zero_y} x2="940" y2={value.zero_y} stroke="#b8c5cc" />
-    <text x="0" y="35" fontSize="12">{value.maximum}</text><text x="0" y="285" fontSize="12">{value.minimum}</text>
-    {value.marks.map((m, i) => value.kind === "box" ? <g key={i}><title>{m.tooltip}</title>
+    <text x="0" y="35" fontSize="12">{fmt.axis(value.maximum,title)}</text><text x="0" y="285" fontSize="12">{fmt.axis(value.minimum,title)}</text>
+    {value.marks.map((m, i) => value.kind === "box" ? <g key={i}><title>{fmt.text(m.tooltip)}</title>
       <line x1={m.x} x2={m.x} y1={m.high} y2={m.low} stroke="#17645f" />
       <rect x={m.x-m.width/2} y={m.q3} width={m.width} height={m.q1-m.q3} fill="#d4e5e3" stroke="#17645f" />
       <line x1={m.x-m.width/2} x2={m.x+m.width/2} y1={m.median} y2={m.median} stroke="#17645f" />
       {m.outliers.map((y, j) => <circle key={j} cx={m.x} cy={y} r="2" fill="#17645f" />)}</g> :
-      <rect key={i} x={m.x} y={m.y} width={m.width} height={m.height} fill={m.color}><title>{m.tooltip}</title></rect>)}
+      <rect key={i} x={m.x} y={m.y} width={m.width} height={m.height} fill={m.color}><title>{fmt.text(m.tooltip)}</title></rect>)}
     {value.labels.map((label, i) => <text key={i} x={label.x} y="305" transform={label.transform} textAnchor="end" fontSize="10">{label.text}</text>)}
   </svg><ul>{value.legend.map(item => <li key={item.label} style={{color:item.color}}>{item.label}</li>)}</ul><p>{value.caption}</p></section>;
 }
@@ -102,9 +99,9 @@ export default function ResearchPage() {
       <details><summary>{text.sources}</summary><DataTable value={options.data_validation} /></details>
     </>}
     {result?.gate === "available" && <section aria-label={text.completed}>
-      <p>{text.completed}</p><p>{text.initial}: {result.initial} · {text.currency}: {result.currency}</p><p>{result.cache.hit ? text.cached : text.calculated}</p>
+      <p>{text.completed}</p><p>{text.initial}: {fmt.number(result.initial,true)} · {text.currency}: {result.currency}</p><p>{result.cache.hit ? text.cached : text.calculated}</p>
       {result.warnings.map((w,i) => <p className="signal-warning" key={i}>{w}</p>)}
-      <div className="backtest-grid">{result.cards.map(card => <section key={card.label}><h3>{card.label}</h3><p>{card.value}</p></section>)}</div>
+      <div className="backtest-grid">{result.cards.map(card => <section key={card.label}><h3>{card.label}</h3><p>{fmt.cell(card.value,card.label)}</p></section>)}</div>
       <h2>{text.checksTitle}</h2><DataTable value={result.checks} /><h2>{text.meansTitle}</h2><p>{result.meaning}</p><p>{text.limits}</p>
       <details><summary>{text.sections[0]}</summary><DataTable value={result.tables.scenarios} /><Plot value={result.charts.scenarios} title={text.scenarioChart} />{download("scenarios")}</details>
       <details><summary>{text.sections[1]}</summary><DataTable value={result.tables.execution} /><p>{text.executionCaption}</p></details>
@@ -112,7 +109,7 @@ export default function ResearchPage() {
       <details><summary>{text.sections[3]}</summary><h3>{text.proxies}</h3><DataTable value={result.tables.proxies} /><p>{text.proxyCaption}</p><h3>{text.quality}</h3><p>{text.qualityCaption}</p><DataTable value={result.tables.data_quality} />{download("data_quality")}</details>
       <details><summary>{text.sections[4]}</summary><p>{text.bootstrapCaption}</p>{result.has_bootstrap ? <><DataTable value={result.tables.monte_carlo} /><Plot value={result.charts.monte_carlo} title={text.bootstrapChart} />{download("monte_carlo")}</> : <p>{text.noBootstrap}</p>}</details>
       <details><summary>{text.sections[5]}</summary><h3>{text.overall}</h3><p>{result.grade}</p><p>{text.scoreCaption}</p><details><summary>{text.scoreTitle}</summary><Markdown>{text.scoreMarkdown.replace(/^ {4,}/gm, "")}</Markdown></details><DataTable value={result.tables.scorecard} />{download("scorecard")}</details>
-      <details><summary>{text.timing}</summary><pre>{JSON.stringify(result.timing,null,2)}</pre><h3>{text.originalTiming}</h3><pre>{JSON.stringify(result.calculation_timing,null,2)}</pre></details>
+      <details><summary>{text.timing}</summary><pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre></details>
     </section>}
     {result && result.gate !== "available" && <p className="signal-info">{result.reason}</p>}
   </main>;

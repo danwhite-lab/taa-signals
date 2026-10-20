@@ -42,10 +42,10 @@ it("requires the existing login gate before fetching holdings", async () => {
 
 it("last edited value/units wins, outside edits invalidate the plan, and draft adds preserve inputs", async () => {
   await ready();
-  fireEvent.click(screen.getByText(text.generate)); await screen.findByText(text.leftover+": 5");
+  fireEvent.click(screen.getByText(text.generate)); await screen.findByText(text.leftover+": 5.00");
   fireEvent.change(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`), { target: { value: "125" } });
   expect(screen.getByText(text.generate)).toHaveProperty("disabled", true);
-  expect(screen.queryByText(text.leftover+": 5")).toBeNull();
+  expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
   fireEvent.change(screen.getByLabelText(text.known), { target: { value: other.id } });
   fireEvent.click(screen.getByText(text.addSelected)); await screen.findByLabelText(`${text.columns.Units} US:IEF`);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`)).toHaveProperty("value", "125");

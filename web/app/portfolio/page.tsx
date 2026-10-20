@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
+import { date } from "../../lib/format";
 
 export default function Portfolio() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -74,7 +75,7 @@ export default function Portfolio() {
     <section><h2>Your library</h2>
       {!portfolios.length && <p>No saved portfolios loaded.</p>}
       <ul>{portfolios.map(item => <li key={item.id}><button disabled={busy || uncertain} onClick={() => choose(item)}>
-        {item.name}{item.is_default ? " · Default" : ""}</button><small>Updated {item.updated_at}</small></li>)}</ul>
+        {item.name}{item.is_default ? " · Default" : ""}</button><small>Updated {date(item.updated_at)}</small></li>)}</ul>
       <button disabled={busy || uncertain} onClick={() => choose(null)}>New portfolio</button>
     </section>
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>

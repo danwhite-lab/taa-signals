@@ -162,7 +162,7 @@ def test_portfolio_parity_and_no_private_cache_or_writes(signed_in,monkeypatch,m
     cache_spy=Mock(wraps=page.RESULTS.run);monkeypatch.setattr(page.RESULTS,"run",cache_spy)
     body={"mode":"portfolios","portfolio_ids":[r["id"] for r in records],"initial":10000,"fee_pct":.05,"tax_enabled":taxed,"method":method}
     value=post(body)
-    assert spy.call_count==2 and len(calls)==1 and calls[0][1]==(method=="daily")
+    assert spy.call_count==1 and len(calls)==1 and calls[0][1]==(method=="daily")
     suffix="after" if taxed else "pre";column="after_tax_value" if taxed else "pre_tax_value"
     summary=pd.DataFrame({name:result_metrics(r,column,10000) for name,r in direct.results.items()})
     first=next(iter(direct.results.values()));summary["SPY buy-and-hold"]=result_metrics(first,"benchmark_value",10000)
@@ -177,7 +177,7 @@ def test_portfolio_parity_and_no_private_cache_or_writes(signed_in,monkeypatch,m
     curves["SPY buy-and-hold"]=(first.daily if method=="daily" else first.monthly).benchmark_value
     assert value["charts"]["drawdown"]==view.plot(curves.div(curves.cummax().clip(lower=10000)).sub(1))
     again=post(body)
-    assert spy.call_count==2 and again["cache"]["hit"]=="memory" and again["timing"]["engine_seconds"]==0
+    assert spy.call_count==1 and again["cache"]["hit"]=="memory" and again["timing"]["engine_seconds"]==0
     envelope=json.dumps({k:v for k,v in cache_spy.call_args.kwargs.items() if k!="compute"})+json.dumps(list(page.RESULTS.warm.values()))
     for marker in ("FAKE-ID", "FAKE-PRIVATE", "mock-user", "mock-token", "3.14159", "12345", "portfolio_ids", "is_default"):
         assert marker not in envelope

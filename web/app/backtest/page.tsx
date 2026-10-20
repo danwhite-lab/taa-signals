@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import DisplayTable from "../../components/DisplayTable";
+import * as fmt from "../../lib/format";
 import text from "../../content/backtest.json";
 import multiText from "../../content/backtest-multi.json";
 import MultiForm from "./multi-form";
@@ -23,26 +25,14 @@ type Results = { label: string; currency: string; settings: Row; engine_paramete
   rolling?: { years: number; label: string; table: Table; chart: Chart }[];
   cards?: { label: string; value: string; delta?: string }[]; value_title?: string; drawdown_title?: string; summary_title?: string; data_validation?: Table };
 
-function show(value: unknown) {
-  return value === null || value === undefined ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-
-function DataTable({ value, label }: { value: Table; label: string }) {
-  return <div className="signal-table-scroll">
-    {value.total_rows !== undefined && <p>{text.tablePreview}: {value.shown_rows} / {value.total_rows}</p>}
-    <table aria-label={label}><thead><tr>{value.columns.map(column => <th key={column}>{column}</th>)}</tr></thead>
-      <tbody>{(value.display_rows ?? value.rows).map((row, index) => <tr key={index}>
-        {value.columns.map(column => <td key={column}>{show(row[column])}</td>)}
-      </tr>)}</tbody></table>{!value.rows.length && <p>{text.empty}</p>}
-  </div>;
-}
+function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayTable value={value} label={label}/>; }
 
 function Lines({ value, title }: { value: Chart; title: string }) {
   const colors = ["#17645f", "#6488a3", "#b58a52"];
   return <section><h2>{title}</h2><svg viewBox="0 0 900 290" role="img" aria-label={title}>
     <line x1="55" y1="30" x2="55" y2="250" stroke="#dce2e8" /><line x1="55" y1="250" x2="870" y2="250" stroke="#dce2e8" />
-    <text x="0" y="28" fontSize="12">{value.maximum}</text><text x="0" y="250" fontSize="12">{value.minimum}</text>
-    <text x="55" y="277" fontSize="12">{value.start}</text><text x="870" y="277" fontSize="12" textAnchor="end">{value.end}</text>
+    <text x="0" y="28" fontSize="12">{fmt.axis(value.maximum,title)}</text><text x="0" y="250" fontSize="12">{fmt.axis(value.minimum,title)}</text>
+    <text x="55" y="277" fontSize="12">{fmt.date(value.start)}</text><text x="870" y="277" fontSize="12" textAnchor="end">{fmt.date(value.end)}</text>
     {value.series.map((series, index) => <polyline key={series.label} points={series.svg_points} fill="none" stroke={colors[index % colors.length]} strokeWidth="1.7" />)}
   </svg><ul aria-label={text.legend}>{value.series.map((series, index) => <li key={series.label} style={{ color: colors[index % colors.length] }}>{series.label}</li>)}</ul>
     <p>{value.caption}</p></section>;
@@ -161,13 +151,13 @@ export default function BacktestPage() {
     {result && <div aria-label={text.results}>
       <h2>{result.label}</h2><p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
       <section><h2>{text.settings}</h2><p>{text.currency}: {result.currency}</p>
-        <h3>{text.configuredSettings}</h3><dl>{Object.entries(result.settings).map(([key, value]) => <div key={key}><dt>{(text.settingLabels as Record<string, string>)[key] ?? key}</dt><dd>{show(value)}</dd></div>)}</dl>
-        <h3>{text.engineSettings}</h3><dl>{Object.entries(result.engine_parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{show(value)}</dd></div>)}</dl></section>
+        <h3>{text.configuredSettings}</h3><dl>{Object.entries(result.settings).map(([key, value]) => <div key={key}><dt>{(text.settingLabels as Record<string, string>)[key] ?? key}</dt><dd>{fmt.configuration(value,key,result.settings.fee_type==="percentage")}</dd></div>)}</dl>
+        <h3>{text.engineSettings}</h3><dl>{Object.entries(result.engine_parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{fmt.cell(value,key)}</dd></div>)}</dl></section>
       <p>{text.legacyCaptions}</p>
       {result.captions.map((value, index) => <div key={index}><Markdown>{value}</Markdown></div>)}
       {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
       {mode !== "single" && result.data_validation && <details><summary>{text.validation}</summary><p>{result.data_origin}</p><DataTable value={result.data_validation} label={text.sources} /></details>}
-      {result.cards && <section className="backtest-grid">{result.cards.map(card => <div key={card.label}><h3>{card.label}</h3><p>{card.value}</p>{card.delta && <p>{card.delta}</p>}</div>)}</section>}
+      {result.cards && <section className="backtest-grid">{result.cards.map(card => <div key={card.label}><h3>{card.label}</h3><p>{fmt.cell(card.value,card.label)}</p>{card.delta && <p>{card.delta}</p>}</div>)}</section>}
       <section><h2>{result.summary_title ?? text.summary}</h2><DataTable value={result.summary} label={result.summary_title ?? text.summary} /></section>
       <Lines value={result.value_chart} title={result.value_title ?? text.performance} /><Lines value={result.drawdown_chart} title={result.drawdown_title ?? text.drawdown} />
       {result.extra_charts?.map(item => <Lines key={item.label} value={item.value} title={item.label} />)}
@@ -183,7 +173,7 @@ export default function BacktestPage() {
       <details><summary>{text.returns}</summary><DataTable value={result.annual} label={text.annual} /><DataTable value={result.monthly} label={text.monthly} /></details>
       <section><h2>{text.downloads}</h2><div className="actions">{result.downloads.map(item => <button key={item.kind}
         onClick={() => void backtestDownload(result.cache.key, item.kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>)}</div></section>
-      <details><summary>{text.timing}</summary><pre>{JSON.stringify(result.timing, null, 2)}</pre><h3>{text.originalTiming}</h3><pre>{JSON.stringify(result.calculation_timing, null, 2)}</pre></details>
+      <details><summary>{text.timing}</summary><pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre></details>
     </div>}
     <footer>{text.disclaimer}</footer>
   </main>;

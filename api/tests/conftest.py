@@ -5,6 +5,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
+    from server.performance import MEMO
+    MEMO.clear()
+    from server.input_cache import RESULTS
+    RESULTS.warm.clear()
     def forbidden(*args, **kwargs):
         raise AssertionError("Network is forbidden in tests; use mocks.")
     monkeypatch.setattr(socket.socket, "connect", forbidden)
