@@ -72,5 +72,5 @@ def test_deployment_bundles_source_and_navigation_keeps_other_pages_disabled():
                       and node.args[0].value == "Primary navigation")
     for name in ast.literal_eval(navigation.args[1]):
         assert f'"{name}"' in source
-    assert '["Rules", "Portfolio", "Signals", "Backtest", "Rebalance Holdings", "Today", "Research"].includes(page)' in source
+    assert '["Rules", "Portfolio", "Signals", "Backtest", "Rebalance Holdings", "Today", "Research", "Compare"].includes(page)' in source
     assert 'aria-disabled="true"' in source

@@ -1095,7 +1095,7 @@ comparison below. A Git build status, if checked, does not prove these workflows
 
 ### Scope and paths
 
-Research is enabled at `/research/`; Compare remains disabled. No existing
+Research is enabled at `/research/`; Compare was subsequently enabled in Step 9. No existing
 Streamlit, strategy, portfolio, Today, fee, deployment-setting or database-setting
 behaviour is changed. There are no new dependencies.
 
@@ -1229,3 +1229,161 @@ side-by-side comparison. A successful Git/Vercel build alone does not prove them
 4. Change initial capital and rerun: final-value-style figures scale, growth
    rates and grades do not move.
 5. Confirm Research saves nothing and offers no edit/order actions.
+
+## Compare migration - Step 9
+
+### Scope and paths
+
+The final navigation page, `/compare/`, is enabled. Models mode compares selected
+backtestable catalogue entries; Portfolios mode reads selected saved records
+from the signed-in library. This page never edits a saved record or default.
+Streamlit, strategy code, existing pages, settings/domains/cron, dependencies and
+all deferred tidy-up items remain untouched.
+
+- `server/compare.py`: input validation, catalogue/selection gates, union loading,
+  original engine orchestration, public cache envelope and CSV retrieval.
+- `server/compare_presentation.py`: original summary/turnover/allocation formulas,
+  existing metric functions and row-format lists, Python CSVs and SVG series.
+- `web/content/compare.json`: page-owned text and verbatim original captions.
+- `web/app/compare/page.tsx`, `web/lib/compareApi.ts`: explicit Run, both selectors,
+  settings, bounded previews, SVG charts and authenticated downloads.
+- `api/index.py`: three new routes and no-store/safe-validation handling scoped
+  to Compare; existing endpoint behaviour is unchanged.
+- `web/components/top-navigation.tsx`, `api/tests/test_rules.py`: enable Compare
+  and update the navigation assertion. No existing page component/CSS changes.
+- `api/tests/test_compare.py`, `web/tests/compare.test.tsx`: offline coverage.
+
+Routes: `GET /api/compare/options` returns catalogue labels/benchmarks/currencies,
+private saved-portfolio selector summaries and independent defaults (initial
+100,000, fee 0%, tax OFF, tax rate 25%). It downloads no prices and runs no
+engine. `POST /api/compare` accepts mode, labels or saved IDs, monthly/daily
+portfolio method, capital, percentage fee, tax settings and optional dates.
+`GET /api/compare/download?key=...&kind=...` serves full cached Python CSVs:
+`monthly-returns`, `after-tax-monthly-returns`, `portfolio-returns` and
+`audit:<catalogue label>`. Missing bundles return an explicit rerun-required
+404, never a recalculation. API financial errors are shown rather than hidden.
+
+### Original engines and deliberate differences
+
+Models loads the selected union with each model's own benchmark (no extra SPY
+addition). Production decisions use the original daily/monthly decision input
+and month-end market frame. `haa.comparison.compare_models` is called once; its
+original independent runs, shared-period intersection and rebased reruns are
+not replaced or optimised. Mixed benchmark/currency, daily execution and
+single-strategy-only refusals remain unchanged.
+
+Portfolios validates records with the existing saved-portfolio parser and uses
+Step 7's union loader: shared SPY, model-specific monthly/decision frames and
+adjusted opens when daily sleeves require them. `compare_portfolios` runs once
+to discover the common executable window, then once with the requested dates,
+inside one request. Monthly resets and initial-weights/daily valuation use the
+original engines. USD-only, benchmark, A-RVol-monthly, gap, inconsistent-benchmark
+and no-shared-history refusals are preserved. Saved FX is validated by the
+existing parser but is not used to change Compare's user-entered USD capital.
+
+All metrics use existing `performance_metrics`, `result_metrics` and
+`annual_returns`. Allocation changes/year and turnover, latest dictionary
+weights and audit filenames follow the original expressions. Portfolio test
+date rows port the existing `add_test_dates` presentation expression literally.
+Models drawdown uses curve/running maximum minus one; portfolio drawdown retains
+the original running-maximum floor at initial capital. No financial JavaScript.
+
+Deliberate differences:
+
+- Explicit Run only, disabled while running; no price downloads/engine calls
+  from edits or initial options. Mode/selection/method/settings edits clear the
+  previous result. Tax defaults OFF independently of Backtest.
+- Initially collapsed Performance / Drawdown / Details / Returns sections replace
+  the four Streamlit tabs, retaining their internal content order; native SVG.
+- Models defaults to the first two case-insensitively sorted eligible entries,
+  not the last Backtest selection.
+- Blank dates mean full common history; Run rejects out-of-range/inverted dates
+  instead of silently clamping. Derived bounds/coverage appear with the result.
+- No custom Yahoo overrides, uploaded price CSVs or device-JSON portfolio import.
+- Saved names are only in the private no-store selector response. Compared
+  portfolios use neutral `Portfolio 1`, `Portfolio 2`, etc., in **selection
+  order**, not saved-library positions. This is explained on the page so no
+  private name/ID needs reinserting into public cached results or CSVs.
+- Portfolio monthly returns are displayed as well as downloadable (the old
+  block exported them without rendering its constructed table).
+
+### Cache, privacy and limits
+
+All routes require the existing server-verified Bearer session and return private
+no-store headers. The Supabase skill guided reuse of that verified-user/read-only
+library path; no auth code, RLS, schema or project settings changed. Saved records
+are read through the existing GET-portfolios helper. Unknown models/IDs or invalid
+bodies return 400 without echoing submitted private values; missing/bad tokens
+return 401 and wrong methods 405. Application logs contain timings only.
+
+Bounded ResultCache tags are `compare-models-v1` and `compare-portfolios-v1`.
+Keys contain sorted public model labels or per-portfolio public sleeve
+compositions plus their exact execution order, all settings/capital, engine/server
+code and content hashes, observed data version (including adjusted opens),
+source metadata, UTC date and completed-session cutoffs. Never saved names,
+library positions, record IDs, saved capital/FX, payloads, user IDs or tokens.
+Tests read fake records through the real helper/parser path, spy on cache
+arguments and inspect stored bundles; any saved-record write fails a test.
+Renaming/changing saved capital/FX leaves the key unchanged, while changing the
+public sleeve execution order invalidates it. Live inputs are checked before
+lookup; hits perform zero comparison-engine work. Exceptions and oversized
+responses are not cached.
+
+The pre-cache 2.9 MB check and final 3,000,000-byte guard apply to main JSON.
+Tables preview at most 150 rows with a visible notice; metrics and Python
+`to_csv()` downloads use all rows and retain the original index/filenames.
+Charts use the established labelled 700-observation display limit. Gateway/
+timeout failures show the existing exact five-minute message without partial
+results. No minimum-fee warning or rule was added to Compare or elsewhere.
+
+### Verification and local timings
+
+Offline suites: **477 original Python**, **331 API**, **91 web** tests passed;
+TypeScript typecheck and production build passed. Existing timestamp-attrs and
+Starlette/httpx warnings remain. Coverage includes direct engine parity, multi-
+asset latest weights, tax on/off, nonzero fees, narrowed dates, turnover/change
+rows, full indexed CSV bytes/filenames, monthly portfolios and daily A-RVol,
+engine refusal messages, public cache/privacy/order/invalidation/failures/size,
+auth/no-store/routes, both selection gates, verbatim captions, duplicate guard,
+timeout, cleared results and collapsed sections.
+`git diff main -- app.py src requirements.txt pyproject.toml` is empty.
+
+October 20 real-data measurements used warm local interpreters/cold result
+caches, no Supabase credentials/private reads, default hypothetical capital,
+zero fees and tax ON at 25%. Models: HAA-Simple, Inflation Compass Standard,
+HAA Classic (No QQQ), all SPY-benchmark (no substitutions needed). Monthly
+portfolios: first two models at 60/40, all three at 40/30/30. Daily portfolios:
+Century Momentum/IC Standard at 60/40 and CM/IC/USD A-RVol at 40/30/30. These
+were constructed version-1 payloads, not saved user records or provider mocks.
+
+| Mode | Input load / preparation | Engine | Total cold result | Retained-frame hit | Main JSON bytes | Peak process MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Three monthly models | 3.917682 s | 0.762225 s | 4.715725 s | 0.001340 s | 146,342 | 223.14 |
+| Two daily-valued portfolios, including A-RVol | 4.520215 s | 15.190148 s | 19.741281 s | 0.000625 s | 110,519 | 280.67 |
+| Two monthly-reset portfolios | 4.086943 s | 2.982443 s | 7.089330 s | 0.000722 s | 72,386 | 222.53 |
+
+Input time includes download, preprocessing, production decisions and version
+hashing. Retained-frame repeats use the real cache path with identical actually
+downloaded frames and zero engine work; they **exclude another input load** and
+are not fresh HTTP-request timings. Peak memory is process high-water RSS, not
+incremental engine allocation. These are not Vercel cold-start/provider-latency/
+remote-cache guarantees. No run approached 300 seconds; that setting is unchanged.
+
+Not verified: signed-in cloud runs, remote-cache CSV restoration, browser visual
+fit on laptop/phone or the side-by-side checks below. A Git/Vercel build status
+does not establish those workflows. No production cutover, merge or PR is part
+of this task; the other deferred tidy-up items remain parked.
+
+### Daniel's manual side-by-side checklist — not yet completed
+
+1. Same day: Streamlit Compare beside signed-in `/compare/`. Models mode:
+   HAA-Simple and Inflation Compass Standard, tax ON. Compare summary, equity
+   and drawdown charts, annual/monthly returns and latest allocation. Download
+   monthly returns and one audit CSV from both apps and compare bytes.
+2. Add a third model, narrow the start date in both, and confirm shared windows.
+3. Select one USD and one ILS model: both must show the same benchmark refusal.
+4. Portfolios: the same two saved portfolios, monthly resets, tax off then on.
+   Compare the full performance table including SPY and the returns CSVs.
+5. Switch to daily valuation with an A-RVol sleeve: curves/closing caption must
+   match. Then monthly resets with A-RVol: both must refuse identically.
+6. Confirm Compare saves nothing and never changes a saved portfolio or default.

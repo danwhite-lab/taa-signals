@@ -34,6 +34,7 @@ from server import rebalance  # noqa: E402
 from server import today as today_page  # noqa: E402
 from server import backtest_multi  # noqa: E402
 from server import research  # noqa: E402
+from server import compare as compare_page  # noqa: E402
 
 
 app = FastAPI(
@@ -49,7 +50,7 @@ app.add_middleware(SignalsCompression)
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -57,7 +58,7 @@ async def private_headers(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def invalid_input(request, exc):
     # FastAPI's default validation output includes the submitted private values.
-    return JSONResponse(status_code=400 if request.url.path.startswith(("/api/backtest", "/api/rebalance", "/api/research")) else 422, content={"detail": "Check the request fields and try again."})
+    return JSONResponse(status_code=400 if request.url.path.startswith(("/api/backtest", "/api/rebalance", "/api/research", "/api/compare")) else 422, content={"detail": "Check the request fields and try again."})
 
 
 @app.get("/api/strategies")
@@ -350,6 +351,24 @@ def backtest_options(label: str = "HAA-Simple", session=Depends(private_api.auth
 @app.get("/api/research/options")
 def research_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
     return research.options(label)
+
+
+@app.get("/api/compare/options")
+def compare_options(session=Depends(private_api.authenticated)):
+    return compare_page.options(private_api.portfolios(session))
+
+
+@app.post("/api/compare")
+def compare_run(body: compare_page.Inputs, session=Depends(private_api.authenticated)):
+    records = private_api.portfolios(session) if body.mode == "portfolios" else []
+    return compare_page.run(body, records, _engine_code_version())
+
+
+@app.get("/api/compare/download")
+def compare_download(key: str, kind: str, session=Depends(private_api.authenticated)):
+    item = compare_page.download(key, kind)
+    return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'})
 
 
 @app.post("/api/research")
