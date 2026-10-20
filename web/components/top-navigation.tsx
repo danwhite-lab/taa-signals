@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import TestLoginBadge from "./TestLoginBadge";
 
 const pages = ["Today", "Signals", "Portfolio", "Rebalance Holdings", "Backtest", "Research", "Compare", "Rules"];
 
@@ -10,7 +11,7 @@ export default function TopNavigation() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="brand">TAA Signals <span className="preview-badge">Preview</span></div>
+        <div className="brand">TAA Signals <span className="preview-badge">Preview</span> <TestLoginBadge /></div>
         <nav aria-label="Primary navigation" className="primary-nav">
           {pages.map((page) => ["Rules", "Portfolio", "Signals", "Backtest", "Rebalance Holdings", "Today", "Research", "Compare"].includes(page) ? (
             <Link key={page} href={`/${page.toLowerCase().replaceAll(" ", "-")}/`} aria-current={pathname.replace(/\/$/, "") === `/${page.toLowerCase().replaceAll(" ", "-")}` ? "page" : undefined}>

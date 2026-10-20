@@ -1387,3 +1387,134 @@ of this task; the other deferred tidy-up items remain parked.
 5. Switch to daily valuation with an A-RVol sleeve: curves/closing caption must
    match. Then monthly resets with A-RVol: both must refuse identically.
 6. Confirm Compare saves nothing and never changes a saved portfolio or default.
+
+## Optional test login - Step 10
+
+### Scope and session flow
+
+`server/test_login.py` adds GET/POST `/api/test-login` and authenticated GET
+`/api/test-login/status`. `api/index.py` registers the routes and applies
+private/no-store, no-cache and nosniff headers to them, including errors.
+`web/components/TestLogin.tsx` adds a small optional section after the unchanged
+Google button. `web/lib/testLogin.ts` installs the returned Supabase access and
+refresh tokens through the existing browser client's `auth.setSession`, then
+navigates to `/portfolio/`, the same landing page as Google. Tokens never enter
+URLs. This matches the existing browser-stored/Bearer session, **not cookies**;
+Daniel explicitly approved that adjustment. No Next.js server/SSR migration.
+
+The Google OAuth handler, callback, Supabase client configuration, AuthGate,
+API Bearer helper, redirect URLs, Streamlit and engine/maths code are unchanged.
+All new UI text and generic error wording live in `web/content/auth.json`.
+`TestLoginBadge.tsx` adds a visible TEST LOGIN shell badge only after the
+server's existing verified-user dependency confirms the configured identity;
+it does not trust editable metadata or a browser flag. Account changes/sign-out
+clear it and late responses cannot label the previous account as current.
+
+### Gates and safeguards
+
+All three server-only variables are required: `TEST_LOGIN_ENABLED=true`,
+`TEST_LOGIN_EMAIL`, `TEST_LOGIN_PASSWORD`. Missing/empty values or a flag other
+than the exact string `true` yield 404 and no form. The static page initially
+renders no test form, then asks the server about availability; it never receives
+configured credential values. No `NEXT_PUBLIC_` credential variables.
+
+When `VERCEL_ENV=production`, `TEST_LOGIN_ALLOW_PRODUCTION=true` is additionally
+required. If Vercel is detected but its environment classification is missing
+or unknown, the gate fails closed. The backend checks the gate again on submit.
+Credentials are compared using constant-time SHA-256 digest comparisons for
+both fields, with no email short-circuit. Only matching credentials are sent
+to ordinary Supabase password sign-in, with the public key, never service-role
+or admin APIs. Server persistence/auto-refresh is disabled: the existing browser
+client owns refresh rotation. The returned user must match the configured user.
+
+All failure messages, including bad credentials, provider errors and throttling,
+are exactly `Sign-in failed`; raw provider/request bodies are never logged or
+displayed. Only access/refresh tokens are returned on success, not credentials
+or a user record. The route requires a bounded JSON body (8 KiB), rejects extra
+fields, cross-site requests and mismatched Origins, and never accepts a return
+URL. The form clears the entered password after each completed submission.
+
+The in-memory limiter allows five attempts per IP per rolling 15 minutes,
+including successful and malformed attempts. It stores hashed IPs, is locked
+for concurrent requests, caps at 4,096 live entries and fails closed at capacity.
+On Vercel it uses the platform's `x-vercel-forwarded-for`; elsewhere it ignores
+spoofable forwarding headers and uses the socket peer. **This is per warm
+worker**, resets on cold starts/redeploys and is not a globally distributed
+rate-limit guarantee; Supabase's own auth protections also continue to apply.
+
+### Read-only live isolation audit — October 20
+
+Inspected PostgreSQL table/policy/function/grant metadata only; no private row
+contents, test-user creation, SQL/schema/settings changes or user-data writes.
+
+| Table | Isolation / sharing |
+| --- | --- |
+| `user_settings` | RLS enabled. SELECT/UPDATE/DELETE use `auth.uid() = user_id`; INSERT and UPDATE enforce the same ownership with WITH CHECK. Holds preferences and holdings. |
+| `portfolios` | RLS enabled with equivalent ownership policies for all four operations. Existing save RPC is security INVOKER, derives `auth.uid()` and scopes both saves/default changes to that user. |
+| `price_cache` | Shared public-market data. RLS enabled, no anon/authenticated policies: browsers cannot read or write its rows. Server service-role cache access only. |
+| `results_cache` | Shared public-only diagnostics/computations. Same RLS/no-browser-policy arrangement. Server service-role cache access only. |
+
+The live database has broad SQL role grants, including on the caches; effective
+browser row access is denied by RLS's lack of policies, not by grant revocation.
+This differs from the stricter grants in the checked-in cache SQL, but does not
+permit browser cache reads/writes. No grant changes were made.
+
+Private API calls use the public key plus server-verified user token, never a
+service key. Settings reads/writes and the API delete add explicit user filters;
+the shared `list_portfolios` helper (and an older unused-by-this-API delete
+helper) rely on the database's ownership RLS rather than adding a redundant
+client `.eq('user_id', ...)`. No caller-controlled user ID is used. These are
+ordinary normal-user sessions, so the reviewer starts with their own account
+data; no special permission or visibility exceptions were introduced.
+
+### Vercel environment finding
+
+The signed-in Vercel **Domains** screen for `signalboard` showed
+`signalboard-dun.vercel.app` as **Valid Configuration · Production** on October
+20. It therefore counts as the Production deployment environment
+(`VERCEL_ENV=production`), not Preview, despite the app's visible Preview label.
+This was a dashboard classification check, not an execution of an environment-
+dump endpoint. No domain, project or environment setting was changed.
+
+### Daniel's manual activation / removal checklist
+
+1. Supabase Dashboard → Authentication → Users: create a separate normal user
+   with your chosen email/password, with email auto-confirmed. Enter neither
+   credential in Git, this document, a prompt, an issue, nor a public variable.
+2. In Vercel, for the deployment environment you want, add server-only
+   `TEST_LOGIN_ENABLED` with value `true`, `TEST_LOGIN_EMAIL` and
+   `TEST_LOGIN_PASSWORD` using that same user's credentials. Preserve the app's
+   existing Supabase URL/public-key variables.
+3. For `signalboard-dun.vercel.app` specifically, Production also requires the
+   deliberate fourth variable `TEST_LOGIN_ALLOW_PRODUCTION=true`. Alternatively
+   enable only Preview and use a Preview deployment without that exception.
+4. Redeploy that environment. Check Google still works; then test the new login,
+   TEST LOGIN badge, empty library, normal saves, refresh and backtest access.
+5. To disable: delete the three `TEST_LOGIN_*` activation/credential variables
+   and the production exception if set, then redeploy every environment where
+   enabled. The form disappears and login returns 404. This does **not revoke
+   existing normal Supabase sessions**. Sign out/revoke the test user's sessions
+   or ban/retire that account if continued access must stop; an already-issued
+   access token can remain valid until expiry. Removing credentials also means
+   the badge can no longer identify that account, but does not alter its rights.
+
+No real test user/credentials were created, read or stored for this work; no
+activation variables were set. Actual credential sign-in, isolation between two
+real sessions and the live badge remain manual checks until the account exists.
+
+### Verification
+
+Offline tests use generated-at-runtime credentials and mocked Auth responses;
+no credential values are committed in fixtures or documentation. Coverage:
+all missing-variable gates, production guard and fail-closed environment,
+both constant-time comparisons, success/session tokens, generic/redacted errors,
+provider failure, limiter/window recovery/capacity/IP handling, invalid/oversized/
+cross-origin requests, verified identity/badge races, hidden default UI, browser
+session installation/landing page, duplicate submits and unchanged Google flow.
+The test harness clears these variables to avoid using real environment values.
+
+Full suites: **477 original Python**, **358 API**, **105 web** tests passed;
+TypeScript and the production build passed. Existing Streamlit timestamp-attrs
+and Starlette/httpx warnings remain. Protected check
+`git diff main -- app.py src requirements.txt pyproject.toml` is empty. No merge,
+PR, production promotion, database/settings/domain changes or user creation.

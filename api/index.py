@@ -35,6 +35,7 @@ from server import today as today_page  # noqa: E402
 from server import backtest_multi  # noqa: E402
 from server import research  # noqa: E402
 from server import compare as compare_page  # noqa: E402
+from server import test_login  # noqa: E402
 
 
 app = FastAPI(
@@ -45,13 +46,19 @@ app = FastAPI(
     openapi_url=None,
 )
 app.add_middleware(SignalsCompression)
+app.include_router(test_login.router)
 
 
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare")):
+    if request.url.path.startswith("/api/test-login") and response.status_code >= 400:
+        response = JSONResponse({"detail": test_login.WORDS["failure"]}, status_code=response.status_code)
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login")):
         response.headers["Cache-Control"] = "no-store, private"
+    if request.url.path.startswith("/api/test-login"):
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 
