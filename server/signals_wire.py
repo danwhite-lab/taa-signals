@@ -54,5 +54,5 @@ class SignalsCompression:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
-        target = self.compressed if scope.get("type") == "http" and (path == "/api/signals" or path.startswith("/api/backtest")) else self.app
+        target = self.compressed if scope.get("type") == "http" and (path == "/api/signals" or path.startswith(("/api/backtest", "/api/research"))) else self.app
         await target(scope, receive, send)

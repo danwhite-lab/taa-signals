@@ -33,6 +33,7 @@ from server.signals_wire import SignalsCompression  # noqa: E402
 from server import rebalance  # noqa: E402
 from server import today as today_page  # noqa: E402
 from server import backtest_multi  # noqa: E402
+from server import research  # noqa: E402
 
 
 app = FastAPI(
@@ -48,7 +49,7 @@ app.add_middleware(SignalsCompression)
 @app.middleware("http")
 async def private_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research")):
         response.headers["Cache-Control"] = "no-store, private"
     return response
 
@@ -56,7 +57,7 @@ async def private_headers(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def invalid_input(request, exc):
     # FastAPI's default validation output includes the submitted private values.
-    return JSONResponse(status_code=400 if request.url.path.startswith(("/api/backtest", "/api/rebalance")) else 422, content={"detail": "Check the request fields and try again."})
+    return JSONResponse(status_code=400 if request.url.path.startswith(("/api/backtest", "/api/rebalance", "/api/research")) else 422, content={"detail": "Check the request fields and try again."})
 
 
 @app.get("/api/strategies")
@@ -344,6 +345,23 @@ def signals(label: str = "HAA-Simple", as_of: str | None = None,
 @app.get("/api/backtest/options")
 def backtest_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
     return backtest_page.options(label)
+
+
+@app.get("/api/research/options")
+def research_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
+    return research.options(label)
+
+
+@app.post("/api/research")
+def research_run(body: research.Inputs, session=Depends(private_api.authenticated)):
+    return research.run(body, _engine_code_version())
+
+
+@app.get("/api/research/download")
+def research_download(key: str, kind: str, session=Depends(private_api.authenticated)):
+    item = research.download(key, kind)
+    return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'})
 
 
 @app.post("/api/backtest")

@@ -1090,3 +1090,142 @@ comparison below. A Git build status, if checked, does not prove these workflows
 4. Open Today on laptop and phone: Status should fit without sideways scrolling.
 5. Confirm that no Backtest mode saves, edits or deletes a portfolio. Do not
    record fictitious trades or change your real portfolio for a test.
+
+## Research migration - Step 8
+
+### Scope and paths
+
+Research is enabled at `/research/`; Compare remains disabled. No existing
+Streamlit, strategy, portfolio, Today, fee, deployment-setting or database-setting
+behaviour is changed. There are no new dependencies.
+
+- `server/research.py`: catalogue gates, existing input loading/preprocessing,
+  original validation invocation, bounded public result cache and CSV retrieval.
+- `server/research_presentation.py`: original report tables, verdicts, evidence,
+  Python CSVs and bounded native-SVG chart geometry.
+- `web/content/research.json`: all page-owned wording, including verbatim old
+  captions, explainers and interpretations (source-literal tests enforce this).
+- `web/app/research/page.tsx`, `web/lib/researchApi.ts`: selectors, explicit Run,
+  progress/error handling, results and authenticated downloads.
+- `api/index.py`, `server/signals_wire.py`: authenticated routes and the existing
+  compression convention. `web/components/top-navigation.tsx` enables Research.
+- `api/tests/test_research.py`, `web/tests/research.test.tsx`: offline coverage;
+  `api/tests/test_rules.py` updates the enabled-navigation assertion.
+
+`GET /api/research/options?label=...` returns catalogue entries (including gates),
+profile, public sources, derived full-history bounds and default capital. It
+loads public inputs and production decisions to derive metadata, but never runs
+validation or returns prices. `POST /api/research` accepts only `{label, initial}`
+(default 100,000, minimum 1 in the implementation currency). It returns the gate,
+profile/history, cards/evidence, bounded report tables/charts, CSV manifest,
+warnings, cache information and separate input/validation timings.
+`GET /api/research/download?key=...&kind=...` serves the cached Python CSV; a cold
+worker without the bundle returns an explicit rerun-required 404, never reruns.
+
+### Engine, behaviour and deliberate differences
+
+Gates preserve their original order: missing profile and its class-declared
+reason first; unavailable executable history second. Research uses the existing
+Step 4 loaders and preprocessing, augmenting assets only with every declared
+research proxy. Production decisions, monthly execution prices, daily prices
+and monthly/daily proxy series go unchanged into the original `ValidationInput`.
+Each cache miss calls `haa.validation.run_deterministic_validation` exactly once.
+All scenarios, rolling windows, eras, quality checks, fixed-seed bootstrap and
+grades are calculated by that unchanged engine, not financial JavaScript.
+
+Deliberate presentation differences:
+
+- Explicit Run only; no automatic validation when selecting a model or editing
+  capital. An in-flight guard prevents duplicate requests.
+- Six initially collapsed sections instead of Streamlit tabs; explainers remain
+  collapsed. Charts are native SVG, with Python-derived geometry and statistics.
+- The history caption always uses the full validation-input monthly frame. It
+  cannot inherit dates left over from Backtest in the Streamlit session.
+- Initial capital is the only numerical setting. No date, fee or tax controls.
+- Custom Yahoo ticker overrides and replacement-price CSV uploads are unported.
+- Changing the model or capital clears the old result. Timeout/gateway errors
+  show the existing exact five-minute message and no partial report.
+
+Two source/brief discrepancies were preserved rather than changing strategies:
+
+1. Original USD BAA-G4 Aggressive declares **zero** proxy substitutions. The
+   Israel version declares **three**, but its inherited applicable-test set does
+   **not** enable `proxy_substitution`. Consequently the existing engine emits
+   no BAA proxy-scenario rows. Tests cover both versions, verify all three
+   declared proxy assets load, and preserve the actual engine output unchanged.
+2. Every currently shipped researchable profile declares bootstrap. The
+   no-bootstrap presentation branch is covered with a test-only immutable
+   profile replacement; no production profile was changed or invented.
+
+### Cache, privacy and limits
+
+Every route uses the existing verified-user Bearer dependency and private
+no-store headers. Missing/bad tokens return 401, wrong methods 405, unknown
+labels/invalid inputs 400. No caller user ID, saved-record reads/writes, private
+portfolio data, SQL/settings writes or order actions. Application timing logs
+contain seconds only, never capital or holdings.
+
+The bounded ResultCache uses a public-only envelope: model label, complete
+profile contract/id, engine/server code hash, content hash, exact observations
+of every loaded series including proxies, source metadata, full-history bounds,
+UTC date, completed-session cutoff, initial capital and `research-v1`. Live
+inputs are checked before cache lookup. A genuine hit performs zero validation
+work for that request. Exceptions and oversized responses are not cached;
+engine-reported unavailable scenarios remain valid evidence inside a completed
+report, not swallowed request failures. Fake-private-marker tests check keys
+and bundles; tests also fail if saved-record operations are attempted.
+
+Tables preview at most 150 rows with a visible truncation notice. Chart samples
+are bounded and labelled; box statistics are calculated from the complete
+source rows. Main JSON has the existing 3,000,000-byte guard and an earlier
+pre-cache size check. Full downloads use Python `to_csv(index=False)` and the
+original strategy-based filenames, never browser reconstruction. The Monte
+Carlo CSV is offered only when bootstrap results exist, as in Streamlit.
+
+### Verification and measured local timing
+
+Offline suites: **477 original Python**, **296 API**, **77 web** tests passed;
+TypeScript typecheck and production build passed. Existing timestamp-attrs and
+Starlette/httpx warnings remain. Tests cover original-engine parity for HAA,
+Inflation Compass Standard and both BAA implementations, all report frames and
+CSV bytes, gates, grade/evidence fallbacks, fixed-seed determinism, capital
+scaling, cache invalidation/hits/privacy/failure handling, auth/routes, explicit
+Run, duplicate guards, timeout, six collapsed sections and literal source text.
+Protected check `git diff main -- app.py src requirements.txt pyproject.toml`
+is empty; original validation tests are unchanged.
+
+October 20 measurements used real public data, no Supabase credentials/private
+reads, default hypothetical capital, warm interpreters and cold result caches:
+
+| Model | Input load / preparation | Validation | Total cold result | Retained-frame hit | Main JSON bytes | Peak process MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HAA-Simple | 1.842545 s | 3.991432 s | 5.854996 s | 0.001690 s | 140,058 | 165.91 |
+| Inflation Compass Standard | 2.895086 s | 8.182806 s | 11.101901 s | 0.001916 s | 153,208 | 188.58 |
+| BAA-G4 (Aggressive) | 2.354035 s | 4.290544 s | 6.666002 s | 0.001730 s | 136,191 | 182.69 |
+
+Input time includes public retrieval, preprocessing, production decisions and
+version hashing. Each retained-frame repeat uses the same production cache path
+on identical actually downloaded frames, with no mocks and zero validation work;
+it **excludes another input load**, so it is not a complete fresh HTTP request.
+Peak memory is process high-water RSS, not incremental engine allocation. These
+are local warm-interpreter figures, not Vercel cold-start, remote-cache or
+provider-latency guarantees. No run approached 300 seconds; the function setting
+is unchanged.
+
+Not verified: new Research cloud runtime/provider availability, signed-in browser
+workflow, remote cache download restoration, phone/laptop visual fit, or Daniel's
+side-by-side comparison. A successful Git/Vercel build alone does not prove them.
+
+### Daniel's manual side-by-side checklist — not yet completed
+
+1. Same day: Streamlit Research beside signed-in `/research/`. Select HAA-Simple
+   in both, run the check, and compare overall grade, baseline CAGR and maximum
+   drawdown, three-checks rows, scenario/rolling/subperiod row counts and
+   statuses, fixed-seed Monte Carlo numbers (exact match expected), and
+   data-quality rows. Download and compare all four CSVs.
+2. Repeat with Inflation Compass Standard, including parameter-sweep rows.
+3. Select an RVol Shifter variant and an Israel Inflation Compass variant in
+   both apps: both must show the same explanation messages, not errors.
+4. Change initial capital and rerun: final-value-style figures scale, growth
+   rates and grades do not move.
+5. Confirm Research saves nothing and offers no edit/order actions.
