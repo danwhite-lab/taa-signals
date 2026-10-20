@@ -1,10 +1,10 @@
 {
   "title": "Backtest",
-  "eyebrow": "Single strategy research",
+  "eyebrow": "Backtest research",
   "mode": "Mode",
   "single": "Single strategy",
-  "portfolio": "Portfolio — Coming soon",
-  "deep": "Deep History / Proxy — Coming soon",
+  "portfolio": "Portfolio",
+  "deep": "Deep History / Proxy",
   "strategy": "Strategy",
   "variant": "Variant",
   "implementation": "Implementation",
@@ -41,7 +41,7 @@
   "settings": "Settings actually used by the engine",
   "configuredSettings": "Configured backtest settings (percentage inputs are in percent)",
   "engineSettings": "Engine inputs (percentage costs and tax rates are fractions)",
-  "legacyCaptions": "Some engine captions describe features of the Streamlit app. Only Single strategy is available on this page.",
+  "legacyCaptions": "Some engine captions describe features of the Streamlit app.",
   "settingLabels": {
     "label": "Model", "start": "Start date", "end": "End date", "initial": "Initial investment",
     "fee_type": "Fee type", "fee_value": "Fee value", "tax_enabled": "Tax enabled", "tax_rate": "Tax rate (%)",

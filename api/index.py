@@ -32,6 +32,7 @@ from server.cache import ResultCache, data_version, digest  # noqa: E402
 from server.signals_wire import SignalsCompression  # noqa: E402
 from server import rebalance  # noqa: E402
 from server import today as today_page  # noqa: E402
+from server import backtest_multi  # noqa: E402
 
 
 app = FastAPI(
@@ -346,8 +347,26 @@ def backtest_options(label: str = "HAA-Simple", session=Depends(private_api.auth
 
 
 @app.post("/api/backtest")
-def backtest(body: backtest_page.Inputs, session=Depends(private_api.authenticated)):
-    return backtest_page.run(body, _engine_code_version())
+def backtest(body: backtest_multi.Inputs | backtest_page.Inputs, session=Depends(private_api.authenticated)):
+    return (backtest_multi.run(body, _engine_code_version()) if isinstance(body, backtest_multi.Inputs)
+            else backtest_page.run(body, _engine_code_version()))
+
+
+@app.get("/api/backtest/config")
+def backtest_config(mode: str, session=Depends(private_api.authenticated)):
+    return backtest_multi.config(mode)
+
+
+@app.post("/api/backtest/validate")
+def backtest_validate(body: backtest_multi.Inputs, session=Depends(private_api.authenticated)):
+    backtest_multi.validated(body)
+    return {"valid": True, "message": backtest_multi.WORDS["weightSuccess"]}
+
+
+@app.post("/api/backtest/load")
+def backtest_load(body: backtest_multi.Load, session=Depends(private_api.authenticated)):
+    rows = private_api.portfolios(session) if body.portfolio_id is not None else []
+    return backtest_multi.load_saved(body, rows)
 
 
 @app.get("/api/backtest/download")

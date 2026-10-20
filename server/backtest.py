@@ -272,7 +272,10 @@ def run(request, code):
 def download(key, kind):
     if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
         raise HTTPException(400, "Invalid result cache key.")
-    if kind not in {"audit", "tax_events", "daily_nav"}:
+    from .backtest_multi import deep
+    allowed = {"audit", "tax_events", "daily_nav", "portfolio_nav", "sleeve_nav", "executions", "sleeve_tax", "proxy_tax", "proxy_audit", "synthetic_tax", "synthetic_nav", "synthetic_audit", "synthetic_source", "daily_source", "history_sources"}
+    allowed |= {f"source_{key}_{segment}" for key, spec in deep.ALL_DEEP_HISTORY_SPECS.items() if spec.actual_etf_ticker for segment in ("actual", "early")}
+    if kind not in allowed:
         raise HTTPException(400, "Unknown download type.")
     with RESULTS.lock:
         bundle = RESULTS.warm.get(key)
@@ -282,6 +285,6 @@ def download(key, kind):
                 bundle = rows[0]["result"] if rows else None
             except Exception:
                 bundle = None
-    if not bundle or bundle.get("kind") != "single-backtest-v1" or kind not in bundle["downloads"]:
+    if not bundle or bundle.get("kind") not in {"single-backtest-v1", "backtest-portfolio-v1", "backtest-deep-history-v1"} or kind not in bundle["downloads"]:
         raise HTTPException(404, "Full download unavailable. Run the backtest again.")
     return bundle["downloads"][kind]

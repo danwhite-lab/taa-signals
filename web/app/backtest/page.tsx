@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import text from "../../content/backtest.json";
+import multiText from "../../content/backtest-multi.json";
+import MultiForm from "./multi-form";
 import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 
 type Row = Record<string, unknown>;
@@ -16,7 +18,10 @@ type Chart = { series: { label: string; svg_points: string }[]; minimum: number;
 type Results = { label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
   annual: Table; monthly: Table; value_chart: Chart; drawdown_chart: Chart; calculated_at: string; cache: { key: string; hit: string | null };
   captions: string[]; warnings: string[]; data_origin: string; timing: Row; calculation_timing: Row;
-  downloads: { kind: string; label: string; filename: string; bytes: number }[] };
+  downloads: { kind: string; label: string; filename: string; bytes: number }[];
+  extra_tables?: { label: string; value: Table }[]; extra_charts?: { label: string; value: Chart }[];
+  rolling?: { years: number; label: string; table: Table; chart: Chart }[];
+  cards?: { label: string; value: string; delta?: string }[]; value_title?: string; drawdown_title?: string; summary_title?: string; data_validation?: Table };
 
 function show(value: unknown) {
   return value === null || value === undefined ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -47,6 +52,8 @@ const initialForm: Form = { label: "HAA-Simple", start: "", end: "", initial: 10
   tax_enabled: true, tax_rate: 25, monthly_contribution: 1000, reference_replay: false };
 
 export default function BacktestPage() {
+  const [mode, setMode] = useState<"single" | "portfolio" | "deep">("single");
+  const [rollingYears, setRollingYears] = useState(5);
   const [form, setForm] = useState<Form>(initialForm);
   const [dca, setDca] = useState(false);
   const [options, setOptions] = useState<Options | null>(null);
@@ -60,6 +67,7 @@ export default function BacktestPage() {
   const inFlight = useRef(false);
   const current = options?.models.find(model => model.label === form.label);
   useEffect(() => {
+    if (mode !== "single") { setLoading(false); return; }
     const controller = new AbortController(); setLoading(true); setOptions(null); setError(""); setResult(null);
     void backtestRequest<Options>(`/api/backtest/options?label=${encodeURIComponent(form.label)}`, { signal: controller.signal })
       .then(value => {
@@ -68,7 +76,7 @@ export default function BacktestPage() {
       }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [form.label, attempt]);
+  }, [form.label, attempt, mode]);
   useEffect(() => {
     if (!running) return;
     const started = Date.now(); setElapsed(0);
@@ -97,13 +105,18 @@ export default function BacktestPage() {
       || form.start < b.start_min || form.start > b.start_max || form.end < b.end_min || form.end > b.end_max || form.start > form.end) {
       setError(text.validationError); setResult(null); return;
     }
+    await execute({ ...form, monthly_contribution: dca ? form.monthly_contribution : 0 });
+  }
+  async function execute(body: Record<string, unknown>) {
+    if (inFlight.current) return;
     inFlight.current = true; setRunning(true); setError(""); setResult(null); setChanged(false);
     const controller = new AbortController(); let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 305000);
     try {
       const value = await backtestRequest<Results>("/api/backtest", { method: "POST", signal: controller.signal,
-        body: JSON.stringify({ ...form, monthly_contribution: dca ? form.monthly_contribution : 0 }) });
+        body: JSON.stringify(body) });
       setResult(value);
+      if (value.rolling?.length) setRollingYears(value.rolling.find(item => item.years === 5)?.years ?? value.rolling[value.rolling.length-1].years);
     } catch (failure) { setError(timedOut ? text.timeout : (failure as Error).message); }
     finally { clearTimeout(timeout); inFlight.current = false; setRunning(false); }
   }
@@ -111,10 +124,11 @@ export default function BacktestPage() {
   const variants = [...new Set(options?.models.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
   const implementations = options?.models.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
-    <label>{text.mode}<select value="single" onChange={() => {}}><option value="single">{text.single}</option><option disabled>{text.portfolio}</option><option disabled>{text.deep}</option></select></label>
+    <label>{text.mode}<select disabled={running} value={mode} onChange={event => { setMode(event.target.value as typeof mode); update({}); }}><option value="single">{text.single}</option><option value="portfolio">{text.portfolio}</option><option value="deep">{text.deep}</option></select></label>
+    {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})} />}
     {loading && <p role="status">{text.loading}</p>}
     {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!options && <button onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
-    {options && current && <>
+    {mode === "single" && options && current && <>
       <fieldset disabled={running} className="backtest-controls"><legend>{text.single}</legend>
         <div className="signal-selector">
           <label>{text.strategy}<select value={current.strategy} onChange={event => choose(event.target.value)}>{strategies.map(value => <option key={value}>{value}</option>)}</select></label>
@@ -152,8 +166,17 @@ export default function BacktestPage() {
       <p>{text.legacyCaptions}</p>
       {result.captions.map((value, index) => <div key={index}><Markdown>{value}</Markdown></div>)}
       {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
-      <section><h2>{text.summary}</h2><DataTable value={result.summary} label={text.summary} /></section>
-      <Lines value={result.value_chart} title={text.performance} /><Lines value={result.drawdown_chart} title={text.drawdown} />
+      {mode !== "single" && result.data_validation && <details><summary>{text.validation}</summary><p>{result.data_origin}</p><DataTable value={result.data_validation} label={text.sources} /></details>}
+      {result.cards && <section className="backtest-grid">{result.cards.map(card => <div key={card.label}><h3>{card.label}</h3><p>{card.value}</p>{card.delta && <p>{card.delta}</p>}</div>)}</section>}
+      <section><h2>{result.summary_title ?? text.summary}</h2><DataTable value={result.summary} label={result.summary_title ?? text.summary} /></section>
+      <Lines value={result.value_chart} title={result.value_title ?? text.performance} /><Lines value={result.drawdown_chart} title={result.drawdown_title ?? text.drawdown} />
+      {result.extra_charts?.map(item => <Lines key={item.label} value={item.value} title={item.label} />)}
+      {result.extra_tables?.map(item => <details key={item.label}><summary>{item.label}</summary><DataTable value={item.value} label={item.label} /></details>)}
+      {!!result.rolling?.length && <details><summary>{multiText.rolling}</summary><p>{multiText.rollingCaption}</p>
+        <label>{multiText.rollingPeriod}<select value={rollingYears} onChange={event => setRollingYears(Number(event.target.value))}>
+          {result.rolling.map(item => <option key={item.years} value={item.years}>{item.label}</option>)}</select></label>
+        {result.rolling.filter(item => item.years === rollingYears).map(item => <section key={item.years}><Lines value={item.chart} title={item.label} /><DataTable value={item.table} label={item.label} /></section>)}
+      </details>}
       <p>{text.fullDownloadNote}</p>
       <details><summary>{text.periods}</summary><DataTable value={result.periods} label={text.periods} /></details>
       <details><summary>{text.ledger}</summary><DataTable value={result.tax_events} label={text.ledger} /></details>

@@ -39,13 +39,13 @@ it("is withheld by the existing login gate", async () => {
   expect(screen.queryByText(text.run)).toBeNull();
 });
 
-it("defaults to tax ON at 25%, zero percentage fee, and only single strategy", async () => {
+it("defaults to tax ON at 25%, zero percentage fee, with the other modes enabled", async () => {
   await ready();
   expect(screen.getByLabelText(text.taxEnabled)).toHaveProperty("checked", true);
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty("value", "25");
   expect(screen.getByLabelText(text.feePercent)).toHaveProperty("value", "0");
-  expect(screen.getByRole("option", { name: text.portfolio })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("option", { name: text.deep })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("option", { name: text.portfolio })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("option", { name: text.deep })).toHaveProperty("disabled", false);
   expect(screen.queryByText(text.reference)).toBeNull();
 });
 

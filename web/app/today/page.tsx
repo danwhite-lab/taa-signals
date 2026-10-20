@@ -51,7 +51,7 @@ export default function TodayPage() {
     {value && (!value.has_default ? <div className="signal-info"><Markdown>{text.setup}</Markdown></div> : <>
       {value.caption && <p className="signal-caption">{value.caption}</p>}
       {value.issues.map((key, i) => <p role="alert" key={i}>{issue(key)}</p>)}
-      <section><h2>{text.sleeveSignals}</h2><div className="signal-table-scroll"><table aria-label={text.sleeveSignals}>
+      <section><h2>{text.sleeveSignals}</h2><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.sleeveSignals}>
         <thead><tr><th>{text.sleeve}</th><th>{text.weight}</th><th>{text.currentHolding}</th><th>{text.status}</th></tr></thead>
         <tbody>{value.signals.map((row, i) => <tr key={i}><td>{row.label ?? text.unavailable}</td><td>{row.weight_text ?? text.dash}</td>
           <td>{row.holding ?? text.unavailable}</td><td>{issue(row.error_code) ?? row.status ?? text.dash}</td></tr>)}</tbody></table></div></section>

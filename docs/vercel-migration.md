@@ -5,7 +5,8 @@ This is an opt-in migration preview on `vercel-migration`. Nothing in
 or its hosting configuration is changed. Do not merge or point the live domain
 at this skeleton. Browser login and private saved-data endpoints are available (setup below). A fixed-universe live-data
 and backtest diagnostic is available, alongside the authenticated single-strategy
-Backtest page described below. Portfolio backtests and Deep History are not ported.
+Backtest page described below. Step 7 adds Portfolio and Deep History / Proxy
+to that same page and API (details at the end of this document).
 Step 5 additionally brings the five approved Rebalance Holdings feature files
 over byte-identically from main; no further edits to those source files are made.
 
@@ -920,3 +921,172 @@ and the user side-by-side checklist below remain unverified.
    public observations legitimately invalidate cache entries.
 6. If no default already exists, both should show the setup message. Do not clear
    a real default just to test this. Confirm Today offers no save/edit/order action.
+
+## Backtest completion — Step 7 (Portfolio / Deep History)
+
+### Scope and paths
+
+Both modes are enabled on `/backtest/`. They extend the existing single-strategy
+POST, result renderer, chart/table sampling, download manifest, compression and
+ResultCache; no second financial engine or database path was introduced.
+`server/backtest_multi.py` supplies validation/input orchestration;
+`server/backtest_multi_presentation.py` ports the old result expressions and
+formatting. All new component wording is in `web/content/backtest-multi.json`.
+Tests check the main static captions/warnings against literal app.py text and
+compare calculations/curves/audit/exports directly with the original engines.
+
+- `GET /api/backtest/config?mode=portfolio|deep`: catalogue selectors, proxy
+  options (single/blend), benchmark labels/caveats and the original DCA caption.
+  No prices or backtests are loaded by this request.
+- `POST /api/backtest/validate`: the proposed multi-mode request, validated
+  without data retrieval or engine execution; returns `{valid, message}` or a
+  safe 400. This is how the browser knows weights satisfy the exact original
+  percentage tolerance; JavaScript does not calculate portfolio weights.
+- `POST /api/backtest/load`: `{mode, portfolio_id}` or `{mode, payload}`.
+  The former uses only the verified user's existing GET-portfolios helper;
+  the latter validates a device JSON file (100,000-byte limit). Both use the
+  unchanged portfolio_config helpers and return `{sleeves, initial, warnings}`.
+  Saved capital is converted with **saved** FX, unavailable strategies are
+  flagged, and incompatible proxy variants are rejected. Neither writes data.
+- Existing `POST /api/backtest` accepts the original single request unchanged,
+  or `{mode, sleeves:[{id, model, weight}], initial, start?, end?, fee_type,
+  fee_value, tax_enabled, tax_rate, monthly_contribution, benchmark,
+  sleeve_rebalance_mode, rebalance_sleeve?, rebalance_cap, rebalance_target}`.
+  Weights/cap/target/tax-rate/percentage-fee inputs are percentages. Python
+  converts them exactly as Streamlit does before calling the same engines.
+- Existing `GET /api/backtest/download?key=...&kind=...` serves Python-generated
+  CSVs from that result bundle. Source actual/early CSVs preserve bundled bytes.
+  Missing cold-worker bundles return an explicit rerun-required 404, never a
+  different recalculation. File names and source download labels match app.py.
+
+All these routes use the existing verified-user dependency and private no-store
+headers. No caller user ID is accepted, no saved-record mutations are made, and
+the service key stays limited to the existing shared cache. The local root/
+Streamlit dependency files and app.py/src remain unchanged. Main was checked at
+`2dd0f9b75c0cd540fdf0910066453c5c67257fc0`; no additional main files were copied.
+Vercel packaging now explicitly includes `data/deep_history/**` and
+`web/content/**`, since these are runtime source data, not browser build assets.
+The 300-second duration, cron, domains and database configuration are unchanged.
+
+### Engine, fee, currency and presentation behaviour
+
+Portfolio inputs use one union load through the existing Signals loaders,
+including adjusted opens for mixed USD execution and the original shared
+benchmark choice. Original decisions, monthly preprocessing, ModelInput and
+run_portfolio_backtest are reused. Input order is retained for execution/ledger
+parity; form-only row IDs are canonicalized without changing cap selection.
+Mixed execution rejects incompatible currencies/calendars; no extra FX conversion
+is inferred. Saved loading deliberately preserves the old helper's ILS-to-USD
+conversion, rather than changing how that helper treats local implementations.
+
+Deep History uses the unchanged specs, deep_history_model_input,
+monthly_blend_input, load_deep_history, run_backtest and run_portfolio_backtest.
+Per-strategy caveats, proxy warnings, benchmark help, unavailable-tax behaviour,
+unsupported-extra-fee information, monthly/daily distinctions, rolling returns
+and source exports are retained. Synthetic daily NAV has no invented daily
+benchmark; monthly comparison and its separate daily drawdown remain separate.
+The actual-fund provenance caption/table/CSV are retained for Portfolio mode.
+
+**No minimum commission exists** in the Portfolio/mixed/proxy fee paths audited
+here. Percentage and fixed order fees are unchanged; daily proxy extra fees
+remain unsupported/not applied. Every result still displays:
+`Minimum fee of 2 NIS is not modelled by this backtest`.
+The engine's existing prohibition on sleeve transfers with monthly contributions
+is shown before Run; it was not removed or worked around. Average-cost sale
+ledgers, losses, no terminal liquidation and proxy tax approximations are unchanged.
+
+Deliberate web differences: explicit Run only (including expensive preliminary
+range discovery), no Streamlit rerun/auto-run, native SVG charts and collapsed
+details rather than Streamlit tabs. Blank dates mean full common history; Python
+confirms bounds on Run and rejects out-of-range dates. Display tables/curves use
+the existing labelled preview limits, while metrics/exports use full engine rows.
+Switching between modes starts a fresh multi-mode form rather than persisting
+Streamlit session drafts. No workspace setting is written. Device portfolio JSON
+loading **is ported**. Advanced Yahoo ticker overrides/replacement-price CSV uploads
+remain unported, consistent with Step 4; the visible loader/source metadata never
+claims those Streamlit-only overrides were recovered. No saved backtest feature
+or brokerage fee rule was added.
+
+### Cache shape and privacy evidence
+
+Existing ResultCache SHA-256 envelope: `{model, params, start, end, data_version}`.
+Params include sorted `{model, weight}` sleeves, the actual public execution order
+(sale/loss ordering must not be assumed commutative), numeric run settings,
+benchmark/transfer options, code hash, content hash, UTC date, each applicable
+completed-session cutoff and source-metadata digest. Tags are
+`backtest-portfolio-v1` and `backtest-deep-history-v1`.
+Portfolio versions hash all exact close/open/macro observations. Proxy versions
+hash the bundled files, including synthetic tax inputs. Same-date revisions,
+settings, code/content changes and completion boundaries invalidate results.
+
+No user/session identity, portfolio name/ID, original private row IDs, saved FX
+field or saved portfolio payload enters keys or cached bundles. Numeric initial
+capital explicitly submitted as a run setting is included, as in Step 4. An
+offline test loads fake private markers through the real conversion helper,
+spies on cache arguments and inspects stored bundles to prove the markers are
+absent. Successful explicit results alone are cached; engine, invalid-bound and
+oversized-response failures are not. Main JSON remains under the existing
+3,000,000-byte guard; complete downloads are separate. No private values are logged.
+
+### Today layout and deliberately missing follow-ups
+
+Only the sleeve signal table gets `.today-sleeve-table`: fixed layout and normal
+wrapping (including long tokens). Other table CSS/data/wording is unchanged.
+
+Compared with app.py:
+
+- **Yes:** `Next month portfolio preview (provisional)` expander exists.
+- **No:** `Plain buy-and-hold assets: actual available fund history only...`
+  caption is not on the new Today page. Follow-up: original static caption plus
+  `haa.tase_data.plain_holding_provenance` for classification warnings.
+- **No:** `Plain buy-and-hold history sources` expander and CSV are not on the new
+  Today page. Follow-up: the same provenance function and Python `to_csv()` as
+  the old page. Neither missing item was added to Today in this task.
+
+### Verification and local timing
+
+Offline suites: **477 original Python**, **272 API**, **69 web** tests passed;
+TypeScript typecheck and production build passed. Existing timestamp-attrs and
+Starlette/httpx warnings remain. Tests cover monthly two/three-sleeve portfolios,
+A-RVol mixes and every transfer rule, percentage/fixed fees and contributions,
+representative proxies, a synthetic blend, both benchmarks, exact source CSV
+bytes, validation, auth/no-store, saved FX/no writes, cache revisions/privacy/
+non-caching failures, controls and scoped Today CSS. Protected check:
+`git diff main -- app.py src requirements.txt pyproject.toml` is empty.
+
+Separate October 20 public-data measurements used hypothetical default capital,
+zero fees, tax ON 25%, no contributions and no Supabase credentials/private reads.
+Portfolio: Century Momentum 50 / Inflation Compass Standard 40 / USD A-RVol 10.
+Deep History: Century Momentum 60 / GLD 20 / IEF 20, S&P proxy benchmark.
+
+| Local call | Cold | Repeat | Repeat cache result |
+| --- | ---: | ---: | --- |
+| Portfolio, full input load + report | 8.259 s | 6.152 s | Miss: exact observed data changed |
+| Deep History, full input load + report | 0.981 s | 0.193 s | Genuine memory hit |
+| Portfolio cache/calculation phase on identical real frames | 2.319 s | 0.002642 s | Genuine memory hit |
+
+The last row retains actual downloaded frames and profiles the real ResultCache
+and report closure without mocking providers; it **excludes** another input load.
+Do not describe 0.002642 s as a complete fresh portfolio request. Portfolio had
+2,569 reporting rows and about 272 KB main JSON; proxy blend 333 rows and about
+341 KB. `input_and_signal_seconds` intentionally combines retrieval, preprocessing,
+decisions and version hashing; engine time is separately reported. These are warm
+local interpreters/cold result caches, not Vercel cold starts or latency guarantees.
+
+Not verified by these tests/measurements: cloud runtime/provider availability for
+the new modes, real sign-in/saved-portfolio loading on Vercel, remote cache
+persistence/download restoration, phone/laptop visual fit, or Daniel's side-by-side
+comparison below. A Git build status, if checked, does not prove these workflows.
+
+### Daniel's manual side-by-side checklist — not claimed complete
+
+1. Same day: old Portfolio Backtest beside new `/backtest/` Portfolio. Match
+   two/three sleeves, weights, dates, capital, fees, tax and transfer rule. Compare
+   CAGR, total return, maximum drawdown, volatility, Sharpe, final value and warnings.
+2. Load the same saved portfolio in both. Compare sleeves, weights and saved-FX
+   converted capital. Loading must not change the saved record or default.
+3. Repeat in Deep History with one proxy and one blend, matching benchmark and
+   settings. Compare metrics, caveats, actual/early source CSVs and other exports.
+4. Open Today on laptop and phone: Status should fit without sideways scrolling.
+5. Confirm that no Backtest mode saves, edits or deletes a portfolio. Do not
+   record fictitious trades or change your real portfolio for a test.
