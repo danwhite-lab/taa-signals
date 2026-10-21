@@ -17,6 +17,7 @@ function setup(mode: "portfolio" | "deep") {
   mock.request.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path.startsWith("/api/backtest/config")) return config;
     if (path === "/api/portfolios") return [{ id: "fake-id", name: "Fake portfolio" }];
+    if (path === "/api/compare/options") return {portfolios:[{ id: "fake-id", name: "Fake portfolio" },{id:"fake-second",name:"Fake second"}]};
     if (path === "/api/backtest/load") return { sleeves: [{ id: 1, model: mode === "deep" ? "haa_simple" : "HAA-Simple", weight: 100 }], initial: 3000, warnings: [] };
     const body = JSON.parse(init?.body as string);
     if (body.sleeves.some((s: { weight: number }) => s.weight <= 0)) throw new Error(words.positivePortfolio);
@@ -56,6 +57,7 @@ it("retains daily single-proxy restrictions and benchmark caveats", async () => 
 
 it("loads saved choices and Python-converted capital without running or saving", async () => {
   const {run} = setup("portfolio"); await screen.findByText(words.weightSuccess);
+  expect(mock.request).toHaveBeenCalledWith("/api/compare/options",expect.objectContaining({signal:expect.any(AbortSignal)}));
   const details = screen.getByText(words.load, {selector:"summary"}).closest("details")!;
   details.open = true; fireEvent(details, new Event("toggle"));
   await screen.findByText("Fake portfolio");
@@ -63,6 +65,55 @@ it("loads saved choices and Python-converted capital without running or saving",
   await waitFor(() => expect(screen.getByLabelText(text.initial)).toHaveProperty("value", "3000"));
   expect(run).not.toHaveBeenCalled();
   expect(mock.request).toHaveBeenCalledWith("/api/backtest/load", expect.objectContaining({ method: "POST", body: JSON.stringify({mode:"portfolio", portfolio_id:"fake-id"}) }));
+});
+
+it("loads the chosen saved portfolio, replaces sleeves and preserves server-converted capital",async()=>{
+  const {run}=setup("portfolio");await screen.findByText(words.weightSuccess);await screen.findByText("Fake second");
+  const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>path==="/api/backtest/load"?
+    {sleeves:[{id:3,model:"HAA-Simple",weight:60},{id:9,model:"HAA-Simple",weight:40}],initial:7654,warnings:[]} : original(path,init));
+  fireEvent.change(screen.getByLabelText(words.saved),{target:{value:"fake-second"}});
+  fireEvent.click(screen.getByRole("button",{name:words.load}));
+  await waitFor(()=>expect(screen.getByLabelText(text.initial)).toHaveProperty("value","7654"));
+  expect(screen.getAllByLabelText(words.weight).map(input=>(input as HTMLInputElement).value)).toEqual(["60","40"]);
+  expect(mock.request).toHaveBeenCalledWith("/api/backtest/load",expect.objectContaining({body:JSON.stringify({mode:"portfolio",portfolio_id:"fake-second"})}));
+  expect(run).not.toHaveBeenCalled();
+});
+
+it("shows saved-list failures and retries without calling a backtest",async()=>{
+  const {run}=setup("portfolio");await screen.findByText(words.weightSuccess);
+  // Remount to exercise the automatic read failing, not only a disclosure.
+  cleanup();const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>{if(path==="/api/compare/options")throw new Error("Mock library unavailable");return original(path,init);});
+  render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+  await screen.findByText(`${words.savedListError} Mock library unavailable`);
+  expect(screen.queryByText(words.emptySaved)).toBeNull();
+  mock.request.mockImplementation(original);
+  fireEvent.click(screen.getByRole("button",{name:words.retrySaved}));await screen.findByText("Fake second");
+  expect(screen.queryByText(`${words.savedListError} Mock library unavailable`)).toBeNull();
+  expect(run).not.toHaveBeenCalled();
+});
+
+it("keeps the current form and shows a visible error when loading fails",async()=>{
+  setup("portfolio");await screen.findByText(words.weightSuccess);await screen.findByText("Fake portfolio");
+  const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>{if(path==="/api/backtest/load")throw new Error("Mock portfolio unavailable");return original(path,init);});
+  fireEvent.click(screen.getByRole("button",{name:words.load}));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent","Mock portfolio unavailable");
+  expect(screen.getByLabelText(text.initial)).toHaveProperty("value","100000");
+  expect(screen.getByLabelText(words.weight)).toHaveProperty("value","100");
+});
+
+it("prevents duplicate loads and form edits while a saved portfolio is loading",async()=>{
+  setup("portfolio");await screen.findByText(words.weightSuccess);await screen.findByText("Fake portfolio");
+  const original=mock.request.getMockImplementation()!;let resolve!:(value:unknown)=>void;
+  mock.request.mockImplementation((path,init)=>path==="/api/backtest/load"?new Promise(done=>{resolve=done;}):original(path,init));
+  const button=screen.getByRole("button",{name:words.load});fireEvent.click(button);fireEvent.click(button);
+  expect(mock.request.mock.calls.filter(([path])=>path==="/api/backtest/load")).toHaveLength(1);
+  expect(screen.getByText(words.loadingPortfolio)).toBeTruthy();
+  expect(screen.getByLabelText(text.initial).closest("fieldset")).toHaveProperty("disabled",true);
+  resolve({sleeves:[{id:1,model:"HAA-Simple",weight:100}],initial:3000,warnings:[]});
+  await waitFor(()=>expect(screen.getByLabelText(text.initial)).toHaveProperty("value","3000"));
 });
 
 it("keeps all added component wording in data files and scopes Today wrapping", () => {

@@ -19,14 +19,17 @@ export default function Portfolio() {
   const [email, setEmail] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const inFlight = useRef(false);
+  const dirty = name !== (selected?.name ?? "") || json !== (selected ? JSON.stringify(selected.payload, null, 2) : "")
+    || makeDefault !== (selected?.is_default ?? false);
+  const preferenceDirty = preferredName !== String(workspace?.payload.portfolio_name ?? "");
   async function load() {
-    const [saved, list, user] = await Promise.all([api<Workspace>("/api/workspace"),
-      api<SavedPortfolio[]>("/api/portfolios"), api<{ email: string }>("/api/me")]);
-    setWorkspace(saved); setPortfolios(list); setEmail(user.email);
+    const [saved, , user] = await Promise.all([api<Workspace>("/api/workspace"),
+      api<SavedPortfolio[]>("/api/portfolios").then(list => { setPortfolios(list); return list; }), api<{ email: string }>("/api/me")]);
+    setWorkspace(saved); setEmail(user.email);
     setPreferredName(String(saved.payload.portfolio_name ?? ""));
     setSelected(null); setName(""); setJson(""); setMakeDefault(false); setUncertain(false);
   }
-  useEffect(() => { void act(load); }, []); // Explicit load only; no overwriting unsaved drafts.
+  useEffect(() => { void act(load); }, []); // Initial read; refresh remains explicit after mount.
   async function act(operation: () => Promise<void>, mutation = false) {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(""); setMessage("");
@@ -39,6 +42,9 @@ export default function Portfolio() {
     setSelected(item); setName(item?.name ?? "");
     setJson(item ? JSON.stringify(item.payload, null, 2) : "");
     setMakeDefault(item?.is_default ?? false); setMessage(""); setError("");
+  }
+  function requestChoose(item: SavedPortfolio | null) {
+    if (!dirty || window.confirm("Discard unsaved portfolio edits?")) choose(item);
   }
   async function save() {
     let payload: Record<string, unknown>;
@@ -65,7 +71,9 @@ export default function Portfolio() {
   return <main className="portfolio-page">
     <h1>Saved portfolios</h1>
     <p>{email}</p>
-    <div className="actions"><button disabled={busy} onClick={() => void act(load)}>Reload saved data</button>
+    <div className="actions"><button disabled={busy} onClick={() => {
+      if ((!dirty && !preferenceDirty) || window.confirm("Discard unsaved edits and reload saved data?")) void act(load);
+    }}>Reload saved data</button>
       <button disabled={busy} onClick={() => void act(async () => {
         const { error } = await supabaseBrowser().auth.signOut();
         if (error) throw error; window.location.replace("/login/");
@@ -73,12 +81,16 @@ export default function Portfolio() {
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {uncertain && <p>Saving is paused until you reload, so a stale device or uncertain response cannot overwrite saved data.</p>}
     <section><h2>Your library</h2>
-      {!portfolios.length && <p>No saved portfolios loaded.</p>}
-      <ul>{portfolios.map(item => <li key={item.id}><button disabled={busy || uncertain} onClick={() => choose(item)}>
+      {busy && <p role="status">Loading saved data…</p>}
+      {!busy && !portfolios.length && !error && <p>No saved portfolios loaded.</p>}
+      <ul>{portfolios.map(item => <li key={item.id}><button disabled={busy || uncertain} aria-pressed={selected?.id === item.id}
+        style={selected?.id === item.id ? { backgroundColor: "#e5f2ed", color: "#1c5343", outline: "2px solid #326454", fontWeight: 700 } : undefined}
+        onClick={() => requestChoose(item)}>
         {item.name}{item.is_default ? " · Default" : ""}</button><small>Updated {date(item.updated_at)}</small></li>)}</ul>
-      <button disabled={busy || uncertain} onClick={() => choose(null)}>New portfolio</button>
+      <button disabled={busy || uncertain} onClick={() => requestChoose(null)}>New portfolio</button>
     </section>
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>
+      {selected && <p role="status">Loaded: {selected.name}</p>}
       <p>Minimal migration form: paste version-1 portfolio JSON exported from the existing app. It retains its exact strategy names, weights, capital and FX. No holdings are created or changed.</p>
       <label>Portfolio name<input value={name} maxLength={80} disabled={busy || uncertain} onChange={event => setName(event.target.value)} /></label>
       <label>Portfolio JSON<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => setJson(event.target.value)} /></label>

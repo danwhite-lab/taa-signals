@@ -27,6 +27,10 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   const [warnings, setWarnings] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [loadingSaved, setLoadingSaved] = useState(false);
+  const [savedError, setSavedError] = useState("");
+  const [loadingPortfolio, setLoadingPortfolio] = useState(false);
+  const loadController = useRef<AbortController | null>(null);
+  const loadInFlight = useRef(false);
   const nextId = useRef(2);
   const daily = mode === "deep" && sleeves.some(s => s.model === "rvol_daily");
   const body = { ...form, mode, sleeves, start: form.start || null, end: form.end || null, tax_enabled: daily ? false : form.tax_enabled,
@@ -37,6 +41,12 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     void backtestRequest<Config>(`/api/backtest/config?mode=${mode}`, { signal: controller.signal })
       .then(value => { if (!controller.signal.aborted) setConfig(value); })
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
+    return () => { controller.abort(); loadController.current?.abort(); };
+  }, [mode]);
+  useEffect(() => {
+    if (mode !== "portfolio") return;
+    const controller = new AbortController();
+    void listSaved(controller.signal);
     return () => controller.abort();
   }, [mode]);
   useEffect(() => {
@@ -59,21 +69,30 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     const model = group.find(m => m.implementation === current?.implementation) ?? group[0];
     if (model) edit(s.id, { model: model.label });
   }
-  async function listSaved() {
-    setLoadingSaved(true); setError("");
-    try { const rows = await backtestRequest<{id: string; name: string}[]>("/api/portfolios"); setSaved(rows); setSelected(rows[0]?.id ?? ""); }
-    catch (failure) { setError((failure as Error).message); }
-    finally { setLoadingSaved(false); }
+  async function listSaved(signal?: AbortSignal) {
+    setLoadingSaved(true); setSavedError("");
+    try {
+      const rows = mode === "portfolio"
+        ? (await backtestRequest<{portfolios: {id: string; name: string}[]}>("/api/compare/options", {signal})).portfolios
+        : await backtestRequest<{id: string; name: string}[]>("/api/portfolios", {signal});
+      if (signal?.aborted) return;
+      setSaved(rows); setSelected(previous => rows.some(row => row.id === previous) ? previous : rows[0]?.id ?? "");
+    } catch (failure) { if (!signal?.aborted) setSavedError((failure as Error).message); }
+    finally { if (!signal?.aborted) setLoadingSaved(false); }
   }
   async function load(payload?: unknown) {
-    setError("");
+    if (loadInFlight.current || running) return;
+    const controller = new AbortController(); loadController.current = controller;
+    loadInFlight.current = true; setLoadingPortfolio(true); setError("");
     try {
       const loaded = await backtestRequest<{ sleeves: Sleeve[]; initial: number; warnings: string[] }>("/api/backtest/load", {
-        method: "POST", body: JSON.stringify(payload === undefined ? { mode, portfolio_id: selected } : { mode, payload }) });
-      setValid(false); setSleeves(loaded.sleeves); nextId.current = loaded.sleeves.length+1;
+        method: "POST", signal: controller.signal, body: JSON.stringify(payload === undefined ? { mode, portfolio_id: selected } : { mode, payload }) });
+      if (controller.signal.aborted) return;
+      setValid(false); setSleeves(loaded.sleeves); nextId.current = Math.max(...loaded.sleeves.map(s => s.id))+1;
       setForm(previous => ({ ...previous, initial: loaded.initial, rebalance_sleeve: null, start: "", end: "" }));
       setWarnings(loaded.warnings); onChange();
-    } catch (failure) { setError((failure as Error).message); }
+    } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message); }
+    finally { loadInFlight.current = false; if (!controller.signal.aborted) setLoadingPortfolio(false); }
   }
   async function loadFile() {
     if (!file) return;
@@ -85,11 +104,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   return <section><p>{words.choose}</p>
     {!config && !error && <p role="status">{text.loading}</p>}
     {error && <p role="alert">{error}</p>}
-    <fieldset disabled={running || !config}>
-      <details onToggle={event => { if (event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
+    {savedError && <p role="alert">{words.savedListError} {savedError}</p>}
+    {loadingPortfolio && <p role="status">{words.loadingPortfolio}</p>}
+    <fieldset disabled={running || loadingPortfolio || !config}>
+      <details onToggle={event => { if (mode === "deep" && event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
         <summary>{words.load}</summary>
-        <label>{words.saved}<select value={selected} onChange={event => setSelected(event.target.value)}>{saved.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-        {!saved.length && !loadingSaved && <p>{words.emptySaved}</p>}
+        {loadingSaved && <p role="status">{words.loadingSaved}</p>}
+        <label>{words.saved}<select value={selected} disabled={loadingSaved} onChange={event => setSelected(event.target.value)}>{saved.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+        {!saved.length && !loadingSaved && !savedError && <p>{words.emptySaved}</p>}
+        {savedError && <button type="button" onClick={() => void listSaved()}>{words.retrySaved}</button>}
         <button type="button" disabled={!selected || loadingSaved} onClick={() => void load()}>{words.load}</button>
         <label>{words.file}<input type="file" accept=".json,application/json" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
         <button type="button" disabled={!file} onClick={() => void loadFile()}>{words.loadFile}</button>
