@@ -2,6 +2,7 @@
 from time import perf_counter
 import math
 import json
+import re
 from pathlib import Path
 import pandas as pd
 from haa.constants import ASSETS
@@ -161,6 +162,27 @@ def finite(value, *, positive=False):
     return value
 
 
+def allocation_display(weights, currency):
+    """Today-only label pieces; shared execution labels and weights stay unchanged."""
+    single = len(weights) == 1 and next(iter(weights.values())) == 1
+    rows = []
+    # Match the existing amount-row order so multi-holding columns line up.
+    for asset, weight in sorted(weights.items()):
+        label = execution_security_label(asset, currency)
+        match = re.fullmatch(r"(.+?)\s+[-–—]\s+(\d+)", label) if currency == "ILS" else None
+        rows.append({"name": match[1] if match else label,
+                     "security_number": match[2] if match else None,
+                     "weight_text": None if single else f"{weight:.0%}"})
+    return rows
+
+
+def preview_kind(reason):
+    return {
+        "This sleeve is held continuously and has no next-month timing preview.": "always_held",
+        "This sleeve uses completed daily signals, not a next-month preview. Review its daily Signals page.": "daily_signals",
+    }.get(reason)
+
+
 def compose(portfolios, code, clock=None, include_preview=True):
     """Fresh private composition, never passed to ResultCache or a save helper."""
     started = perf_counter()
@@ -196,7 +218,8 @@ def compose(portfolios, code, clock=None, include_preview=True):
         sleeve = raw if isinstance(raw, dict) else {}
         label = sleeve.get("model")
         row = {"label": label if isinstance(label, str) else None, "weight": None, "weight_text": None,
-               "holding": None, "status": None, "error_code": None}
+               "holding": None, "status": None, "error_code": None,
+               "holding_display": [], "regime": None, "status_code": "unavailable"}
         try:
             weight = finite(sleeve.get("weight"), positive=True)
             row.update(weight=weight/100, weight_text=f"{weight/100:.2%}")
@@ -215,6 +238,9 @@ def compose(portfolios, code, clock=None, include_preview=True):
         signal = public["current"]
         if signal is not None and weight is not None:
             row.update(holding=signal["holding"], status=signal["status"])
+            age = (clock.tz_localize(None).normalize() - pd.Timestamp(signal["signal_date"]).tz_localize(None).normalize()).days
+            row.update(holding_display=allocation_display(signal["weights"], public["currency"]),
+                       regime=signal.get("regime"), status_code="check_data" if age > 45 else "ok")
             decision = signal["decision"]
             signal_dates.append(pd.Timestamp(signal["signal_date"]))
             if bool(decision.get("trade", False)):
@@ -226,6 +252,8 @@ def compose(portfolios, code, clock=None, include_preview=True):
         result["signals"].append(row)
         projected = public["preview"]
         result["previews"].append({"label": label, "allocation": projected["allocation"] if projected else None,
+            "allocation_display": allocation_display(projected["weights"], public["currency"]) if projected else [],
+            "kind": preview_kind(public["preview_reason"]),
             "change": ("yes" if projected["weights"] != current_weights_by_model.get(label) else "no") if projected else None,
             "price_as_of": pd.Timestamp(projected["price_as_of"]).date().isoformat() if projected else None,
             "reason": public["preview_reason"], "error_code": None})

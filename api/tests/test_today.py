@@ -208,6 +208,68 @@ def fake_public(weights=None, preview=True, trade=False, date="2024-05-31"):
       "preview_reason": "Mock unavailable" if not preview else None, "warnings": [], "fallback_warnings": [], "cache": {"hit": None, "warnings": []}, "timing": {}}
 
 
+@pytest.mark.parametrize("separator", ["-", "–", "—"])
+def test_today_allocation_split_only_trailing_ils_security_number(monkeypatch, separator):
+    label = f"Mock S&P 500 fund (4D) {separator} 5140850"
+    monkeypatch.setattr(page, "execution_security_label", lambda *a: label)
+    assert page.allocation_display({"FAKE": 1.}, "ILS") == [
+        {"name": "Mock S&P 500 fund (4D)", "security_number": "5140850", "weight_text": None}]
+    assert page.allocation_display({"FAKE": 1.}, "USD")[0]["name"] == label
+    assert page.allocation_display({"FAKE": 1.}, "USD")[0]["security_number"] is None
+
+
+def test_today_multi_holding_weights_and_plain_tickers_are_preserved(monkeypatch):
+    monkeypatch.setattr(page, "execution_security_label", lambda asset, currency: asset)
+    weights = {"SPMO": .6, "IEF": .4}
+    assert page.allocation_display(weights, "USD") == [
+        {"name": "IEF", "security_number": None, "weight_text": "40%"},
+        {"name": "SPMO", "security_number": None, "weight_text": "60%"}]
+    assert weights == {"SPMO": .6, "IEF": .4}
+    assert page.allocation_display({"SPMO": .8}, "USD")[0]["weight_text"] == "80%"
+
+
+def test_today_uses_real_shared_label_without_modifying_it():
+    original = page.execution_security_label("SPMO_IL", "ILS")
+    assert page.allocation_display({"SPMO_IL": 1.}, "ILS") == [
+        {"name": "MTF Tracking S&P 500 Momentum (4D)", "security_number": "5140850", "weight_text": None}]
+    assert page.execution_security_label("SPMO_IL", "ILS") == original
+    assert page.display_allocation({"SPMO_IL": 1.}, "ILS") == f"{original} 100%"
+
+
+def test_today_row_status_uses_each_signal_age_without_changing_portfolio_stale(frozen, monkeypatch):
+    def public(label, *args):
+        age = 46 if label == "HAA-Simple" else 45
+        value = fake_public(date=(CLOCK-pd.Timedelta(days=age)).date().isoformat())
+        value["current"]["regime"] = "mock risk-on"
+        return value
+    monkeypatch.setattr(page, "public_sleeve", public)
+    result = page.compose(fake_portfolio(), "code", CLOCK)
+    assert [r["status_code"] for r in result["signals"]] == ["check_data", "ok"]
+    assert result["stale"] is False
+    assert result["signals"][0]["regime"] == "mock risk-on"
+    assert result["signals"][0]["holding_display"] == [{"name": "SPY", "security_number": None, "weight_text": None}]
+    value = public("HAA-Simple")
+    value.update(current=None, reason="Mock unavailable")
+    monkeypatch.setattr(page, "public_sleeve", lambda *a: value)
+    row = page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["signals"][0]
+    assert row["status_code"] == "unavailable"
+    assert row["status"] == "Mock unavailable"
+
+
+@pytest.mark.parametrize("reason,kind", [
+    ("This sleeve is held continuously and has no next-month timing preview.", "always_held"),
+    ("This sleeve uses completed daily signals, not a next-month preview. Review its daily Signals page.", "daily_signals"),
+    ("Mock data unavailable", None),
+])
+def test_today_preview_short_label_preserves_original_reason(frozen, monkeypatch, reason, kind):
+    public = fake_public(preview=False)
+    public["preview_reason"] = reason
+    monkeypatch.setattr(page, "public_sleeve", lambda *a: public)
+    row = page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["previews"][0]
+    assert row["kind"] == kind
+    assert row["reason"] == reason
+
+
 @pytest.mark.parametrize("changed,preview,expected", [(False, True, "no"), (True, True, "yes"), (False, False, None)])
 def test_change_yes_no_dash_from_exact_weights(frozen, monkeypatch, changed, preview, expected):
     public = fake_public(preview=preview)

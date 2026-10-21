@@ -9,6 +9,20 @@
   "unavailable": "Unavailable",
   "holdNow": "What to hold now",
   "holding": "Holding",
+  "securityNumber": "Security No.",
+  "noSecurityNumber": "-",
+  "ok": "OK",
+  "checkData": "Check data",
+  "previewKinds": {
+    "always_held": "Always held",
+    "daily_signals": "Daily signals - see Signals page"
+  },
+  "shortNames": {
+    "A-RVol Shifter V3 Cash-Only": "A-RVol V3",
+    "Buy and Hold Gold GLD": "Gold GLD",
+    "Buy and Hold IEF": "Bonds IEF",
+    "Inflation Compass Standard": "Inflation Compass"
+  },
   "portfolioWeight": "Portfolio weight",
   "allocation": "Allocation",
   "combinedWarning": "Combined holdings are unavailable until every saved sleeve has a valid signal and the sleeve weights total 100%.",
@@ -19,7 +33,7 @@
     "unavailable": "No action can be determined until every sleeve has a valid signal."
   },
   "staleWarning": "This signal may be stale. Check that the data sources are up to date before acting.",
-  "preview": "Next month portfolio preview (provisional)",
+  "preview": "Next month portfolio preview",
   "previewWarning": "**Provisional only — not a trading instruction.** This estimates the next completed month-end decision from current-month prices. It can change before month-end.",
   "projectedAllocation": "Projected allocation",
   "change": "Change vs current",
