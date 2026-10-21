@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import text from "../../content/today.json";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
-import DisplayTable, { DisplayTableValue } from "../../components/DisplayTable";
+import HistorySources, { type HistorySleeve } from "./history-sources";
 
 type Signal = { label: string | null; weight_text: string | null; holding: string | null; status: string | null; error_code: string | null; amounts?: {holding:string;amount:number;currency:string}[] };
 type HoldingGroup = { currency: string; rows: { holding: string; weight_text: string; amount_text: string }[] };
@@ -13,7 +13,7 @@ type Preview = { label: string | null; allocation: string | null; change: "yes" 
 type Today = { has_default: boolean; caption: string | null; issues: string[]; signals: Signal[]; holdings: HoldingGroup[] | null;
   monthly_action: "changed" | "unchanged" | "unavailable"; latest_caption: string | null; stale: boolean;
   previews: Preview[]; preview_caption: string | null; warnings: string[]; shared_holdings?: {holding:string;amount:number;currency:string}[];
-  public_sleeves: {model:string;history_note?:string;provenance?:DisplayTableValue;provenance_csv?:string}[]; timing: unknown };
+  public_sleeves: HistorySleeve[]; timing: unknown };
 
 const issue = (key: string | null) => key ? (text.errors as Record<string, string>)[key] ?? text.unavailable : null;
 const requestError = (status: number) => (text.requestErrors as Record<string, string>)[String(status)] ?? `${text.httpError} (${status}). ${text.unchanged}`;
@@ -35,10 +35,6 @@ export default function TodayPage() {
       if(current===generation.current){setValue(previous=>previous && {...previous,previews:next.previews,preview_caption:next.preview_caption});setPreviewLoaded(true);}
     } catch {if(current===generation.current)setError(text.requestError);}
     finally {if(current===generation.current)setPreviewBusy(false);}
-  }
-  function historyCsv(csv:string) {
-    const url=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-    const link=document.createElement("a");link.href=url;link.download="plain_holdings_history_sources.csv";link.click();URL.revokeObjectURL(url);
   }
   async function load() {
     if (inFlight.current) return;
@@ -71,6 +67,7 @@ export default function TodayPage() {
     {busy && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
     {value && (!value.has_default ? <div className="signal-info"><Markdown>{text.setup}</Markdown></div> : <>
       {value.caption && <p className="signal-caption">{value.caption}</p>}
+      <HistorySources sleeves={value.public_sleeves} />
       {value.issues.map((key, i) => <p role="alert" key={i}>{issue(key)}</p>)}
       <section><h2>{text.monthlyAction}</h2><p className={`today-action today-action-${value.monthly_action}`}>{text.actions[value.monthly_action]}</p>
         {value.latest_caption && <p>{fmt.text(value.latest_caption)}</p>}{value.stale && <p className="signal-warning">{text.staleWarning}</p>}</section>
@@ -80,7 +77,6 @@ export default function TodayPage() {
           <td>{row.holding ? fmt.text(row.holding) : text.unavailable}</td><td>{row.amounts?.map((a,j)=><div key={j}>{a.holding}: {fmt.number(a.amount,true)} {a.currency}</div>) ?? text.dash}</td><td>{issue(row.error_code) ?? row.status ?? text.dash}</td></tr>)}</tbody></table></div></section>
       {!value.holdings && <p className="signal-warning">{text.combinedWarning}</p>}
       {!!value.shared_holdings?.length && <p>{text.shared}: {value.shared_holdings.map(a=>`${a.holding}: ${fmt.number(a.amount,true)} ${a.currency}`).join("; ")}</p>}
-      {value.public_sleeves.filter(p=>p.provenance).map((p,i)=><details key={i}><summary>{text.historySources} · {p.model}</summary><p>{p.history_note}</p><DisplayTable value={p.provenance!}/><button onClick={()=>historyCsv(p.provenance_csv!)}>{text.historyCsv}</button></details>)}
       <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}
         <div className="signal-table-scroll"><table aria-label={text.preview}><thead><tr><th>{text.sleeve}</th><th>{text.projectedAllocation}</th><th>{text.change}</th><th>{text.priceThrough}</th></tr></thead>

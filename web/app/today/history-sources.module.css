@@ -1,0 +1,30 @@
+.history {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+.note {
+  color: #626b7a;
+  font-size: .85rem;
+  line-height: 1.6;
+}
+
+.history summary {
+  cursor: pointer;
+}
+
+.history table {
+  min-width: 52rem;
+  table-layout: auto;
+}
+
+.history th,
+.history td {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
