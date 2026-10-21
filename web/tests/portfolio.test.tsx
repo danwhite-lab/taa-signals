@@ -18,6 +18,7 @@ function mockLoad() {
     if (path === "/api/workspace") return { revision: 7, payload: { portfolio_name: "Fake preference" } };
     if (path === "/api/portfolios") return [saved];
     if (path === "/api/me") return { email: "test@example.invalid" };
+    if (path === "/api/backtest/config?mode=portfolio") return { models: [{label:'Buy and Hold SPY'},{label:'Buy and Hold IEF'},{label:'Century Momentum'},{label:'Buy and Hold IEF'}] };
     throw new Error("Unexpected mock request");
   });
 }
@@ -111,12 +112,14 @@ it("shows a readable loaded summary above the form and keeps JSON collapsed",asy
   const summary=screen.getByRole("region",{name:"Portfolio summary"});
   expect(within(summary).getByRole("heading",{name:"Fake portfolio"})).toBeTruthy();
   expect(within(summary).getByText("Default")).toBeTruthy();
-  expect(within(summary).getByText("₪100.00")).toBeTruthy();expect(within(summary).getByText("4")).toBeTruthy();
+  expect(within(summary).getByLabelText("Total capital (ILS)")).toHaveProperty('value','100');
+  expect(within(summary).getByLabelText("ILS per USD rate")).toHaveProperty('value','4');
   const table=within(summary).getByRole("table",{name:"Portfolio sleeves"});
   expect(within(table).getByRole("columnheader",{name:"Sleeve name"})).toBeTruthy();
   expect(within(table).getByRole("columnheader",{name:"Weight"})).toBeTruthy();
   expect(within(table).getByText("Buy and Hold SPY")).toBeTruthy();
-  expect(within(table).getAllByText("100.00%")).toHaveLength(2);
+  expect(within(table).getByLabelText('Weight for Buy and Hold SPY (row 1)')).toHaveProperty('value','100.00');
+  expect(within(table).getByText("100.00%")).toBeTruthy();
   expect(summary.compareDocumentPosition(screen.getByRole("heading",{name:"Edit saved portfolio"}))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const advanced=screen.getByText("Advanced: edit JSON").closest("details")!;
   expect(advanced).toHaveProperty("open",false);expect(advanced.contains(screen.getByLabelText("Portfolio JSON"))).toBe(true);
@@ -127,14 +130,18 @@ it("updates the summary from edits and saves full precision without changing the
   mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
   fireEvent.change(screen.getByLabelText("Portfolio name"),{target:{value:"Fake edited name"}});
   screen.getByText("Advanced: edit JSON").closest("details")!.open=true;
-  const edited={...payload,total_ils:12345.6789,ils_per_usd:3.14159,sleeves:[
+  const edited={...payload,name:'Fake edited name',total_ils:12345.6789,ils_per_usd:3.14159,sleeves:[
     {model:"Fake long sleeve name with multiple whole words",weight:33.333333},
     {model:"Fake second sleeve",weight:66.666667}]};
   fireEvent.change(screen.getByLabelText("Portfolio JSON"),{target:{value:JSON.stringify(edited)}});
   const summary=screen.getByRole("region",{name:"Portfolio summary"});
   expect(within(summary).getByRole("heading",{name:"Fake edited name"})).toBeTruthy();
-  for(const value of ["₪12,345.68","3.14","33.33%","66.67%","100.00%","Fake second sleeve"])
+  for(const value of ["100.00%","Fake second sleeve"])
     expect(within(summary).getByText(value)).toBeTruthy();
+  expect(within(summary).getByLabelText('Total capital (ILS)')).toHaveProperty('value','12345.6789');
+  expect(within(summary).getByLabelText('ILS per USD rate')).toHaveProperty('value','3.14159');
+  expect(within(summary).getByLabelText('Weight for Fake long sleeve name with multiple whole words (row 1)')).toHaveProperty('value','33.33');
+  expect(within(summary).getByLabelText('Weight for Fake second sleeve (row 2)')).toHaveProperty('value','66.67');
   expect(screen.getByText("Loaded: Fake portfolio")).toBeTruthy();
   fireEvent.click(screen.getByText("Save portfolio"));await screen.findByText("Portfolio saved.");
   const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==="POST")!;
@@ -164,7 +171,8 @@ it("does not show stale saved numbers or invented totals for invalid or incomple
   expect(within(summary).queryByText("₪100.00")).toBeNull();expect(within(summary).queryByRole("table")).toBeNull();
   fireEvent.change(screen.getByLabelText("Portfolio JSON"),{target:{value:JSON.stringify({sleeves:[{model:"Fake missing weight"}]})}});
   const table=within(summary).getByRole("table");
-  expect(within(table).getAllByText("Unavailable")).toHaveLength(2);
+  expect(within(table).getByText("Unavailable")).toBeTruthy();
+  expect(within(table).getByLabelText('Weight for Fake missing weight (row 1)')).toHaveProperty('value','');
   expect(within(table).queryByText("100.00%")).toBeNull();
   expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
 });
@@ -182,4 +190,114 @@ it("keeps phone wrapping and overflow rules local to Portfolio without mid-word 
   expect(css).toContain("word-break: normal");expect(css).toContain("overflow-wrap: normal");
   expect(css).toContain("overflow-x: auto");expect(css).toContain("flex-wrap: wrap");
   expect(css).not.toMatch(/break-all|break-word|anywhere|overflow:\s*hidden/);
+});
+
+it('edits name, capital, FX and weights into JSON without losing unrelated fields or changing untouched precision',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify({...payload,custom_note:'Fake retained field',sleeves:[{id:17,model:'Buy and Hold SPY',weight:100}]})}});
+  fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake builder name'}});
+  fireEvent.change(screen.getByLabelText('Total capital (ILS)'),{target:{value:'5432.1234'}});
+  fireEvent.change(screen.getByLabelText('ILS per USD rate'),{target:{value:'3.612345'}});
+  const input=screen.getByLabelText('Weight for Buy and Hold SPY (row 1)');
+  fireEvent.focus(input);fireEvent.change(input,{target:{value:'95.126'}});fireEvent.blur(input);
+  expect(input).toHaveProperty('value','95.13');
+  const draft=JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value);
+  expect(draft).toEqual({...payload,name:'Fake builder name',total_ils:5432.1234,ils_per_usd:3.612345,custom_note:'Fake retained field',sleeves:[{id:17,model:'Buy and Hold SPY',weight:95.13}]});
+  expect(screen.getByRole('row',{name:/Total/}).textContent).toBe('Total95.13%');
+  expect(screen.getByRole('alert').textContent).toContain('not 100%');
+  expect(screen.getByText('Loaded: Fake portfolio')).toBeTruthy();
+});
+
+it('uses the Backtest model list without duplicates and removes the requested row, not the last',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  const dropdown=screen.getByLabelText('Model to add');
+  await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
+  expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
+  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold SPY'})).toBeNull();
+  expect(within(dropdown).getAllByRole('option',{name:'Buy and Hold IEF'})).toHaveLength(1);
+  fireEvent.change(dropdown,{target:{value:'Buy and Hold IEF'}});fireEvent.click(screen.getByRole('button',{name:'Add sleeve'}));
+  let draft=JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value);
+  expect(draft.sleeves).toEqual([{model:'Buy and Hold SPY',weight:100},{model:'Buy and Hold IEF',weight:0}]);
+  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold IEF'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Remove Buy and Hold SPY (row 1)'}));
+  draft=JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value);
+  expect(draft.sleeves).toEqual([{model:'Buy and Hold IEF',weight:0}]);
+  expect(within(dropdown).getByRole('option',{name:'Buy and Hold SPY'})).toBeTruthy();
+});
+
+it('warns live and requires confirmation to save a non-100 draft without normalization',async()=>{
+  mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'90'}});
+  expect(screen.getByRole('row',{name:/Total/}).textContent).toBe('Total90.00%');
+  fireEvent.click(screen.getByText('Save portfolio'));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('do not total 100%'));
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+  expect(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)')).toHaveProperty('value','90.00');
+  confirm.mockReturnValue(true);fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body)).toMatchObject({allow_non_100_weights:true,id:saved.id,expected_updated_at:saved.updated_at,is_default:true,payload:{sleeves:[{model:'Buy and Hold SPY',weight:90}]}});
+});
+
+it('updates every editable field and available models from Advanced JSON',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  screen.getByText('Advanced: edit JSON').closest('details')!.open=true;
+  const next={...payload,name:'Fake from JSON',total_ils:500,ils_per_usd:3.5,sleeves:[{model:'Buy and Hold IEF',weight:100}]};
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
+  expect(screen.getByLabelText('Portfolio name')).toHaveProperty('value','Fake from JSON');
+  expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('value','500');
+  expect(screen.getByLabelText('ILS per USD rate')).toHaveProperty('value','3.5');
+  expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','100.00');
+  expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
+  const dropdown=screen.getByLabelText('Model to add');
+  await waitFor(()=>expect(within(dropdown).getByRole('option',{name:'Buy and Hold SPY'})).toBeTruthy());
+  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold IEF'})).toBeNull();
+});
+
+it.each(['Total capital (ILS)','ILS per USD rate','Weight for Buy and Hold SPY (row 1)'])('guards unsaved table edit %s before another portfolio is loaded',async label=>{
+  mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  fireEvent.change(screen.getByLabelText(label),{target:{value:'50'}});
+  fireEvent.click(screen.getByText('New portfolio'));
+  expect(confirm).toHaveBeenCalledWith('Discard unsaved portfolio edits?');
+  expect(screen.getByText('Loaded: Fake portfolio')).toBeTruthy();
+});
+
+it('can build a new portfolio without inventing capital or FX',async()=>{
+  mockLoad();render(<Portfolio/>);await screen.findByText('Fake portfolio · Default');
+  fireEvent.click(screen.getByText('New portfolio'));
+  expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('value','');
+  expect(screen.getByLabelText('ILS per USD rate')).toHaveProperty('value','');
+  fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake new'}});
+  fireEvent.change(screen.getByLabelText('Total capital (ILS)'),{target:{value:'200'}});
+  fireEvent.change(screen.getByLabelText('ILS per USD rate'),{target:{value:'4'}});
+  const dropdown=screen.getByLabelText('Model to add');await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
+  fireEvent.change(dropdown,{target:{value:'Buy and Hold SPY'}});fireEvent.click(screen.getByRole('button',{name:'Add sleeve'}));
+  fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body)).toMatchObject({id:null,expected_updated_at:null,is_default:false,payload:{version:1,name:'Fake new',total_ils:200,ils_per_usd:4,sleeves:[{model:'Buy and Hold SPY',weight:100}]}});
+});
+
+it('does not overwrite malformed JSON through the builder or save empty/invalid fields',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:'{'}});
+  expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('disabled',true);
+  expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',true);
+  expect(screen.getByLabelText('Portfolio JSON')).toHaveProperty('value','{');
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify({...payload,ils_per_usd:null})}});
+  fireEvent.click(screen.getByText('Save portfolio'));
+  expect(screen.getByText('Enter positive sleeve weights, total capital and ILS per USD rate. No save was attempted.')).toBeTruthy();
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+});
+
+it('retries a failed model list without losing the editable draft',async()=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;let fail=true;
+  calls.api.mockImplementation(async(path,init)=>{if(path==='/api/backtest/config?mode=portfolio'&&fail)throw Error('Mock failure');return original(path,init);});
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  await screen.findByText('Available models could not be loaded. Existing drafts are unchanged.');
+  fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake draft preserved'}});
+  fail=false;fireEvent.click(screen.getByText('Retry model list'));
+  await waitFor(()=>expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',false));
+  expect(screen.getByLabelText('Portfolio name')).toHaveProperty('value','Fake draft preserved');
 });
