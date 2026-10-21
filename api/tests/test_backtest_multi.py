@@ -202,8 +202,56 @@ def test_saved_and_file_loading_use_saved_fx_without_writes(signed_in, monkeypat
             response = client.post("/api/backtest/load", headers=HEADERS, json={"mode": mode, **source})
             assert response.status_code == 200, response.text
             assert response.json()["initial"] == 3000
+            assert response.json()['sleeve_rebalance_mode']=='none'
+            assert response.json()['rebalance_sleeve'] is None
             assert response.json()["sleeves"][0]["model"] == ("century_momentum" if mode == "deep" else "Century Momentum")
     assert not base.RESULTS.warm
+
+
+@pytest.mark.parametrize('mode',['none','annual_target','rvol_cap'])
+def test_saved_transfer_rule_roundtrip_save_to_load_and_engine_parameters(signed_in,monkeypatch,mode):
+    from copy import deepcopy
+    rvol='A-RVol Shifter V3 Cash-Only'
+    payload={'version':1,'name':'Fake transfer portfolio','total_ils':12000,'ils_per_usd':4,
+        'sleeves':[{'id':99,'model':'Buy and Hold SPY','weight':80},{'id':1001,'model':rvol,'weight':20}],
+        'transfer_rule':{'mode':mode,**({'sleeve_model':rvol,'cap_percent':17.5,'target_percent':9.25} if mode=='rvol_cap' else {})}}
+    original=deepcopy(payload); rows=[]
+    def save(url,key,session,value,**kwargs):
+        assert session['user_id']=='mock-user'
+        assert kwargs=={'is_default':True,'existing_id':None,'expected_updated_at':None}
+        row={'id':'fake-saved','payload':deepcopy(value),'name':value['name'],'updated_at':'mock-date','is_default':True}
+        rows.append(row);return row
+    monkeypatch.setattr(private_api.sync,'save_portfolio',save)
+    monkeypatch.setattr(private_api.sync,'list_portfolios',lambda *args:rows)
+    response=client.post('/api/portfolios',headers=HEADERS,json={'payload':payload,'is_default':True})
+    assert response.status_code==200,response.text
+    assert rows[0]['payload']==original
+    for source in ({'portfolio_id':'fake-saved'},{'payload':payload}):
+        response=client.post('/api/backtest/load',headers=HEADERS,json={'mode':'portfolio',**source})
+        assert response.status_code==200,response.text
+        value=response.json()
+        assert value['initial']==3000
+        assert value['sleeve_rebalance_mode']==mode
+        request=page.validated(page.Inputs(mode='portfolio',sleeves=value['sleeves'],initial=value['initial'],
+            **{key:value[key] for key in ('sleeve_rebalance_mode','rebalance_sleeve','rebalance_cap','rebalance_target')}))
+        passed=page.engine_parameters(request)
+        assert passed['sleeve_rebalance_mode']==mode
+        if mode=='rvol_cap':
+            assert value['rebalance_sleeve']==2
+            assert passed['rebalance_sleeve']==rvol+' (2)'
+            assert passed['rebalance_cap']==.175 and passed['rebalance_target']==.0925
+    assert payload==original and len(rows)==1
+
+
+def test_saved_transfer_rule_load_rejects_missing_sleeve_and_active_deep_rule(signed_in):
+    payload={'version':1,'name':'Fake','total_ils':1000,'ils_per_usd':4,'sleeves':[{'model':'Buy and Hold SPY','weight':100}],
+        'transfer_rule':{'mode':'rvol_cap','sleeve_model':'A-RVol Shifter V3 Cash-Only','cap_percent':15,'target_percent':10}}
+    response=client.post('/api/backtest/load',headers=HEADERS,json={'mode':'portfolio','payload':payload})
+    assert response.status_code==400
+    assert response.json()['detail']=='Saved transfer rule is invalid or its RVol sleeve is unavailable.'
+    payload['transfer_rule']={'mode':'annual_target'}
+    response=client.post('/api/backtest/load',headers=HEADERS,json={'mode':'deep','payload':payload})
+    assert response.status_code==400 and response.json()['detail']==page.WORDS['savedTransferDeep']
 
 
 def test_cache_sorted_sleeves_revision_settings_and_failure(signed_in, monkeypatch):
@@ -301,7 +349,8 @@ def test_oversized_failed_response_and_bad_bounds_never_cache(signed_in, monkeyp
     assert not base.RESULTS.warm
 
 
-def test_original_static_portfolio_proxy_words_are_verbatim():
+def test_original_static_words_stay_verbatim_except_transfer_loading_caption():
     literals = {node.value for node in ast.walk(ast.parse((ROOT/"app.py").read_text())) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    for key in ("sleeveCaption", "loadCaption", "deepLoadCaption", "proxyCaption", "benchmarkHelp", "weightSuccess", "duplicateProxy", "dailySingle", "mixedCaption", "taxCaption", "dailyCaption", "syntheticTax", "unsupportedFees", "monthlyReset", "mixedNone", "mixedCap", "mixedAnnual", "mixedTax", "proxyWarning", "blendWarning", "dailyMetrics", "sourceCaption", "sleeveFeeCaption", "plainCaption", "rollingCaption"):
+    for key in ("sleeveCaption", "deepLoadCaption", "proxyCaption", "benchmarkHelp", "weightSuccess", "duplicateProxy", "dailySingle", "mixedCaption", "taxCaption", "dailyCaption", "syntheticTax", "unsupportedFees", "monthlyReset", "mixedNone", "mixedCap", "mixedAnnual", "mixedTax", "proxyWarning", "blendWarning", "dailyMetrics", "sourceCaption", "sleeveFeeCaption", "plainCaption", "rollingCaption"):
         assert page.WORDS[key] in literals, key
+    assert 'saved transfer rule with its parameters' in page.WORDS['loadCaption']

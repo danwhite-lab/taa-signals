@@ -1,6 +1,47 @@
 """Validate saved portfolio JSON without mutating browser/default state."""
 import math
 
+TRANSFER_ERROR = "Saved transfer rule is invalid or its RVol sleeve is unavailable."
+
+
+def portfolio_transfer_config(payload, sleeves=None):
+    """Translate saved model identity to current row IDs; never calculate transfers.
+
+    Percentages are percentage points, just like Backtest request inputs.
+    Absent metadata is the legacy no-transfer configuration.
+    """
+    settings = dict(sleeve_rebalance_mode="none", rebalance_sleeve=None,
+                    rebalance_cap=15., rebalance_target=10.)
+    if not isinstance(payload, dict):
+        raise ValueError(TRANSFER_ERROR)
+    rule = payload.get("transfer_rule", {"mode": "none"})
+    if not isinstance(rule, dict) or not isinstance(rule.get("mode"), str) or rule["mode"] not in {"none", "annual_target", "rvol_cap"}:
+        raise ValueError(TRANSFER_ERROR)
+    settings["sleeve_rebalance_mode"] = rule["mode"]
+    if rule["mode"] != "rvol_cap":
+        return settings
+    model = rule.get("sleeve_model")
+    rows = sleeves if sleeves is not None else payload.get("sleeves", [])
+    if not isinstance(rows, list):
+        raise ValueError(TRANSFER_ERROR)
+    matches = [i for i, row in enumerate(rows, 1) if isinstance(row, dict) and row.get("model") == model]
+    if not isinstance(model, str) or "RVol" not in model or len(matches) != 1:
+        raise ValueError(TRANSFER_ERROR)
+    try:
+        if any(isinstance(rule.get(key), bool) for key in ("cap_percent", "target_percent")):
+            raise ValueError()
+        cap, target = float(rule["cap_percent"]), float(rule["target_percent"])
+        if not all(math.isfinite(v) for v in (cap, target)) or not 1 <= cap <= 99 or not 1 <= target <= 98 or target >= cap:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, OverflowError):
+        raise ValueError(TRANSFER_ERROR) from None
+    # The cleaned sleeve IDs are assigned by backtest_portfolio_config. Never
+    # reuse arbitrary IDs from a saved JSON file or silently pick another RVol.
+    row = rows[matches[0]-1]
+    settings.update(rebalance_sleeve=row["id"] if sleeves is not None else matches[0],
+                    rebalance_cap=cap, rebalance_target=target)
+    return settings
+
 # Deliberately exact mappings: no silent Israel/leveraged/variant substitutions.
 DEEP_HISTORY_MODEL_MAP = {
     "Century Momentum": "century_momentum", "HAA-Simple": "haa_simple",

@@ -122,6 +122,14 @@ def test_portfolio_draft_confirmation_keeps_other_save_checks(signed_in,monkeypa
     save.assert_not_called()
 
 
+@pytest.mark.parametrize('rule',[None,{'mode':'unknown'},{'mode':'rvol_cap','sleeve_model':'Missing RVol','cap_percent':15,'target_percent':10}])
+def test_portfolio_save_rejects_invalid_transfer_rule_without_writing(signed_in,monkeypatch,rule):
+    save=MagicMock();monkeypatch.setattr(private.sync,'save_portfolio',save)
+    response=client.post('/api/portfolios',headers=HEADERS,json={'payload':{**portfolio(),'transfer_rule':rule}})
+    assert response.status_code==422
+    save.assert_not_called()
+
+
 def test_delete_is_user_and_timestamp_filtered(signed_in, monkeypatch):
     query = MagicMock()
     query.table.return_value = query.delete.return_value = query.eq.return_value = query

@@ -5,6 +5,7 @@ import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
+import transferWords from "../../content/backtest-multi.json";
 
 function numeric(value: unknown): number | null {
   if (typeof value !== "number" && !(typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()))) return null;
@@ -24,6 +25,26 @@ function totalWeight(payload: Record<string, unknown> | null): number | null {
   if (!Array.isArray(payload?.sleeves)) return null;
   const weights = payload.sleeves.map(row => numeric(row?.weight));
   return weights.every(value => value !== null) ? weights.reduce((sum, value) => sum + value!, 0) : null;
+}
+
+function transferRule(payload: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (payload?.transfer_rule === undefined) return { mode: "none" };
+  const value = payload.transfer_rule;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function transferError(payload: Record<string, unknown> | null): string | null {
+  const rule = transferRule(payload);
+  if (!rule || !['none','annual_target','rvol_cap'].includes(String(rule.mode))) return 'Choose a valid sleeve transfer rule.';
+  if (rule.mode !== 'rvol_cap') return null;
+  const rows = Array.isArray(payload?.sleeves) ? payload.sleeves : [];
+  const cap = numeric(rule.cap_percent), target = numeric(rule.target_percent);
+  if (typeof rule.sleeve_model !== 'string' || !rule.sleeve_model.includes('RVol')
+    || rows.filter(row => row?.model === rule.sleeve_model).length !== 1)
+    return 'Select an existing RVol sleeve to cap. The stored selection is not changed automatically.';
+  if (cap === null || target === null || cap < 1 || cap > 99 || target < 1 || target > 98 || target >= cap)
+    return 'Enter an RVol cap from 1–99% and a reset target from 1–98%, below the cap.';
+  return null;
 }
 
 function NumberField({ label, value, disabled, decimals, onChange }: { label: string; value: number | null; disabled: boolean;
@@ -54,6 +75,13 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
   const available = models?.filter(model => !sleeves?.some(row => row.name === model)) ?? [];
+  const rule = transferRule(payload);
+  const ruleMode = typeof rule?.mode === 'string' ? rule.mode : '';
+  const ruleError = payload ? transferError(payload) : null;
+  const rvolModels = sleeves?.filter(row => row.name.includes('RVol')).map(row => row.name) ?? [];
+  function editRule(patch: Record<string, unknown>) {
+    if (payload) changePayload({ ...payload, transfer_rule: { ...(rule ?? {}), ...patch } });
+  }
   function editSleeves(next: unknown[]) { if (payload) changePayload({ ...payload, sleeves: next }); }
   return <section className={styles.summary} aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
@@ -66,6 +94,31 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       <label>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, ils_per_usd: value })} /></label>
     </div>
+    <fieldset className={styles.transfer} disabled={disabled || !payload}>
+      <legend>{transferWords.rule}</legend>
+      <label>{transferWords.rule}<select value={ruleMode} onChange={event => {
+        if (event.target.value === 'rvol_cap') editRule({ mode:'rvol_cap', sleeve_model: rule?.sleeve_model ?? null,
+          cap_percent: rule?.cap_percent ?? 15, target_percent: rule?.target_percent ?? 10 });
+        else editRule({ mode:event.target.value });
+      }}>
+        {!Object.hasOwn(transferWords.rules, ruleMode) && <option value={ruleMode}>Choose a valid rule</option>}
+        {Object.entries(transferWords.rules).map(([key,label]) => <option key={key} value={key}>{label}</option>)}
+      </select></label>
+      {ruleMode === 'rvol_cap' && <>
+        <label>{transferWords.capSleeve}<select value={typeof rule?.sleeve_model === 'string' ? rule.sleeve_model : ''}
+          onChange={event => editRule({ sleeve_model:event.target.value || null })}>
+          <option value="">Choose an RVol sleeve</option>
+          {typeof rule?.sleeve_model === 'string' && !rvolModels.includes(rule.sleeve_model) && <option value={rule.sleeve_model}>Stored sleeve unavailable — choose another</option>}
+          {[...new Set(rvolModels)].map(model => <option key={model} value={model}>{model}</option>)}
+        </select></label>
+        <label>{transferWords.cap}<NumberField label={transferWords.cap} value={numeric(rule?.cap_percent)} disabled={disabled || !payload}
+          onChange={value => editRule({ cap_percent:value })}/></label>
+        <label>{transferWords.target}<NumberField label={transferWords.target} value={numeric(rule?.target_percent)} disabled={disabled || !payload}
+          onChange={value => editRule({ target_percent:value })}/></label>
+      </>}
+      <p>{transferWords.mixedCaption}</p>
+      {ruleError && <p role="alert">{ruleError}</p>}
+    </fieldset>
     {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Remove</th></tr></thead>
       <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>
@@ -168,6 +221,9 @@ export default function Portfolio() {
       setError("Enter positive sleeve weights, total capital and ILS per USD rate. No save was attempted."); return;
     }
     if (new Set(rows.map(row => row.model)).size !== rows.length) { setError("Each model may appear only once. No save was attempted."); return; }
+    const ruleError = transferError(payload);
+    if (ruleError) { setError(ruleError + ' No save was attempted.'); return; }
+    if (payload.transfer_rule === undefined) payload = { ...payload, transfer_rule: { mode:'none' } };
     const unbalanced = total === null || Math.abs(total - 100) > 1e-9;
     if (unbalanced && !window.confirm("Save weights that do not total 100%? They will be saved unchanged. Signals and backtests require 100%.")) return;
     await act(async () => {

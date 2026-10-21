@@ -86,11 +86,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     const controller = new AbortController(); loadController.current = controller;
     loadInFlight.current = true; setLoadingPortfolio(true); setError("");
     try {
-      const loaded = await backtestRequest<{ sleeves: Sleeve[]; initial: number; warnings: string[] }>("/api/backtest/load", {
+      const loaded = await backtestRequest<{ sleeves: Sleeve[]; initial: number; warnings: string[] } & Partial<Pick<Form,
+        "sleeve_rebalance_mode" | "rebalance_sleeve" | "rebalance_cap" | "rebalance_target">>>("/api/backtest/load", {
         method: "POST", signal: controller.signal, body: JSON.stringify(payload === undefined ? { mode, portfolio_id: selected } : { mode, payload }) });
       if (controller.signal.aborted) return;
       setValid(false); setSleeves(loaded.sleeves); nextId.current = Math.max(...loaded.sleeves.map(s => s.id))+1;
-      setForm(previous => ({ ...previous, initial: loaded.initial, rebalance_sleeve: null, start: "", end: "" }));
+      setForm(previous => ({ ...previous, initial: loaded.initial, start: "", end: "",
+        ...(mode === "portfolio" ? { sleeve_rebalance_mode: loaded.sleeve_rebalance_mode ?? "none",
+          rebalance_sleeve: loaded.rebalance_sleeve ?? null, rebalance_cap: loaded.rebalance_cap ?? 15,
+          rebalance_target: loaded.rebalance_target ?? 10 } : { rebalance_sleeve: null }) }));
       setWarnings(loaded.warnings); onChange();
     } catch (failure) { if (!controller.signal.aborted) setError((failure as Error).message); }
     finally { loadInFlight.current = false; if (!controller.signal.aborted) setLoadingPortfolio(false); }

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from haa import supabase_sync as sync
 from haa.model_catalog import MODEL_CATALOG
-from haa.portfolio_config import backtest_portfolio_config
+from haa.portfolio_config import backtest_portfolio_config, portfolio_transfer_config
 from haa.rebalance_holdings import validate_account
 from haa.workspace_sync import FIELDS
 
@@ -141,6 +141,7 @@ def save_portfolio(body: PortfolioWrite, session=Depends(authenticated)):
             raise ValueError()
         backtest_portfolio_config(body.payload, {m.label: m for m in MODEL_CATALOG},
                                   require_total=not body.allow_non_100_weights)
+        portfolio_transfer_config(body.payload)
     except Exception:
         raise HTTPException(422, "Enter a valid named version-1 portfolio with known strategies, weights, capital and FX.") from None
     if body.id and not body.expected_updated_at:

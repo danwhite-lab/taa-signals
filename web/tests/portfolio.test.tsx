@@ -145,7 +145,7 @@ it("updates the summary from edits and saves full precision without changing the
   expect(screen.getByText("Loaded: Fake portfolio")).toBeTruthy();
   fireEvent.click(screen.getByText("Save portfolio"));await screen.findByText("Portfolio saved.");
   const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==="POST")!;
-  expect(JSON.parse(init.body)).toEqual({id:saved.id,expected_updated_at:saved.updated_at,is_default:true,payload:{...edited,name:"Fake edited name"}});
+  expect(JSON.parse(init.body)).toEqual({id:saved.id,expected_updated_at:saved.updated_at,is_default:true,payload:{...edited,name:"Fake edited name",transfer_rule:{mode:'none'}}});
 });
 
 it("updates a pending default badge but does not pretend unchecking clears a saved default",async()=>{
@@ -300,4 +300,58 @@ it('retries a failed model list without losing the editable draft',async()=>{
   fail=false;fireEvent.click(screen.getByText('Retry model list'));
   await waitFor(()=>expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',false));
   expect(screen.getByLabelText('Portfolio name')).toHaveProperty('value','Fake draft preserved');
+});
+
+it('defaults legacy portfolios to no transfers and stores that rule on save',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  expect(screen.getByLabelText('Sleeve transfer rule')).toHaveProperty('value','none');
+  expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value).transfer_rule).toBeUndefined();
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body).payload).toEqual({...payload,transfer_rule:{mode:'none'}});
+});
+
+it('edits and saves the quarterly cap with its model identity and precise parameters',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  const base={...payload,sleeves:[{id:991,model:'A-RVol Shifter V3 Cash-Only',weight:20},{model:'Buy and Hold SPY',weight:80}]};
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(base)}});
+  fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'rvol_cap'}});
+  fireEvent.change(screen.getByLabelText('RVol sleeve to cap'),{target:{value:'A-RVol Shifter V3 Cash-Only'}});
+  fireEvent.change(screen.getByLabelText('RVol cap (%)'),{target:{value:'17.5'}});
+  fireEvent.change(screen.getByLabelText('RVol reset target (%)'),{target:{value:'9.25'}});
+  const rule={mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:17.5,target_percent:9.25};
+  expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value)).toEqual({...base,transfer_rule:rule});
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body)).toMatchObject({expected_updated_at:saved.updated_at,is_default:true,payload:{...base,transfer_rule:rule}});
+});
+
+it('keeps transfer controls in sync with JSON and warns instead of retargeting a removed cap sleeve',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  const rule={mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:22,target_percent:11};
+  const next={...payload,sleeves:[{model:rule.sleeve_model,weight:10},{model:'Buy and Hold SPY',weight:90}],transfer_rule:rule};
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
+  expect(screen.getByLabelText('Sleeve transfer rule')).toHaveProperty('value','rvol_cap');
+  expect(screen.getByLabelText('RVol cap (%)')).toHaveProperty('value','22');
+  expect(screen.getByLabelText('RVol reset target (%)')).toHaveProperty('value','11');
+  fireEvent.click(screen.getByRole('button',{name:`Remove ${rule.sleeve_model} (row 1)`}));
+  expect(screen.getByText('Select an existing RVol sleeve to cap. The stored selection is not changed automatically.')).toBeTruthy();
+  expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value).transfer_rule).toEqual(rule);
+  fireEvent.click(screen.getByText('Save portfolio'));
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+  fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'annual_target'}});
+  expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value).transfer_rule.mode).toBe('annual_target');
+  expect(screen.queryByLabelText('RVol cap (%)')).toBeNull();
+});
+
+it('treats transfer edits as unsaved and refuses invalid cap parameters',async()=>{
+  mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'annual_target'}});
+  fireEvent.click(screen.getByText('New portfolio'));expect(confirm).toHaveBeenCalledWith('Discard unsaved portfolio edits?');
+  const next={...payload,sleeves:[{model:'A-RVol Shifter V3 Cash-Only',weight:100}],transfer_rule:{mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:10,target_percent:20}};
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
+  fireEvent.click(screen.getByText('Save portfolio'));
+  expect(screen.getByText('Enter an RVol cap from 1–99% and a reset target from 1–98%, below the cap. No save was attempted.')).toBeTruthy();
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
 });
