@@ -28,6 +28,47 @@ def bundle(label):
     return prices, metadata, warnings, prices * .999 if label == "A-RVol Shifter V3 Cash-Only" else None
 
 
+@pytest.mark.parametrize('label', ['HAA-Simple', 'A-RVol Shifter V3 Cash-Only', 'HAA-Simple Israel'])
+def test_currency_fee_policy_report_cache_and_off_parity(signed_in, monkeypatch, label):
+    prices, metadata, warnings, opens = bundle(label)
+    monkeypatch.setattr(page, 'load_data', lambda selected: (prices, metadata, warnings, opens))
+    body = {'label': label, 'initial': 10000., 'tax_enabled': True, 'monthly_contribution': 100.,
+            'fees_enabled': True, 'ils_fee_percent': .05, 'ils_minimum_fee': 2., 'usd_flat_fee': 5.}
+    response = client.post('/api/backtest', headers=HEADERS, json=body)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['fees']['currency'] == definition_for_label(label).execution_currency
+    assert result['fees']['pre_tax'] > 0
+    assert result['fees']['after_tax'] > 0
+    assert result['engine_parameters']['trading_fees']['usd_flat'] == 5
+    assert page.MINIMUM_NOTE not in result['warnings']
+    off_body = {**body, 'fees_enabled': False}
+    off = client.post('/api/backtest', headers=HEADERS, json=off_body).json()
+    legacy = client.post('/api/backtest', headers=HEADERS, json={k:v for k,v in off_body.items() if k not in {'fees_enabled','ils_fee_percent','ils_minimum_fee','usd_flat_fee'}}).json()
+    assert off['metrics'] == legacy['metrics']
+    assert off['monthly'] == legacy['monthly']
+    assert off['tax_events'] == legacy['tax_events']
+    assert off['fees']['pre_tax'] == 0
+    assert off['cache']['key'] != result['cache']['key']
+
+
+@pytest.mark.parametrize('patch', [{'ils_fee_percent':-1}, {'ils_minimum_fee':-1}, {'usd_flat_fee':-1}, {'ils_fee_percent':11}, {'usd_flat_fee':None}])
+def test_reject_invalid_currency_fee_assumptions(signed_in, patch):
+    response = client.post('/api/backtest', headers=HEADERS, json={'fees_enabled':True, **patch})
+    assert response.status_code == 400  # Existing API sanitizes validation errors.
+
+
+def test_explicit_fees_off_ignores_legacy_fee_fields_and_has_distinct_cache(signed_in,monkeypatch):
+    monkeypatch.setattr(page,'load_data',lambda selected:bundle('HAA-Simple'))
+    body={'fee_type':'fixed','fee_value':5.}
+    legacy=client.post('/api/backtest',headers=HEADERS,json=body).json()
+    off=client.post('/api/backtest',headers=HEADERS,json={**body,'fees_enabled':False}).json()
+    clean=client.post('/api/backtest',headers=HEADERS,json={'fees_enabled':False}).json()
+    assert off['metrics']==clean['metrics']
+    assert off['fees']['pre_tax']==0
+    assert off['cache']['key']!=legacy['cache']['key']
+
+
 @pytest.mark.parametrize("label", LABELS)
 @pytest.mark.parametrize("tax_enabled", [False, True])
 @pytest.mark.parametrize("deposit", [0., 100.])
@@ -123,7 +164,9 @@ def test_failed_engine_does_not_cache_and_fixed_fee_is_passed_unchanged(signed_i
     for _ in range(2):
         assert client.post("/api/backtest", headers=HEADERS, json=body).status_code == 400
     assert fake.call_count == 2 and not page.RESULTS.warm
-    assert fake.call_args.args[3:6] == (0., True, .25)
+    assert fake.call_args.kwargs['transaction_cost'] == 0.
+    assert fake.call_args.kwargs['tax_enabled'] is True
+    assert fake.call_args.kwargs['tax_rate'] == .25
     assert fake.call_args.kwargs["fixed_fee"] == 2.
 
 

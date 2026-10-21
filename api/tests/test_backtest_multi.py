@@ -63,6 +63,29 @@ def independent_live(request, prices, opens):
     return inputs
 
 
+@pytest.mark.parametrize('labels', [('HAA-Simple','Buy and Hold SPY'), ('A-RVol Shifter V3 Cash-Only','Buy and Hold SPY')])
+def test_portfolio_currency_fees_end_to_end(signed_in, monkeypatch, labels):
+    prices, opens = live_fixture(monkeypatch, labels)
+    request = body(labels, fees_enabled=True, monthly_contribution=100.)
+    response = client.post('/api/backtest',headers=HEADERS,json=request)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    from haa.trading_fees import TradingFees, totals
+    direct = run_portfolio_backtest(independent_live(request, prices, opens),10000,
+        tax_enabled=True,monthly_contribution=100.,trading_fees=TradingFees('USD'))
+    assert value['fees']['pre_tax'] == totals(direct)['pre_tax']
+    assert value['fees']['after_tax'] == totals(direct)['after_tax']
+    assert value['metrics']['after_tax']['Final value'] == direct.monthly.after_tax_value.iloc[-1]
+    assert value['engine_parameters']['trading_fees']['currency']=='USD'
+
+
+@pytest.mark.parametrize('proxy',['rvol_daily','rvol_synthetic'])
+def test_fee_incompatible_history_is_explicit_error_not_silently_free(signed_in,proxy):
+    response=client.post('/api/backtest',headers=HEADERS,json=body((proxy,), 'deep',fees_enabled=True))
+    assert response.status_code==400
+    assert 'fee' in response.json()['detail'].lower()
+
+
 def assert_report(response, direct, initial=10000., proxy=False):
     assert response.status_code == 200, response.text
     value = response.json()
@@ -79,7 +102,7 @@ def assert_report(response, direct, initial=10000., proxy=False):
     audit = direct.audit if direct.audit is not None else direct.monthly
     assert value["periods"] == clean(base.preview(audit))
     assert value["tax_events"] == clean(base.preview(direct.tax_events))
-    assert base.MINIMUM_NOTE in value["warnings"]
+    assert (base.MINIMUM_NOTE in value['warnings']) == bool(value['settings']['fee_value'])
     assert response.headers["cache-control"] == "no-store, private"
     assert len(response.content) < 3_000_000
     return value

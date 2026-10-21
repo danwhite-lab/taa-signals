@@ -39,7 +39,19 @@ it("only validates on edits; runs solely on the explicit button, disabled for in
   fireEvent.click(screen.getByRole("button", { name: text.run }));
   expect(run).toHaveBeenCalledTimes(1);
   expect(run.mock.calls[0][0]).toMatchObject({ mode: "portfolio", tax_enabled: true, tax_rate: 25, fee_value: 0 });
+  expect(run.mock.calls[0][0]).toMatchObject({fees_enabled:true,ils_fee_percent:.05,ils_minimum_fee:2,usd_flat_fee:5});
   expect(mock.request.mock.calls.every(([path]) => !["/api/workspace", "/api/backtest"].includes(path))).toBe(true);
+});
+
+it('passes editable fee assumptions and an explicit off switch in portfolio mode', async()=>{
+  const {run}=setup('portfolio');await screen.findByText(words.weightSuccess);
+  fireEvent.change(screen.getByLabelText(text.usdFlatFee),{target:{value:'7'}});
+  fireEvent.change(screen.getByLabelText(text.ilsMinimumFee),{target:{value:'4'}});
+  fireEvent.change(screen.getByLabelText(text.ilsFeePercent),{target:{value:'.1'}});
+  fireEvent.click(screen.getByLabelText(text.feesEnabled));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  expect(run.mock.calls[0][0]).toMatchObject({fees_enabled:false,usd_flat_fee:7,ils_minimum_fee:4,ils_fee_percent:.1});
 });
 
 it("retains daily single-proxy restrictions and benchmark caveats", async () => {

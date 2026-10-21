@@ -17,8 +17,9 @@ from .market_sessions import validate_us_equity_sessions
 def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost=0.0,
                        tax_enabled=False, tax_rate=0.25, start=None, end=None,
                        benchmark_asset="SPY", execution_delay_business_days=0,
-                       daily_open_prices=None, monthly_contribution=0., fixed_fee=0.):
+                       daily_open_prices=None, monthly_contribution=0., fixed_fee=0., trading_fees=None):
     from .backtest_options import contribution_for, order_fee
+    if trading_fees is not None and not trading_fees.active: trading_fees = None
     if decisions.empty or decisions.index.has_duplicates:
         raise ValueError("Daily signals are empty or duplicated.")
     if not 0 <= transaction_cost < 1 or not 0 <= tax_rate <= 1 or initial_investment <= 0:
@@ -99,10 +100,14 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         changing = holding is not None and holding != target
         entering = holding is None or changing
         fee_pre = fee_after = 0.0
+        fee_orders = []
         if entering:
             if holding is not None:
-                fee_pre = order_fee(pre - contribution, transaction_cost, fixed_fee)
-                fee_after = order_fee(after - contribution, transaction_cost, fixed_fee)
+                fee_pre = trading_fees.charge(pre - contribution) if trading_fees else order_fee(pre - contribution, transaction_cost, fixed_fee)
+                fee_after = trading_fees.charge(after - contribution) if trading_fees else order_fee(after - contribution, transaction_cost, fixed_fee)
+                if trading_fees:
+                    fee_orders.extend([{"book":"pre-tax", "asset":holding, "side":"sell", "notional":pre-contribution, "fee":fee_pre},
+                                       {"book":"after-tax", "asset":holding, "side":"sell", "notional":after-contribution, "fee":fee_after}])
                 pre -= fee_pre
                 after -= fee_after
                 if tax_enabled:
@@ -110,9 +115,13 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                     after -= event["tax_paid"]
                     events.append({"date": date, "signal_date": signal_date, "sold_asset": holding,
                                    "proceeds": after - contribution + event["tax_paid"], **event})
-            buy_pre, buy_after = order_fee(pre, transaction_cost, fixed_fee), order_fee(after, transaction_cost, fixed_fee)
+            buy_pre, buy_after = ((trading_fees.buy_fee(pre), trading_fees.buy_fee(after)) if trading_fees else
+                                  (order_fee(pre, transaction_cost, fixed_fee), order_fee(after, transaction_cost, fixed_fee)))
             fee_pre += buy_pre
             fee_after += buy_after
+            if trading_fees:
+                fee_orders.extend([{"book":"pre-tax", "asset":target, "side":"buy", "notional":pre-buy_pre, "fee":buy_pre},
+                                   {"book":"after-tax", "asset":target, "side":"buy", "notional":after-buy_after, "fee":buy_after}])
             pre -= buy_pre
             after -= buy_after
             if tax_enabled:
@@ -120,10 +129,13 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                 # convention; sale fee reduces realized proceeds.
                 tax.buy(target, after + buy_after)
         elif contribution:
-            buy_fee = order_fee(contribution, transaction_cost, fixed_fee)
+            buy_fee = trading_fees.buy_fee(contribution) if trading_fees else order_fee(contribution, transaction_cost, fixed_fee)
             pre -= buy_fee
             after -= buy_fee
             fee_pre = fee_after = buy_fee
+            if trading_fees:
+                fee_orders.extend({"book":book, "asset":target, "side":"buy", "notional":contribution-buy_fee, "fee":buy_fee}
+                                  for book in ("pre-tax","after-tax"))
             if tax_enabled:
                 tax.buy(target, contribution)
         holding = target
@@ -135,6 +147,7 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
                      "execution_timing": "next-session-open", "execution_price": opens.loc[date, target],
                      "holding_end": date, "selected_asset": target, "allocation_change": changing,
                      "turnover": float(entering), "pre_tax_fee": fee_pre, "after_tax_fee": fee_after}
+        if trading_fees: audit_row['security_trades'] = fee_orders
         audit.append(audit_row)
         output.append({**audit_row, "pre_tax_value": pre, "after_tax_value": after,
                        "benchmark_value": benchmark,
@@ -153,6 +166,9 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         last["allocation_change"] = int(group.allocation_change.sum())
         last["turnover"] = group.turnover.sum()
         last["contribution"] = group.contribution.sum()
+        if trading_fees:
+            for column in ('pre_tax_fee', 'after_tax_fee'):
+                last[column] = group[column].sum()
         last["holding_end"] = group.index[-1]
         monthly_rows.append(last)
     monthly = pd.DataFrame(monthly_rows).set_index("holding_end")

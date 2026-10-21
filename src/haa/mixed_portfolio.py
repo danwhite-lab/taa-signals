@@ -19,7 +19,7 @@ def weights_for(row):
     return _normalise_weights(row.target_weights) if 'target_weights' in row.index else {row.selected_asset: 1.0}
 
 
-def aggregate_months(daily):
+def aggregate_months(daily, aggregate_fees=False):
     rows=[]
     for _, group in daily.groupby(daily.index.to_period('M')):
         row=group.iloc[-1].to_dict()
@@ -28,6 +28,9 @@ def aggregate_months(daily):
         row['allocation_change']=group.allocation_change.sum()
         row['turnover']=group.turnover.sum()
         if 'contribution' in group: row['contribution']=group.contribution.sum()
+        if aggregate_fees:
+            for column in ('pre_tax_fee', 'after_tax_fee'):
+                row[column]=group[column].sum()
         rows.append({'holding_end':group.index[-1],**row})
     return pd.DataFrame(rows).set_index('holding_end')
 
@@ -155,7 +158,7 @@ def _rebalance_mixed_daily(daily, sleeve_nav, after_sleeve_nav, weights, mode, c
     return adjusted,pd.DataFrame(out_sleeves,index=daily.index),events,audit
 
 
-def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_contribution=0., fixed_fee=0.):
+def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_contribution=0., fixed_fee=0., trading_fees=None):
     from .backtest_options import contribution_for, order_fee
     """Mark monthly holdings daily; only trade on scheduled closes (or initial funding).
 
@@ -187,7 +190,7 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
             for positions in (pre_positions,after_positions):
                 for asset in positions:
                     positions[asset]*=prices.loc[date,asset]/prices.loc[previous_date,asset]
-        trades=0.; change=False
+        trades=0.; change=False; details=[]
         pre_cash += contribution
         after_cash += contribution
         if i==0 or date in schedule or contribution:
@@ -197,6 +200,17 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
             details=[]
             for positions,is_after in ((pre_positions,False),(after_positions,True)):
                 cash=after_cash if is_after else pre_cash
+                if trading_fees:
+                    from .trading_fees import rebalance
+                    cash, orders, realized = rebalance(positions, cash, target, trading_fees, tax if is_after and taxed else None)
+                    details.extend({'book':'after-tax' if is_after else 'pre-tax', **o, 'adjusted_price':prices.loc[date,o['asset']]} for o in orders)
+                    events.extend({'date':date, 'signal_date':signal, **e} for e in realized)
+                    change = change or bool(orders)
+                    if is_after: after_cash=cash
+                    else:
+                        pre_cash=cash
+                        trades+=sum(o['notional'] for o in orders if o['side']=='buy')
+                    continue
                 total=sum(positions.values())+cash
                 desired={a:total*w for a,w in target.items()}
                 for asset,current in list(positions.items()):
@@ -239,13 +253,17 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
             'pre_tax_monthly_return':(pre-contribution)/prior_pre-1,'after_tax_monthly_return':(after-contribution)/prior_after-1,
             'contribution':contribution,'open_pre_tax_value':open_pre,'open_after_tax_value':open_after,
             'allocation_change':change,'purchase_notional':trades,'turnover':trades/max(prior_pre,1e-300)})
+        if trading_fees:
+            output[-1]['pre_tax_fee']=sum(o['fee'] for o in details if o['book']=='pre-tax')
+            output[-1]['after_tax_fee']=sum(o['fee'] for o in details if o['book']=='after-tax')
         previous_date=date
     daily=pd.DataFrame(output).set_index('holding_end')
     return BacktestResult(pd.DataFrame(),pd.DataFrame(audit),pd.DataFrame(events),daily)
 
 
-def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, monthly_contribution=0., fixed_fee=0., sleeve_rebalance_mode='none', rebalance_sleeve=None, rebalance_cap=.15, rebalance_target=.10):
+def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, monthly_contribution=0., fixed_fee=0., sleeve_rebalance_mode='none', rebalance_sleeve=None, rebalance_cap=.15, rebalance_target=.10, trading_fees=None):
     from .portfolio_backtest import PortfolioBacktestResult
+    if trading_fees is not None and not trading_fees.active: trading_fees = None
     weights={name:float(w) for name,(w,_) in sleeves.items()}
     currencies={model.execution_currency for _,model in sleeves.values()}
     if len(currencies) != 1 or not currencies.issubset({'USD','ILS'}):
@@ -306,13 +324,13 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         if model.decisions.attrs.get('execution_frequency')=='daily':
             result=run_backtest(model.decisions,model.monthly_prices,initial*weight,fee,taxed,tax_rate,
                 sessions[0],sessions[-1],daily_prices=model.daily_prices,benchmark_asset=benchmark,
-                daily_open_prices=model.daily_open_prices, monthly_contribution=monthly_contribution*weight, fixed_fee=fixed_fee)
+                daily_open_prices=model.daily_open_prices, monthly_contribution=monthly_contribution*weight, fixed_fee=fixed_fee, trading_fees=trading_fees)
         else:
             required_months=pd.period_range(sessions[0].to_period('M')-1,sessions[-1].to_period('M')-1,freq='M')
             missing=required_months.difference(model.decisions.index.to_period('M'))
             if len(missing):
                 raise ValueError(f'{name}: missing monthly decisions for {list(missing)}; refusing to carry an unexplained stale signal.')
-            result=monthly_daily_book(model,sessions,initial*weight,fee,taxed,tax_rate, monthly_contribution*weight, fixed_fee)
+            result=monthly_daily_book(model,sessions,initial*weight,fee,taxed,tax_rate, monthly_contribution*weight, fixed_fee,trading_fees)
         if not result.daily.index.equals(sessions): raise ValueError('Sleeve daily histories do not align exactly.')
         if model.decisions.attrs.get('execution_frequency')=='daily' and not model.decisions.attrs.get('local_daily_execution'):
             buys=[]
@@ -330,6 +348,9 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     after_sleeve_nav=pd.DataFrame({n:r.daily.after_tax_value for n,r in results.items()})
     daily['pre_tax_value']=sleeve_nav.sum(axis=1)
     daily['after_tax_value']=after_sleeve_nav.sum(axis=1)
+    if trading_fees:
+        for book in ('pre_tax','after_tax'):
+            daily[book+'_fee']=sum(r.daily[book+'_fee'] for r in results.values())
     daily_model=next((m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily'), next(iter(sleeves.values()))[1])
     if daily_model.daily_open_prices is None and not local: raise ValueError('Daily sleeve requires adjusted opening prices.')
     benchmark_opens=(daily_model.daily_prices if local else daily_model.daily_open_prices).reindex(sessions)[benchmark]
@@ -358,6 +379,19 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     daily['allocation_change']=sum(r.daily.allocation_change.astype(int) for r in results.values())
     prior=daily.pre_tax_value.shift(1); prior.iloc[0]=initial
     daily['turnover']=sum(r.daily.purchase_notional for r in results.values())/prior
+    if trading_fees and sleeve_rebalance_mode != 'none':
+        if monthly_contribution:
+            raise ValueError('Sleeve transfers are not available with monthly contributions yet.')
+        if sleeve_rebalance_mode not in {'rvol_cap','annual_target'}:
+            raise ValueError('Unknown mixed-portfolio sleeve rebalancing mode.')
+        if sleeve_rebalance_mode == 'rvol_cap' and (rebalance_sleeve not in weights or not 0 < rebalance_target < rebalance_cap < 1):
+            raise ValueError('Invalid RVol sleeve transfer cap/target.')
+        from .fee_portfolio import replay
+        daily, sleeve_nav, replay_events, replay_audit = replay(sleeves, results, daily, initial, trading_fees,
+            taxed, tax_rate, sleeve_rebalance_mode, rebalance_sleeve, rebalance_cap, rebalance_target)
+        monthly=aggregate_months(daily, aggregate_fees=True)
+        sleeve_returns=pd.DataFrame({n:r.daily.pre_tax_monthly_return.groupby(r.daily.index.to_period('M')).apply(lambda x:(1+x).prod()-1).to_numpy() for n,r in results.items()},index=monthly.index)
+        return PortfolioBacktestResult(monthly,sleeve_returns,sessions,replay_events,daily,sleeve_nav,replay_audit)
     daily,sleeve_nav,transfer_events,transfer_audit=_rebalance_mixed_daily(
         daily,sleeve_nav,after_sleeve_nav,weights,sleeve_rebalance_mode,rebalance_sleeve,
         rebalance_cap,rebalance_target,fee,fixed_fee,taxed,tax_rate,
@@ -373,7 +407,7 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         events.append(pd.DataFrame(transfer_events))
     if transfer_audit:
         audits.append(pd.DataFrame(transfer_audit).assign(sleeve='portfolio transfer'))
-    monthly=aggregate_months(daily)
+    monthly=aggregate_months(daily, aggregate_fees=bool(trading_fees))
     sleeve_returns=pd.DataFrame({n:r.daily.pre_tax_monthly_return.groupby(r.daily.index.to_period('M')).apply(lambda x:(1+x).prod()-1).to_numpy() for n,r in results.items()},index=monthly.index)
     return PortfolioBacktestResult(monthly,sleeve_returns,sessions,
         pd.concat(events,ignore_index=True) if events else pd.DataFrame(),daily,sleeve_nav,
