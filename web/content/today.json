@@ -34,6 +34,15 @@
   "shared": "Shared funds combined",
   "historySources": "Plain buy-and-hold history sources",
   "historyCsv": "Download buy-and-hold history sources CSV",
+  "historyColumns": {
+    "asset": "Asset",
+    "source": "Source",
+    "first": "First available date",
+    "series": "Price series used",
+    "identifier": "Identifier",
+    "kind": "History kind",
+    "extension": "Automatic proxy extension"
+  },
   "previewLoading": "Loading provisional previews…",
   "timing": "Timing and cache",
   "buyHoldNote": "Plain buy-and-hold assets: actual available fund history only; no automatic proxy or pre-fund extension. Fund expenses are already embedded in prices.",

@@ -13,6 +13,7 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
 import Page from "../app/today/page";
 import AuthGate from "../components/AuthGate";
 import { ApiError } from "../lib/api";
+import { historyTable, historyCsv } from "../app/today/history-sources";
 
 const payload = { has_default: true, caption: "Fake portfolio · private synced portfolio", issues: [],
   signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null,
@@ -23,7 +24,85 @@ const payload = { has_default: true, caption: "Fake portfolio · private synced 
   previews: [{ label: "Fake sleeve", allocation: "Fake holding 100%", change: "no", price_as_of: "2026-10-16", reason: null, error_code: null }],
   preview_caption: "Mock latest common eligible price caption", warnings: [], public_sleeves: [], timing: {} };
 const json = (value: unknown, status=200) => new Response(JSON.stringify(value), { status });
-afterEach(() => { cleanup(); mock.response.mockReset(); });
+afterEach(() => { cleanup(); mock.response.mockReset(); vi.restoreAllMocks(); });
+
+const plainSleeve = (asset: string, source: string, first: string, series: string) => ({
+  model: `Fake plain ${asset}`,
+  provenance: { columns: ['asset','source','identifier','price_field','history_kind','automatic_proxy_extension'], rows: [{asset,source,identifier:asset,price_field:series,history_kind:'Actual fund history',automatic_proxy_extension:false}] },
+  data_ranges: { columns: ['asset','first_available','last_available','observations'], rows: [{asset,first_available:first,last_available:'2026-10-16',observations:123}] },
+});
+
+it('shows one grey note and one collapsed source table under the intro, only for default plain holdings',async()=>{
+  const gold=plainSleeve('FAKE_GOLD','Mock gold source','2004-11-18','Adjusted mock close');
+  const bonds=plainSleeve('FAKE_BONDS','Mock bond source','2002-07-26','Mock total-return NAV');
+  mock.response.mockResolvedValue(json({...payload,public_sleeves:[gold,bonds,gold,{model:'Fake timing strategy'}]}));
+  render(<Page/>);await screen.findByText(text.buyHoldNote);
+  expect(screen.getAllByText(text.buyHoldNote)).toHaveLength(1);
+  const note=screen.getByText(text.buyHoldNote), intro=screen.getByText(payload.caption);
+  const details=screen.getByText(text.historySources).closest('details')!;
+  expect(details.open).toBe(false);
+  expect(intro.compareDocumentPosition(note)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(note.compareDocumentPosition(details)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(details.compareDocumentPosition(screen.getByText(text.monthlyAction))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  details.open=true;fireEvent(details,new Event('toggle'));
+  const table=screen.getByRole('table',{name:text.historySources});
+  expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
+  for(const value of ['FAKE_GOLD','FAKE_BONDS','Mock gold source','Mock bond source','18 Nov 2004','26 Jul 2002','Adjusted mock close','Mock total-return NAV'])
+    expect(table.textContent).toContain(value);
+  expect(mock.response).toHaveBeenCalledTimes(1); // Opening history never requests a preview or changes signals.
+  expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
+  expect(screen.getByText('Fake holding: 2,500.00 USD')).toBeTruthy();
+});
+
+it('hides history without plain holdings or without a default',async()=>{
+  mock.response.mockResolvedValue(json(payload));render(<Page/>);await screen.findByText(payload.caption);
+  expect(screen.queryByText(text.buyHoldNote)).toBeNull();expect(screen.queryByText(text.historySources)).toBeNull();
+  cleanup();
+  mock.response.mockResolvedValue(json({...payload,has_default:false,public_sleeves:[plainSleeve('FAKE','Mock','2000-01-01','Mock NAV')]}));
+  render(<Page/>);await screen.findByText('Use as Today default');
+  expect(screen.queryByText(text.buyHoldNote)).toBeNull();expect(screen.queryByText(text.historySources)).toBeNull();
+});
+
+it('uses the server provenance and per-asset first observations without guessing or mutating them',()=>{
+  const sleeve=plainSleeve('FAKE','Mock "quoted", source','2004-11-18T00:00:00','Unadjusted mock close');
+  const missing={...sleeve,provenance:{...sleeve.provenance,rows:[{...sleeve.provenance.rows[0],asset:'MISSING',history_kind:'Selected source / stand-in'}]}};
+  const original=JSON.stringify([sleeve,missing]);
+  const table=historyTable([sleeve,missing]);
+  expect(table.rows[0]).toMatchObject({Source:'Mock "quoted", source','First available date':'2004-11-18T00:00:00','Price series used':'Unadjusted mock close'});
+  expect(table.rows[1]).toMatchObject({'First available date':text.unavailable,'History kind':'Selected source / stand-in'});
+  expect(JSON.stringify([sleeve,missing])).toBe(original);
+  const csv=historyCsv(table);
+  expect(csv).toContain('"Mock ""quoted"", source"');
+  expect(csv).toContain('"2004-11-18T00:00:00"');
+  expect(csv).toContain('"Unadjusted mock close"');
+  expect(csv).toContain('"Selected source / stand-in"');
+});
+
+it('downloads the displayed combined table as CSV',async()=>{
+  const sleeves=[plainSleeve('FAKE','Mock source','2004-11-18','Mock NAV')];
+  mock.response.mockResolvedValue(json({...payload,public_sleeves:sleeves}));
+  const create=vi.fn((_blob:Blob)=>'blob:mock'),revoke=vi.fn();
+  Object.defineProperty(URL,'createObjectURL',{value:create,configurable:true});
+  Object.defineProperty(URL,'revokeObjectURL',{value:revoke,configurable:true});
+  const clicks:{filename:string;href:string}[]=[];
+  vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(function(this:HTMLAnchorElement){clicks.push({filename:this.download,href:this.href});});
+  render(<Page/>);await screen.findByText(text.buyHoldNote);
+  screen.getByText(text.historySources).closest('details')!.open=true;
+  fireEvent.click(screen.getByRole('button',{name:text.historyCsv}));
+  expect(create.mock.calls[0][0].size).toBe(new TextEncoder().encode(historyCsv(historyTable(sleeves))).length);
+  expect(create.mock.calls[0][0].type).toBe('text/csv;charset=utf-8');
+  expect(clicks).toEqual([{filename:'plain_holdings_history_sources.csv',href:'blob:mock'}]);
+  expect(revoke).toHaveBeenCalledWith('blob:mock');
+});
+
+it('scopes grey caption and whole-word phone layout to Today history only',()=>{
+  const css=readFileSync('./app/today/history-sources.module.css','utf8');
+  expect(css).toContain('font-size: .85rem');expect(css).toContain('color: #626b7a');
+  expect(css).toContain('white-space: normal');expect(css).toContain('overflow-wrap: normal');
+  expect(css).toContain('word-break: normal');expect(css).toContain('hyphens: none');
+  expect(css).not.toMatch(/break-all|anywhere|overflow:\s*hidden/);
+  expect(css).toContain('min-width: 52rem'); // Existing scroll wrapper, not clipped cells or broken words.
+});
 
 it("does not mount or fetch Today before the existing login gate admits it", async () => {
   render(<AuthGate><Page /></AuthGate>); await screen.findByText("Sign in with Google"); expect(mock.response).not.toHaveBeenCalled();
