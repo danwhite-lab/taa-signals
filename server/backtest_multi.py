@@ -171,12 +171,14 @@ def proxy_inputs(request):
     return models, digest(hashes), pd.DataFrame(), [], benchmark.asset_id, {}
 
 
-def engine_parameters(request):
+def engine_parameters(request, currency="USD"):
     daily_proxy = request.mode == "deep" and any(deep.ALL_DEEP_HISTORY_SPECS[s.model].daily_signal_history for s in request.sleeves)
     passed = {"transaction_cost": 0. if daily_proxy or request.fee_type == "fixed" else request.fee_value/100,
               "fixed_fee": 0. if daily_proxy or request.fee_type == "percentage" else request.fee_value,
               "tax_enabled": request.tax_enabled and not (request.mode == "deep" and request.sleeves[0].model == "rvol_daily"),
               "tax_rate": request.tax_rate/100, "monthly_contribution": request.monthly_contribution}
+    if request.fees_enabled is not None:
+        passed.update(base.fee_parameters(request, currency))
     if request.mode == "portfolio":
         sleeve = next((s for s in request.sleeves if s.id == request.rebalance_sleeve), None)
         passed.update(sleeve_rebalance_mode=request.sleeve_rebalance_mode,
@@ -200,7 +202,7 @@ def run(request, code):
     try:
         models, version, metadata, warnings, benchmark, cutoff = (proxy_inputs(request) if request.mode == "deep" else live_inputs(request))
         loaded = perf_counter()
-        passed = engine_parameters(request)
+        passed = engine_parameters(request, next(iter(models.values()))[1].execution_currency)
         params = {k: v for k, v in request.model_dump(mode="json").items() if k not in {"label", "start", "end", "reference_replay"}}
         order = [{"model": s.model, "weight": s.weight} for s in request.sleeves]
         params["sleeves"] = sorted(order, key=lambda s: (s["model"], s["weight"]))

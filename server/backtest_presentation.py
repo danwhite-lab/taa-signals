@@ -91,6 +91,8 @@ def audit_view(strategy, result, data_assets):
     if isinstance(strategy, (CenturyMomentum, CenturyMomentumIsrael)):
         audit_columns += [f'{strategy.equity_asset}_10m_sma', 'trend_up']
     audit_columns += ['regime', 'selected_asset', 'previous_asset', 'trade', 'execution_date', 'holding_end', 'holding_period_return']
+    if 'security_trades' in result.audit:
+        audit_columns += ['security_trades', 'pre_tax_fee', 'after_tax_fee']
     if getattr(strategy, 'actual_history_only', False):
         audit_columns += [column for column in result.audit if column.startswith('history_')]
     audit = result.audit[[column for column in audit_columns if column in result.audit.columns]]

@@ -53,7 +53,7 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     drawdowns = units.div(units.cummax().clip(lower=initial)).sub(1)
     monthly_returns = pd.DataFrame({label: result.monthly[{"pre_tax_value": "pre_tax_monthly_return", "after_tax_value": "after_tax_monthly_return", "benchmark_value": "benchmark_monthly_return"}[column]] for label, column in mapping.items()})
     annual = pd.DataFrame({label: annual_returns(monthly_returns[label]) for label in monthly_returns})
-    captions, warnings, downloads, extra_tables, extra_charts = [], [base.MINIMUM_NOTE], {}, [], []
+    captions, warnings, downloads, extra_tables, extra_charts = [], ([base.MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []), {}, [], []
 
     def download(kind, frame, filename, label, index=True, raw=False):
         downloads[kind] = {"csv": frame if raw else frame.to_csv(index=index), "filename": filename, "label": label}
@@ -156,6 +156,10 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
         "captions": captions, "warnings": warnings, "data_validation": table(validation),
         "calculated_at": datetime.now(timezone.utc).isoformat(), "calculation_timing": timing,
         "data_origin": W["proxyCaption"] if proxy else W["liveOrigin"]}
+    currency = next(iter(models.values()))[1].execution_currency
+    public['fees'] = base.fee_report(result, request, currency)
+    if request.fees_enabled:
+        public['engine_parameters']['trading_fees'] = vars(passed['trading_fees'])
     cards = [{"label": W["blendCagr" if proxy and blend else "proxyCagr" if proxy else "portfolioCagr"], "value": f"{summary.loc['CAGR', pre]:.2%}"}]
     if taxed:
         cards += [{"label": W["afterCagr"], "value": f"{summary.loc['CAGR', after]:.2%}", "delta": f"{summary.loc['CAGR', after]-summary.loc['CAGR', pre]:+.2%}"},

@@ -13,7 +13,8 @@ from .tax import IsraeliTaxState
 def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
                            transaction_cost=0., tax_enabled=False, tax_rate=.25,
                            start=None, end=None, benchmark_asset="RVOL_SPY_IL",
-                           execution_delay_business_days=0, monthly_contribution=0., fixed_fee=0.):
+                           execution_delay_business_days=0, monthly_contribution=0., fixed_fee=0., trading_fees=None):
+    if trading_fees is not None and not trading_fees.active: trading_fees = None
     if decisions.empty or decisions.index.has_duplicates:
         raise ValueError("Local daily decisions are empty or duplicated.")
     if not np.isfinite(initial_investment) or initial_investment <= 0 or not 0 <= transaction_cost < 1 or not 0 <= tax_rate <= 1:
@@ -86,6 +87,16 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
             target = _normalise_weights(decision.target_weights)
             for positions, after_book in ((pre_positions, False), (after_positions, True)):
                 cash = after_cash if after_book else pre_cash
+                if trading_fees:
+                    from .trading_fees import rebalance as execute_orders
+                    cash, orders, realized = execute_orders(positions, cash, target, trading_fees, tax if after_book and tax_enabled else None)
+                    details.extend({'book': 'after-tax' if after_book else 'pre-tax', **order} for order in orders)
+                    events.extend({'date': date, 'signal_date': signal_date, 'annual_reset': annual_reset, **event} for event in realized)
+                    if after_book: after_cash = cash
+                    else:
+                        pre_cash = cash
+                        purchase_notional += sum(o['notional'] for o in orders if o['side'] == 'buy')
+                    continue
                 total = sum(positions.values()) + cash
                 desired = {asset: total * weight for asset, weight in target.items()}
                 for asset, current in list(positions.items()):
@@ -141,9 +152,12 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
             row['signal_calendar'] = 'XNYS'
             row['us_state_transition'] = bool(decision.get('trade', False))
             row['trade'] = bool(details)
+        if trading_fees:
+            row['pre_tax_fee'] = sum(o['fee'] for o in details if o['book'] == 'pre-tax')
+            row['after_tax_fee'] = sum(o['fee'] for o in details if o['book'] == 'after-tax')
         output.append(row)
         if details: audit.append(row.copy())
         previous_date = date
     daily = pd.DataFrame(output).set_index('holding_end')
     from .mixed_portfolio import aggregate_months
-    return BacktestResult(aggregate_months(daily), pd.DataFrame(audit), pd.DataFrame(events), daily)
+    return BacktestResult(aggregate_months(daily, aggregate_fees=bool(trading_fees)), pd.DataFrame(audit), pd.DataFrame(events), daily)

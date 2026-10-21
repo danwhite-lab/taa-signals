@@ -20,6 +20,7 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_signals import monthly_strategy_input
 from haa.signals import first_trading_day_after
 from haa.tase_data import plain_holding_provenance
+from haa.trading_fees import TradingFees, totals as fee_totals
 
 from . import cache as store, signals
 from .cache import ResultCache, data_version, digest
@@ -46,6 +47,10 @@ class Inputs(BaseModel):
     initial: float = Field(default=100000., ge=1)
     fee_type: Literal["percentage", "fixed"] = "percentage"
     fee_value: float = Field(default=0., ge=0)
+    fees_enabled: bool | None = None  # Omitted: legacy callers; explicit False: all fees off.
+    ils_fee_percent: float = Field(default=.05, ge=0, le=10)
+    ils_minimum_fee: float = Field(default=2., ge=0)
+    usd_flat_fee: float = Field(default=5., ge=0)
     tax_enabled: bool = True
     tax_rate: float = Field(default=25., ge=0, le=100)
     monthly_contribution: float = Field(default=0., ge=0)
@@ -58,6 +63,30 @@ class Inputs(BaseModel):
         if self.fee_type == "percentage" and self.fee_value > 10:
             raise ValueError("Percentage fee must be between 0 and 10 percent.")
         return self
+
+
+def trading_fees(request, currency):
+    if not request.fees_enabled:
+        return None
+    return TradingFees(currency, request.ils_fee_percent, request.ils_minimum_fee, request.usd_flat_fee)
+
+
+def fee_parameters(request, currency):
+    policy = trading_fees(request, currency)
+    if request.fees_enabled is False:
+        return {"transaction_cost": 0., "fixed_fee": 0.}
+    return ({"transaction_cost": 0., "fixed_fee": 0., "trading_fees": policy} if policy else
+            {"transaction_cost": request.fee_value/100 if request.fee_type == "percentage" else 0.,
+             "fixed_fee": request.fee_value if request.fee_type == "fixed" else 0.})
+
+
+def fee_report(result, request, currency):
+    if request.fees_enabled is None:
+        # Legacy turnover estimates do not expose a complete per-side ledger.
+        return None
+    amounts = fee_totals(result)
+    return {"currency": currency, "enabled": bool(request.fees_enabled),
+            "pre_tax": amounts["pre_tax"], "after_tax": amounts["after_tax"]}
 
 
 def definition(label):
@@ -131,7 +160,7 @@ def options(label):
                       "label": label, "currency": selected.execution_currency, "bounds": bounds,
                       "reference_replay_available": getattr(strategy, "signal_calendar", None) == "XNYS",
                       "dca_caption": DCA_CAPTION, "reference_caption": REFERENCE_CAPTION,
-                      "captions": captions, "warnings": warnings + [MINIMUM_NOTE],
+                      "captions": captions, "warnings": warnings,
                       "data_validation": table(metadata.loc[list(prices.columns)].join(data.date_ranges(prices))),
                       "defaults": Inputs().model_dump(mode="json")})
     except Exception as exc:
@@ -175,6 +204,7 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
     after = f"{strategy.name} after-tax"
     benchmark = f"{getattr(strategy, 'benchmark_asset', 'SPY')} buy-and-hold"
     summary = performance_table(strategy, result, initial, request.tax_enabled)
+    fees = fee_report(result, request, selected.execution_currency)
     nav = result.daily if result.daily is not None else result.monthly
     mapping = {pre: "pre_tax_value", **({after: "after_tax_value"} if request.tax_enabled else {}), benchmark: "benchmark_value"}
     curves = pd.DataFrame({label: nav[column] for label, column in mapping.items()})
@@ -194,12 +224,15 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
     passed = {"initial_investment": initial, "transaction_cost": request.fee_value / 100 if request.fee_type == "percentage" else 0.,
               "fixed_fee": request.fee_value if request.fee_type == "fixed" else 0., "tax_enabled": request.tax_enabled,
               "tax_rate": request.tax_rate / 100, "monthly_contribution": request.monthly_contribution}
-    public = {"label": selected.label, "currency": selected.execution_currency, "settings": params, "engine_parameters": passed,
+    passed.update(fee_parameters(request, selected.execution_currency))
+    if request.fees_enabled:
+        passed['trading_fees'] = vars(passed['trading_fees'])
+    public = {"label": selected.label, "currency": selected.execution_currency, "settings": params, "engine_parameters": passed, "fees": fees,
               "summary": summary, "metrics": raw_metrics, "value_chart": chart(curves), "drawdown_chart": chart(drawdowns),
               "periods": preview(audit), "tax_events": preview(result.tax_events), "annual": preview(annual), "monthly": preview(monthly_returns),
               "tax_event_count": len(result.tax_events), "report_rows": len(nav), "monthly_rows": len(result.monthly),
               "first_date": nav.index.min().isoformat(), "last_date": nav.index.max().isoformat(),
-              "captions": captions_for(strategy, decisions, result, benchmark), "warnings": [MINIMUM_NOTE, TAX_NOTE] + ([strategy.risk_warning] if hasattr(strategy, "risk_warning") else []),
+              "captions": captions_for(strategy, decisions, result, benchmark), "warnings": ([MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []) + [TAX_NOTE] + ([strategy.risk_warning] if hasattr(strategy, "risk_warning") else []),
               "data_validation": table(metadata.loc[list(prices.columns)].join(data.date_ranges(prices))),
               "calculated_at": datetime.now(timezone.utc).isoformat(), "calculation_timing": timing,
               "data_origin": "Existing live loaders; no cached/live price splice or proxy substitution."}
@@ -237,10 +270,10 @@ def run(request, code):
                 raise ValueError(f"Insufficient history for {strategy.name}.")
             signal_done = perf_counter()
             result = run_backtest(decisions, monthly, request.initial,
-                request.fee_value / 100 if request.fee_type == "percentage" else 0., request.tax_enabled, request.tax_rate / 100,
-                pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=getattr(strategy, "benchmark_asset", "SPY"),
+                tax_enabled=request.tax_enabled, tax_rate=request.tax_rate / 100,
+                start=pd.Timestamp(start), end=pd.Timestamp(end), daily_prices=prices, benchmark_asset=getattr(strategy, "benchmark_asset", "SPY"),
                 daily_open_prices=opens, monthly_contribution=request.monthly_contribution,
-                fixed_fee=request.fee_value if request.fee_type == "fixed" else 0.)
+                **fee_parameters(request, selected.execution_currency))
             engine_done = perf_counter()
             nav = result.daily if result.daily is not None else result.monthly
             if nav.empty or not np.isfinite(nav[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all():

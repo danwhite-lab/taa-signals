@@ -38,6 +38,7 @@ def run_portfolio_backtest(
     rebalance_sleeve: str | None = None,
     rebalance_cap: float = .15,
     rebalance_target: float = .10,
+    trading_fees=None,
 ) -> PortfolioBacktestResult:
     """Backtest weighted sleeves, resetting sleeve weights each month-end.
 
@@ -51,15 +52,20 @@ def run_portfolio_backtest(
     periods; no return series is padded or synthesized.
     """
     from .backtest_options import validate_options
+    if trading_fees is not None and not trading_fees.active: trading_fees = None
     validate_options(monthly_contribution, fixed_fee)
     if not sleeves:
         raise ValueError("Add at least one portfolio sleeve.")
     if tax_enabled and any(model.decisions.attrs.get("tax_supported") is False for _, model in sleeves.values()):
         raise ValueError("Tax is unavailable: an imported sleeve lacks trade values.")
-    if (transaction_cost or fixed_fee) and any(model.decisions.attrs.get("trade_cost_supported") is False for _, model in sleeves.values()):
+    if (transaction_cost or fixed_fee or trading_fees) and any(model.decisions.attrs.get("trade_cost_supported") is False for _, model in sleeves.values()):
         raise ValueError("Trading fees are unavailable: an imported sleeve lacks trade values.")
     if any(model.decisions.attrs.get("single_strategy_only") for _, model in sleeves.values()):
         raise ValueError("Daily supplied proxies are single-strategy only and cannot be portfolio sleeves.")
+    if trading_fees and any(model.decisions.attrs.get("daily_nav_proxy") for _, model in sleeves.values()):
+        raise ValueError("Trading fees are unavailable for supplied NAV proxies without execution notionals; turn fees off.")
+    if trading_fees and {model.execution_currency for _, model in sleeves.values()} != {trading_fees.currency}:
+        raise ValueError("Trading fee currency must match every portfolio sleeve.")
     if tax_enabled and any(model.decisions.attrs.get("synthetic_tax_proxy") for _, model in sleeves.values()):
         from .synthetic_tax import run_synthetic_tax_portfolio
         return run_synthetic_tax_portfolio(sleeves, initial_investment, tax_rate, start, end, monthly_contribution)
@@ -68,7 +74,7 @@ def run_portfolio_backtest(
         return run_mixed_portfolio(
             sleeves, initial_investment, transaction_cost, tax_enabled, tax_rate,
             start, end, monthly_contribution, fixed_fee, sleeve_rebalance_mode,
-            rebalance_sleeve, rebalance_cap, rebalance_target,
+            rebalance_sleeve, rebalance_cap, rebalance_target, trading_fees,
         )
     weights = {name: float(weight) for name, (weight, _) in sleeves.items()}
     if any(weight <= 0 for weight in weights.values()) or abs(sum(weights.values()) - 1.0) > 1e-9:
@@ -81,8 +87,8 @@ def run_portfolio_backtest(
             model.decisions,
             model.monthly_prices,
             1.0,
-            transaction_cost=0. if (monthly_contribution or fixed_fee) else transaction_cost,
-            tax_enabled=False if (monthly_contribution or fixed_fee) else tax_enabled,
+            transaction_cost=0. if (monthly_contribution or fixed_fee or trading_fees) else transaction_cost,
+            tax_enabled=False if (monthly_contribution or fixed_fee or trading_fees) else tax_enabled,
             tax_rate=tax_rate,
             start=start,
             end=end,
@@ -99,7 +105,7 @@ def run_portfolio_backtest(
     if common.empty:
         raise ValueError("The selected sleeves have no common executable holding periods in the requested date range.")
 
-    if monthly_contribution or fixed_fee:
+    if monthly_contribution or fixed_fee or trading_fees:
         # Fund one security-level monthly book, rather than charging an
         # absolute fee to the old normalized one-unit sleeve simulations.
         from .engine import _simulate_weighted_execution
@@ -118,7 +124,7 @@ def run_portfolio_backtest(
             rows.append({"signal_date": date, "execution_date": date, "holding_end": date,
                 "target_weights": targets, "asset_returns": asset_returns,
                 "holding_period_return": sum(targets[a]*asset_returns[a] for a in targets), "spy_return": benchmark_return})
-        funded = _simulate_weighted_execution(pd.DataFrame(rows), initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee)
+        funded = _simulate_weighted_execution(pd.DataFrame(rows), initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee, trading_fees)
         sleeve_returns = pd.DataFrame({n:r.monthly.loc[common,"pre_tax_monthly_return"] for n,r in sleeve_results.items()})
         return PortfolioBacktestResult(funded.monthly, sleeve_returns, common, funded.tax_events, audit=funded.audit)
 

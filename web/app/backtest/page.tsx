@@ -7,17 +7,19 @@ import * as fmt from "../../lib/format";
 import text from "../../content/backtest.json";
 import multiText from "../../content/backtest-multi.json";
 import MultiForm from "./multi-form";
+import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 
 type Row = Record<string, unknown>;
 type Table = { columns: string[]; rows: Row[]; display_rows?: Row[]; total_rows?: number; shown_rows?: number; truncated?: boolean };
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
 type Form = { label: string; start: string; end: string; initial: number; fee_type: "percentage" | "fixed"; fee_value: number;
-  tax_enabled: boolean; tax_rate: number; monthly_contribution: number; reference_replay: boolean };
+  tax_enabled: boolean; tax_rate: number; monthly_contribution: number; reference_replay: boolean } & FeeAssumptions;
 type Options = { models: Model[]; label: string; currency: string; bounds: { start_min: string; start_max: string; end_min: string; end_max: string };
   defaults: Form; captions: string[]; warnings: string[]; data_validation: Table; reference_replay_available: boolean; dca_caption: string; reference_caption: string };
 type Chart = { series: { label: string; svg_points: string }[]; minimum: number; maximum: number; start: string; end: string; caption: string };
 type Results = { label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
+  fees?: { currency: string; enabled: boolean; pre_tax: number; after_tax: number } | null;
   annual: Table; monthly: Table; value_chart: Chart; drawdown_chart: Chart; calculated_at: string; cache: { key: string; hit: string | null };
   captions: string[]; warnings: string[]; data_origin: string; timing: Row; calculation_timing: Row;
   downloads: { kind: string; label: string; filename: string; bytes: number }[];
@@ -38,7 +40,7 @@ function Lines({ value, title }: { value: Chart; title: string }) {
     <p>{value.caption}</p></section>;
 }
 
-const initialForm: Form = { label: "HAA-Simple", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
+const initialForm: Form = { ...defaultFees, label: "HAA-Simple", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
   tax_enabled: true, tax_rate: 25, monthly_contribution: 1000, reference_replay: false };
 
 export default function BacktestPage() {
@@ -89,7 +91,8 @@ export default function BacktestPage() {
   async function run() {
     if (inFlight.current || !options) return;
     const b = options.bounds;
-    if (![form.initial, form.fee_value, form.tax_rate, form.monthly_contribution].every(Number.isFinite)
+    if (![form.initial, form.fee_value, form.tax_rate, form.monthly_contribution, form.ils_fee_percent, form.ils_minimum_fee, form.usd_flat_fee].every(Number.isFinite)
+      || form.ils_fee_percent < 0 || form.ils_fee_percent > 10 || form.ils_minimum_fee < 0 || form.usd_flat_fee < 0
       || form.initial < 1 || form.fee_value < 0 || (form.fee_type === "percentage" && form.fee_value > 10)
       || form.tax_rate < 0 || form.tax_rate > 100 || form.monthly_contribution < 0
       || form.start < b.start_min || form.start > b.start_max || form.end < b.end_min || form.end > b.end_max || form.start > form.end) {
@@ -128,9 +131,7 @@ export default function BacktestPage() {
         </div>
         <p>{text.currency}: {options.currency}</p>
         <div className="backtest-grid"><label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>
-          <label>{text.feeType}<select value={form.fee_type} onChange={event => update({ fee_type: event.target.value as Form["fee_type"], fee_value: event.target.value === "fixed" ? 5 : 0 })}>
-            <option value="percentage">{text.percentage}</option><option value="fixed">{text.fixed}</option></select></label>
-          <label>{form.fee_type === "percentage" ? text.feePercent : text.feeFixed}<input type="number" min="0" step="0.01" value={form.fee_value} onChange={event => update({ fee_value: event.target.valueAsNumber })} /></label>
+          <Fees value={form} onChange={update} />
           <label>{text.taxEnabled}<input type="checkbox" checked={form.tax_enabled} onChange={event => update({ tax_enabled: event.target.checked })} /></label>
           <label>{text.taxRate}<input type="number" min="0" max="100" step="0.1" disabled={!form.tax_enabled} value={form.tax_rate} onChange={event => update({ tax_rate: event.target.valueAsNumber })} /></label>
           <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); update({}); }} /></label>
@@ -158,6 +159,10 @@ export default function BacktestPage() {
       {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
       {mode !== "single" && result.data_validation && <details><summary>{text.validation}</summary><p>{result.data_origin}</p><DataTable value={result.data_validation} label={text.sources} /></details>}
       {result.cards && <section className="backtest-grid">{result.cards.map(card => <div key={card.label}><h3>{card.label}</h3><p>{fmt.cell(card.value,card.label)}</p>{card.delta && <p>{card.delta}</p>}</div>)}</section>}
+      {result.fees && <section aria-label={text.totalFees}><h3>{text.totalFees} ({result.fees.currency})</h3>
+        <p>{text.preTaxFees}: {result.fees.pre_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        {!!result.settings.tax_enabled && <p>{text.afterTaxFees}: {result.fees.after_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+        <p>{text.feeSimulations}</p></section>}
       <section><h2>{result.summary_title ?? text.summary}</h2><DataTable value={result.summary} label={result.summary_title ?? text.summary} /></section>
       <Lines value={result.value_chart} title={result.value_title ?? text.performance} /><Lines value={result.drawdown_chart} title={result.drawdown_title ?? text.drawdown} />
       {result.extra_charts?.map(item => <Lines key={item.label} value={item.value} title={item.label} />)}

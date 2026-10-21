@@ -3,14 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import text from "../../content/backtest.json";
 import words from "../../content/backtest-multi.json";
 import { backtestRequest } from "../../lib/backtestApi";
+import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
 type Sleeve = { id: number; model: string; weight: number };
 type Config = { dca_caption: string; models: Model[]; proxies: { key: string; label: string; caveat: string }[]; single_options: string[]; blend_options: string[];
   benchmarks: { key: string; label: string; caveat: string }[] };
 type Form = { initial: number; start: string; end: string; fee_type: "percentage" | "fixed"; fee_value: number; tax_enabled: boolean; tax_rate: number;
-  monthly_contribution: number; benchmark: string; sleeve_rebalance_mode: string; rebalance_sleeve: number | null; rebalance_cap: number; rebalance_target: number };
-const defaults: Form = { initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
+  monthly_contribution: number; benchmark: string; sleeve_rebalance_mode: string; rebalance_sleeve: number | null; rebalance_cap: number; rebalance_target: number } & FeeAssumptions;
+const defaults: Form = { ...defaultFees, initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
   monthly_contribution: 1000, benchmark: "sp500", sleeve_rebalance_mode: "none", rebalance_sleeve: null, rebalance_cap: 15, rebalance_target: 10 };
 
 export default function MultiForm({ mode, running, onRun, onChange }: { mode: "portfolio" | "deep"; running: boolean;
@@ -160,9 +161,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}</>}
       <div className="backtest-grid">
         <label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>
-        <label>{text.feeType}<select value={form.fee_type} onChange={event => change({ fee_type: event.target.value as Form["fee_type"], fee_value: event.target.value === "fixed" ? 5 : 0 })}>
-          <option value="percentage">{text.percentage}</option><option value="fixed">{text.fixed}</option></select></label>
-        <label>{form.fee_type === "percentage" ? text.feePercent : text.feeFixed}<input type="number" min="0" step="0.01" value={form.fee_value} onChange={event => change({ fee_value: event.target.valueAsNumber })} /></label>
+        <Fees value={form} onChange={change} />
         <label>{daily ? words.dailyTax : text.taxEnabled}<input type="checkbox" disabled={daily} checked={!daily && form.tax_enabled} onChange={event => change({ tax_enabled: event.target.checked })} /></label>
         {!daily && <label>{text.taxRate}<input type="number" min="0" max="100" disabled={!form.tax_enabled} value={form.tax_rate} onChange={event => change({ tax_rate: event.target.valueAsNumber })} /></label>}
         <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); change({}); }} /></label>

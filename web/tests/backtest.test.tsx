@@ -39,11 +39,14 @@ it("is withheld by the existing login gate", async () => {
   expect(screen.queryByText(text.run)).toBeNull();
 });
 
-it("defaults to tax ON at 25%, zero percentage fee, with the other modes enabled", async () => {
+it("defaults to tax ON at 25% and currency-specific broker fees, with the other modes enabled", async () => {
   await ready();
   expect(screen.getByLabelText(text.taxEnabled)).toHaveProperty("checked", true);
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty("value", "25");
-  expect(screen.getByLabelText(text.feePercent)).toHaveProperty("value", "0");
+  expect(screen.getByLabelText(text.feesEnabled)).toHaveProperty("checked", true);
+  expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty("value", "0.05");
+  expect(screen.getByLabelText(text.ilsMinimumFee)).toHaveProperty("value", "2");
+  expect(screen.getByLabelText(text.usdFlatFee)).toHaveProperty("value", "5");
   expect(screen.getByRole("option", { name: text.portfolio })).toHaveProperty("disabled", false);
   expect(screen.getByRole("option", { name: text.deep })).toHaveProperty("disabled", false);
   expect(screen.queryByText(text.reference)).toBeNull();
@@ -57,9 +60,30 @@ it("validates controls before posting and clears stale results on edit", async (
   fireEvent.change(screen.getByLabelText(text.initial), { target: { value: "10000" } });
   fireEvent.click(run); await screen.findByText(text.calculatedNow, { exact: false });
   expect(screen.getByRole("table", { name: text.summary })).toBeTruthy();
-  fireEvent.change(screen.getByLabelText(text.feePercent), { target: { value: ".05" } });
+  fireEvent.change(screen.getByLabelText(text.ilsFeePercent), { target: { value: ".1" } });
   expect(screen.queryByRole("table", { name: text.summary })).toBeNull();
   expect(screen.getByText(text.changed)).toBeTruthy();
+});
+
+it("sends editable currency fees, disables them explicitly and shows both fee totals", async () => {
+  await ready();
+  fireEvent.change(screen.getByLabelText(text.ilsFeePercent), {target:{value:'.1'}});
+  fireEvent.change(screen.getByLabelText(text.ilsMinimumFee), {target:{value:'3'}});
+  fireEvent.change(screen.getByLabelText(text.usdFlatFee), {target:{value:'6'}});
+  mock.request.mockResolvedValue({...result, fees:{currency:'USD',enabled:true,pre_tax:24,after_tax:18}});
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  await screen.findByText('Total fees paid (USD)');
+  expect(screen.getByText('Pre-tax backtest: 24.00')).toBeTruthy();
+  expect(screen.getByText('After-tax backtest: 18.00')).toBeTruthy();
+  const call=mock.request.mock.calls.find(([path])=>path==='/api/backtest');
+  expect(JSON.parse(call![1].body)).toMatchObject({fees_enabled:true,ils_fee_percent:.1,ils_minimum_fee:3,usd_flat_fee:6});
+  fireEvent.click(screen.getByLabelText(text.feesEnabled));
+  expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty('disabled',true);
+  expect(screen.queryByText('Total fees paid (USD)')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  await waitFor(()=>expect(mock.request.mock.calls.filter(([path])=>path==='/api/backtest')).toHaveLength(2));
+  const calls=mock.request.mock.calls.filter(([path])=>path==='/api/backtest');
+  expect(JSON.parse(calls[1][1].body).fees_enabled).toBe(false);
 });
 
 it("prevents a second run and shows progress while waiting", async () => {

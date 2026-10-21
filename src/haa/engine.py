@@ -31,6 +31,7 @@ def run_backtest(
     daily_open_prices: pd.DataFrame | None = None,
     monthly_contribution: float = 0.0,
     fixed_fee: float = 0.0,
+    trading_fees=None,
 ) -> BacktestResult:
     """Execute one allocation for the month following each signal.
 
@@ -40,12 +41,15 @@ def run_backtest(
     has no future holding period and is excluded.
     """
     from .backtest_options import validate_options
+    if trading_fees is not None and not trading_fees.active: trading_fees = None
     validate_options(monthly_contribution, fixed_fee)
     if tax_enabled and decisions.attrs.get("tax_supported") is False:
         raise ValueError("Tax modeling requires daily trade/security values; monthly returns cannot reconstruct daily realized gains.")
-    if (transaction_cost or fixed_fee) and decisions.attrs.get("trade_cost_supported") is False:
+    if (transaction_cost or fixed_fee or trading_fees) and decisions.attrs.get("trade_cost_supported") is False:
         raise ValueError("Additional trade-fee modeling requires daily trade values; the supplied monthly return stream is used unchanged.")
     if decisions.attrs.get("daily_nav_proxy"):
+        if trading_fees:
+            raise ValueError("Trading fees are unavailable for supplied NAV proxies without execution notionals; turn fees off.")
         from .synthetic_history import run_synthetic_nav_backtest
         if tax_enabled:
             from .synthetic_tax import run_synthetic_tax_single
@@ -61,18 +65,18 @@ def run_backtest(
                 raise ValueError("Israel daily execution requires actual TASE daily prices.")
             return run_tase_daily_backtest(decisions, daily_prices, initial_investment,
                 transaction_cost, tax_enabled, tax_rate, start, end, benchmark_asset,
-                execution_delay_business_days, monthly_contribution, fixed_fee)
+                execution_delay_business_days, monthly_contribution, fixed_fee, trading_fees)
         from .daily_engine import run_daily_backtest
         if daily_prices is None:
             raise ValueError("Daily execution requires daily prices, not month-end data.")
         return run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost,
                                   tax_enabled, tax_rate, start, end, benchmark_asset,
-                                  execution_delay_business_days, daily_open_prices, monthly_contribution, fixed_fee)
-    if (monthly_contribution or fixed_fee) and "target_weights" not in decisions.columns:
+                                  execution_delay_business_days, daily_open_prices, monthly_contribution, fixed_fee, trading_fees)
+    if (monthly_contribution or fixed_fee or trading_fees) and "target_weights" not in decisions.columns:
         decisions = decisions.copy()
         decisions["target_weights"] = decisions.selected_asset.map(lambda asset: {asset: 1.0})
     if "target_weights" in decisions.columns:
-        return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset, execution_delay_business_days, monthly_contribution, fixed_fee)
+        return _run_weighted_backtest(decisions, monthly_prices, initial_investment, transaction_cost, tax_enabled, tax_rate, start, end, daily_prices, benchmark_asset, execution_delay_business_days, monthly_contribution, fixed_fee, trading_fees)
     if decisions.empty:
         raise ValueError("No valid signals: at least 13 complete month-end observations are required.")
     prices = monthly_prices.sort_index()
@@ -170,6 +174,7 @@ def _run_weighted_backtest(
     execution_delay_business_days: int,
     monthly_contribution: float = 0.,
     fixed_fee: float = 0.,
+    trading_fees=None,
 ) -> BacktestResult:
     """Execute target-weight portfolios while preserving single-asset engine behavior.
 
@@ -216,10 +221,12 @@ def _run_weighted_backtest(
     if execution.empty:
         raise ValueError("No complete holding periods within the selected date range.")
 
-    return _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee)
+    return _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee, trading_fees)
 
 
-def _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution=0., fixed_fee=0.):
+def _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution=0., fixed_fee=0., trading_fees=None):
+    if trading_fees:
+        return _simulate_fee_execution(execution, initial_investment, tax_enabled, tax_rate, monthly_contribution, trading_fees)
     from .backtest_options import contribution_for
     pre_value = after_value = benchmark_value = initial_investment
     previous_weights: dict[str, float] = {}
@@ -295,3 +302,43 @@ def _simulate_weighted_execution(execution, initial_investment, transaction_cost
     result = pd.DataFrame(output).set_index("holding_end")
     audit = execution.set_index("signal_date")
     return BacktestResult(result, audit, pd.DataFrame(tax_events))
+
+
+def _simulate_fee_execution(execution, initial, taxed, tax_rate, contribution_amount, fees):
+    """The same monthly decisions/returns, funded with explicit per-side orders."""
+    from .trading_fees import rebalance, SleeveTaxBooks
+    from .backtest_options import contribution_for
+    pre_positions, after_positions = {}, {}
+    pre_cash = after_cash = benchmark = float(initial)
+    tax = SleeveTaxBooks(tax_rate) if taxed else None
+    output, events = [], []
+    previous = None
+    previous_weights = {}
+    for _, row in execution.iterrows():
+        weights = _normalise_weights(row.target_weights)
+        before_pre = sum(pre_positions.values()) + pre_cash
+        before_after = sum(after_positions.values()) + after_cash
+        before_benchmark = benchmark
+        contribution = contribution_for(row.holding_end, None, previous, contribution_amount)
+        pre_cash, pre_orders, _ = rebalance(pre_positions, pre_cash + contribution, weights, fees)
+        after_cash, after_orders, realized = rebalance(after_positions, after_cash + contribution, weights, fees, tax)
+        events.extend({"date": row.execution_date, **event} for event in realized)
+        for positions in (pre_positions, after_positions):
+            for asset in positions:
+                if positions[asset]: positions[asset] *= 1 + row.asset_returns[asset]
+        pre = sum(pre_positions.values()) + pre_cash
+        after = sum(after_positions.values()) + after_cash
+        benchmark = (benchmark + contribution) * (1 + row.spy_return)
+        orders = [{"book": book, **order} for book, details in (("pre-tax", pre_orders), ("after-tax", after_orders)) for order in details]
+        output.append({**row.to_dict(), "pre_tax_value": pre, "after_tax_value": after, "benchmark_value": benchmark,
+            "pre_tax_monthly_return": pre/(before_pre+contribution)-1,
+            "after_tax_monthly_return": after/(before_after+contribution)-1,
+            "benchmark_monthly_return": benchmark/(before_benchmark+contribution)-1,
+            "allocation_change": bool(previous_weights) and weights != previous_weights,
+            "turnover": _weight_turnover(previous_weights, weights), "contribution": contribution,
+            "pre_tax_fee": sum(o["fee"] for o in pre_orders), "after_tax_fee": sum(o["fee"] for o in after_orders),
+            "security_trades": orders})
+        previous = row.holding_end
+        previous_weights = weights
+    result = pd.DataFrame(output).set_index("holding_end")
+    return BacktestResult(result, pd.DataFrame(output).set_index("signal_date"), pd.DataFrame(events))
