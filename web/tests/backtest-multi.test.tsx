@@ -92,6 +92,40 @@ it("loads the chosen saved portfolio, replaces sleeves and preserves server-conv
   expect(run).not.toHaveBeenCalled();
 });
 
+it('restores the saved transfer rule and parameters into the run request, then resets them for a legacy portfolio',async()=>{
+  const {run}=setup('portfolio');await screen.findByText(words.weightSuccess);await screen.findByText('Fake portfolio');
+  const original=mock.request.getMockImplementation()!;let legacy=false;
+  mock.request.mockImplementation(async(path,init)=>path==='/api/backtest/load' ?
+    legacy ? {sleeves:[{id:1,model:'HAA-Simple',weight:100}],initial:3000,warnings:[]} :
+    {sleeves:[{id:1,model:'HAA-Simple',weight:80},{id:2,model:'A-RVol Shifter V3 Cash-Only',weight:20}],initial:3000,warnings:[],sleeve_rebalance_mode:'rvol_cap',rebalance_sleeve:2,rebalance_cap:17.5,rebalance_target:9.25} : original(path,init));
+  fireEvent.click(screen.getByRole('button',{name:words.load}));
+  await waitFor(()=>expect(screen.getByLabelText(words.rule)).toHaveProperty('value','rvol_cap'));
+  expect(screen.getByLabelText(words.capSleeve)).toHaveProperty('value','2');
+  expect(screen.getByLabelText(words.cap)).toHaveProperty('value','17.5');
+  expect(screen.getByLabelText(words.target)).toHaveProperty('value','9.25');
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  expect(run.mock.calls[0][0]).toMatchObject({sleeve_rebalance_mode:'rvol_cap',rebalance_sleeve:2,rebalance_cap:17.5,rebalance_target:9.25});
+  legacy=true;fireEvent.click(screen.getByRole('button',{name:words.load}));
+  await waitFor(()=>expect(screen.getByLabelText(words.rule)).toHaveProperty('value','none'));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  expect(run.mock.calls[1][0]).toMatchObject({sleeve_rebalance_mode:'none',rebalance_sleeve:null,rebalance_cap:15,rebalance_target:10});
+});
+
+it('restores an annual rule without changing unrelated assumptions',async()=>{
+  const {run}=setup('portfolio');await screen.findByText(words.weightSuccess);await screen.findByText('Fake portfolio');
+  fireEvent.change(screen.getByLabelText(text.usdFlatFee),{target:{value:'7'}});
+  const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>path==='/api/backtest/load' ?
+    {sleeves:[{id:1,model:'HAA-Simple',weight:100}],initial:4321,warnings:[],sleeve_rebalance_mode:'annual_target',rebalance_sleeve:null,rebalance_cap:15,rebalance_target:10}:original(path,init));
+  fireEvent.click(screen.getByRole('button',{name:words.load}));
+  await waitFor(()=>expect(screen.getByLabelText(words.rule)).toHaveProperty('value','annual_target'));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  expect(run.mock.calls[0][0]).toMatchObject({sleeve_rebalance_mode:'annual_target',initial:4321,usd_flat_fee:7,tax_rate:25});
+});
+
 it("shows saved-list failures and retries without calling a backtest",async()=>{
   const {run}=setup("portfolio");await screen.findByText(words.weightSuccess);
   // Remount to exercise the automatic read failing, not only a disclosure.
