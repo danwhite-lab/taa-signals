@@ -13,14 +13,20 @@ def pack(frame):
     return {"columns": list(frame.columns), "index": [str(v) for v in frame.index],
             "data": frame.astype(object).where(frame.notna(), None).values.tolist(),
             "dtypes": [str(v) for v in frame.dtypes], "name": frame.index.name,
+            "attrs": deepcopy(frame.attrs),
+            "index_unit": frame.index.unit if isinstance(frame.index, pd.DatetimeIndex) else None,
             "dates": isinstance(frame.index, pd.DatetimeIndex)}
 
 
 def unpack(value):
     index = pd.to_datetime(value["index"]) if value["dates"] else value["index"]
+    if value["dates"] and value.get("index_unit"):
+        index = index.as_unit(value["index_unit"])
     frame = pd.DataFrame(value["data"], columns=value["columns"], index=index)
     frame.index.name = value["name"]
-    return frame.astype(dict(zip(value["columns"], value["dtypes"])))
+    frame = frame.astype(dict(zip(value["columns"], value["dtypes"])))
+    frame.attrs = deepcopy(value.get("attrs", {}))
+    return frame
 
 
 class Degraded(Exception):
@@ -40,7 +46,7 @@ def inputs(strategy, daily_bars, compute):
                 "opens": pack(result[3]) if daily_bars else None}
     try:
         with span("input_cache_seconds"):
-            value, info = RESULTS.run(model="public-input-snapshot-v1", params=params,
+            value, info = RESULTS.run(model="public-input-snapshot-v2", params=params,
                 start=None, end=None, version=str(int(time()//TTL)), compute=build)
     except Degraded as error:
         return deepcopy(error.result)

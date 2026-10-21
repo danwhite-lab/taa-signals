@@ -407,3 +407,29 @@ def test_preview_exception_keeps_current_signal_but_never_caches(frozen, monkeyp
     result = page.public_sleeve("HAA-Simple", "code", CLOCK)
     assert result["current"] and result["preview"] is None
     assert result["preview_reason"] == "Mock preview failure" and not page.RESULTS.warm
+
+
+def test_today_live_option_is_request_scoped_and_timing_exposes_origin(frozen, monkeypatch):
+    calls = []
+    def load(definition):
+        live = page.signals_page.FORCE_LIVE.get()
+        calls.append(live)
+        prices, metadata, warnings = deepcopy(frozen[1][definition.label])
+        prices.attrs["input_source"] = {"source": "live" if live else "daily_snapshot", "updated_at": "2024-06-14T00:00:00+00:00"}
+        return prices, metadata, warnings
+    monkeypatch.setattr(page.signals_page, "load_inputs", load)
+    monkeypatch.setattr(private.sync, "list_portfolios", lambda *a: fake_portfolio(["HAA-Simple"]))
+    normal = client.get("/api/today?preview=false", headers=HEADERS).json()
+    refreshed = client.get("/api/today?preview=false&live=true", headers=HEADERS).json()
+    assert calls == [False, True]
+    assert not page.signals_page.FORCE_LIVE.get()
+    assert normal["timing"]["sleeves"][0]["data_source"]["source"] == "daily_snapshot"
+    assert refreshed["timing"]["sleeves"][0]["data_source"]["source"] == "live"
+    assert normal["signals"] == refreshed["signals"]
+    assert normal["holdings"] == refreshed["holdings"]
+    assert refreshed["public_sleeves"][0]["cache"]["hit"] == "memory"
+
+
+@pytest.mark.parametrize("query", ["live=yes", "live=true&live=false", "live=true&user_id=other"])
+def test_today_live_option_keeps_query_validation(frozen, query):
+    assert client.get(f"/api/today?{query}", headers=HEADERS).status_code == 400

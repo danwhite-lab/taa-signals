@@ -142,7 +142,8 @@ def public_sleeve(label, code, clock=None, include_preview=True):
         loaded = perf_counter()
         result, cache, version = cached_sleeve(definition, prices, metadata, warnings, code, clock, include_preview)
         result.update(cache=cache, data_version=version, fallback_warnings=[signals_page.LIVE_NOTICE],
-                      timing={"load_seconds": round(loaded-started, 6), "calculation_or_cache_seconds": round(perf_counter()-loaded, 6),
+                      timing={"data_source": prices.attrs.get("input_source"),
+                              "load_seconds": round(loaded-started, 6), "calculation_or_cache_seconds": round(perf_counter()-loaded, 6),
                               "total_seconds": round(perf_counter()-started, 6)})
         return clean(result)
     except Exception as exc:
