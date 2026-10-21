@@ -1,0 +1,9 @@
+.secondary {
+  display: block;
+  font-size: .8rem;
+  color: #626b7a;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}

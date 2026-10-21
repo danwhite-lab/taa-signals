@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/today.json";
 
@@ -17,13 +17,50 @@ import { historyTable, historyCsv } from "../app/today/history-sources";
 
 const payload = { has_default: true, caption: "Fake portfolio · private synced portfolio", issues: [],
   signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null,
+    holding_display:[{name:"Fake holding",security_number:null,weight_text:null}],regime:"fake",status_code:"ok",
     amounts:[{holding:"Fake holding",amount:2500,currency:"USD"},{holding:"Fake local holding",amount:6000,currency:"ILS"}] }],
   holdings: [{ currency: "USD", rows: [{ holding: "Fake holding", weight_text: "40.00%", amount_text: "2,500.00" }] },
     { currency: "ILS", rows: [{ holding: "Fake local holding", weight_text: "60.00%", amount_text: "6,000.00" }] }],
   monthly_action: "unchanged", latest_caption: "Latest completed signal: 2026-09-30", stale: false,
-  previews: [{ label: "Fake sleeve", allocation: "Fake holding 100%", change: "no", price_as_of: "2026-10-16", reason: null, error_code: null }],
+  previews: [{ label: "Fake sleeve", allocation: "Fake holding 100%", allocation_display:[{name:"Fake holding",security_number:null,weight_text:null}], kind:null, change: "no", price_as_of: "2026-10-16", reason: null, error_code: null }],
   preview_caption: "Mock latest common eligible price caption", warnings: [], public_sleeves: [], timing: {} };
 const json = (value: unknown, status=200) => new Response(JSON.stringify(value), { status });
+
+it('renders the six clear signal columns, short names, separate security numbers, regime and statuses',async()=>{
+  mock.response.mockResolvedValue(json({...payload,signals:[
+    {...payload.signals[0],label:'A-RVol Shifter V3 Cash-Only',regime:'risk-on',holding_display:[{name:'Mock MTF fund',security_number:'5140850',weight_text:null}]},
+    {...payload.signals[0],label:'Buy and Hold Gold GLD',status_code:'check_data'},
+    {...payload.signals[0],label:'Inflation Compass Standard',status_code:'unavailable',status:'Mock missing prices',holding_display:[],regime:null,amounts:[]},
+    {...payload.signals[0],label:'Unmapped full strategy name',holding_display:[{name:'SPMO',security_number:null,weight_text:'60%'},{name:'IEF',security_number:null,weight_text:'40%'}]},
+  ]}));
+  render(<Page/>);await screen.findByText(payload.caption);
+  const table=within(screen.getByRole('table',{name:text.sleeveSignals}));
+  expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Weight','Holding','Security No.','Amount','Status']);
+  for(const label of ['A-RVol V3','Gold GLD','Inflation Compass','Unmapped full strategy name','Mock MTF fund','5140850','risk-on','OK','Check data','Unavailable','Mock missing prices','SPMO 60%','IEF 40%'])
+    expect(table.getAllByText(label).length).toBeGreaterThan(0);
+  expect(table.getByText('risk-on').tagName).toBe('SMALL');
+  expect(table.queryByText(/100%/)).toBeNull();
+  expect(table.queryByText(/Fake holding:/)).toBeNull();
+  expect(table.getAllByText('-').length).toBeGreaterThan(0);
+  expect(screen.queryByText(text.timing)).toBeNull();
+});
+
+it('renders five preview columns, structured names and fixed labels while preserving other reasons and warnings',async()=>{
+  mock.response.mockResolvedValue(json({...payload,previews:[
+    {...payload.previews[0],label:'Buy and Hold Gold GLD',allocation_display:[{name:'Mock local gold',security_number:'1147875',weight_text:null}]},
+    {...payload.previews[0],allocation_display:[],kind:'always_held'},
+    {...payload.previews[0],allocation_display:[],kind:'daily_signals'},
+    {...payload.previews[0],allocation_display:[],reason:'Mock data unavailable'},
+  ]}));
+  render(<Page/>);await screen.findByText(payload.caption);
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;
+  const table=within(screen.getByRole('table',{name:text.preview}));
+  expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Projected allocation','Security No.','Change vs current','Price data through']);
+  for(const label of ['Gold GLD','Mock local gold','1147875',text.previewKinds.always_held,text.previewKinds.daily_signals,'Mock data unavailable']) expect(table.getByText(label)).toBeTruthy();
+  expect(table.queryByText(/100%/)).toBeNull();
+  expect(details.textContent).toContain('Provisional only');
+  expect(details.textContent).toContain(payload.preview_caption);
+});
 afterEach(() => { cleanup(); mock.response.mockReset(); vi.restoreAllMocks(); });
 
 const plainSleeve = (asset: string, source: string, first: string, series: string) => ({
@@ -32,7 +69,7 @@ const plainSleeve = (asset: string, source: string, first: string, series: strin
   data_ranges: { columns: ['asset','first_available','last_available','observations'], rows: [{asset,first_available:first,last_available:'2026-10-16',observations:123}] },
 });
 
-it('shows one grey note and one collapsed source table under the intro, only for default plain holdings',async()=>{
+it('shows the unchanged history component below Sleeve signals, only for default plain holdings',async()=>{
   const gold=plainSleeve('FAKE_GOLD','Mock gold source','2004-11-18','Adjusted mock close');
   const bonds=plainSleeve('FAKE_BONDS','Mock bond source','2002-07-26','Mock total-return NAV');
   mock.response.mockResolvedValue(json({...payload,public_sleeves:[gold,bonds,gold,{model:'Fake timing strategy'}]}));
@@ -43,7 +80,8 @@ it('shows one grey note and one collapsed source table under the intro, only for
   expect(details.open).toBe(false);
   expect(intro.compareDocumentPosition(note)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(note.compareDocumentPosition(details)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(details.compareDocumentPosition(screen.getByText(text.monthlyAction))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByRole('table',{name:text.sleeveSignals}).compareDocumentPosition(note)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(details.compareDocumentPosition(screen.getByText(text.preview))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   details.open=true;fireEvent(details,new Event('toggle'));
   const table=screen.getByRole('table',{name:text.historySources});
   expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
@@ -51,7 +89,7 @@ it('shows one grey note and one collapsed source table under the intro, only for
     expect(table.textContent).toContain(value);
   expect(mock.response).toHaveBeenCalledTimes(1); // Opening history never requests a preview or changes signals.
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
-  expect(screen.getByText('Fake holding: 2,500.00 USD')).toBeTruthy();
+  expect(screen.getByText('2,500.00 USD')).toBeTruthy();
 });
 
 it('hides history without plain holdings or without a default',async()=>{
@@ -102,6 +140,11 @@ it('scopes grey caption and whole-word phone layout to Today history only',()=>{
   expect(css).toContain('word-break: normal');expect(css).toContain('hyphens: none');
   expect(css).not.toMatch(/break-all|anywhere|overflow:\s*hidden/);
   expect(css).toContain('min-width: 52rem'); // Existing scroll wrapper, not clipped cells or broken words.
+  const secondary=readFileSync('./app/today/today.module.css','utf8');
+  expect(secondary).toContain('display: block');
+  expect(secondary).toContain('word-break: normal');
+  expect(secondary).toContain('overflow-wrap: normal');
+  expect(secondary).not.toMatch(/break-all|anywhere/);
 });
 
 it("does not mount or fetch Today before the existing login gate admits it", async () => {
@@ -111,7 +154,7 @@ it("does not mount or fetch Today before the existing login gate admits it", asy
 it("renders only server-formatted currency amounts and starts with preview collapsed", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />);
   await screen.findByText(payload.caption);
-  expect(screen.getByText("Fake holding: 2,500.00 USD")).toBeTruthy(); expect(screen.getByText("Fake local holding: 6,000.00 ILS")).toBeTruthy();
+  expect(screen.getByText("2,500.00 USD")).toBeTruthy(); expect(screen.getByText("6,000.00 ILS")).toBeTruthy();
   expect(screen.getByText(text.preview).closest("details")).toHaveProperty("open", false);
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
   expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([text.refresh]);
@@ -147,10 +190,10 @@ it("shows the exact normal setup message when there is no default", async () => 
 
 it("renders unavailable reasons, stale warning and provisional rows without guessing", async () => {
   mock.response.mockResolvedValue(json({ ...payload, holdings: null, stale: true, monthly_action: "unavailable",
-    issues: ["invalid_capital_fx"], previews: [{ ...payload.previews[0], allocation: null, change: null, price_as_of: null, reason: "This sleeve is held continuously and has no next-month timing preview." }] }));
+    issues: ["invalid_capital_fx"], previews: [{ ...payload.previews[0], allocation: null, allocation_display:[], kind:"always_held", change: null, price_as_of: null, reason: "This sleeve is held continuously and has no next-month timing preview." }] }));
   render(<Page />); await screen.findByText(text.staleWarning);
   expect(screen.getByText(text.combinedWarning)).toBeTruthy(); expect(screen.getByText(text.errors.invalid_capital_fx)).toBeTruthy();
-  expect(screen.getByText("This sleeve is held continuously and has no next-month timing preview.")).toBeTruthy();
+  expect(screen.getByText(text.previewKinds.always_held)).toBeTruthy();
 });
 
 it("does not expose raw request errors or keep an old report after failed refresh", async () => {
