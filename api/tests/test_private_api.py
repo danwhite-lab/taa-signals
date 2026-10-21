@@ -97,6 +97,31 @@ def test_portfolio_save_uses_existing_rpc_and_conflict_timestamp(signed_in, monk
     assert client.post("/api/portfolios", headers=HEADERS, json=body).status_code == 422
 
 
+def test_portfolio_confirmed_non_100_draft_uses_same_private_save_unchanged(signed_in, monkeypatch):
+    value=portfolio(); value['sleeves'][0]['weight']=90
+    save=MagicMock(return_value={'id':ID,'payload':value})
+    monkeypatch.setattr(private.sync,'save_portfolio',save)
+    body={'id':ID,'expected_updated_at':'mock-date','is_default':True,'payload':value}
+    assert client.post('/api/portfolios',headers=HEADERS,json=body).status_code==422
+    save.assert_not_called()
+    response=client.post('/api/portfolios',headers=HEADERS,json={**body,'allow_non_100_weights':True})
+    assert response.status_code==200
+    assert save.call_args.args[2]['user_id']=='mock-user'
+    assert save.call_args.args[3]==value
+    assert save.call_args.kwargs=={'is_default':True,'existing_id':ID,'expected_updated_at':'mock-date'}
+    assert 'allow_non_100_weights' not in save.call_args.args[3]
+    save.side_effect=RuntimeError('Portfolio changed on another device')
+    assert client.post('/api/portfolios',headers=HEADERS,json={**body,'allow_non_100_weights':True}).status_code==409
+
+
+@pytest.mark.parametrize('patch',[{'payload':{**portfolio(),'total_ils':0}}, {'payload':{**portfolio(),'sleeves':[]}}, {'expected_updated_at':None}])
+def test_portfolio_draft_confirmation_keeps_other_save_checks(signed_in,monkeypatch,patch):
+    save=MagicMock();monkeypatch.setattr(private.sync,'save_portfolio',save)
+    body={'id':ID,'expected_updated_at':'mock-date','payload':portfolio(),'allow_non_100_weights':True,**patch}
+    assert client.post('/api/portfolios',headers=HEADERS,json=body).status_code==422
+    save.assert_not_called()
+
+
 def test_delete_is_user_and_timestamp_filtered(signed_in, monkeypatch):
     query = MagicMock()
     query.table.return_value = query.delete.return_value = query.eq.return_value = query

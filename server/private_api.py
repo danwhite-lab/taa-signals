@@ -50,6 +50,7 @@ class PortfolioWrite(BaseModel):
     id: UUID | None = None
     expected_updated_at: str | None = None
     is_default: bool = False
+    allow_non_100_weights: bool = Field(default=False, strict=True)
 
 
 def valid_json(payload):
@@ -138,7 +139,8 @@ def save_portfolio(body: PortfolioWrite, session=Depends(authenticated)):
         name = body.payload.get("name", "").strip()
         if not 1 <= len(name) <= 80:
             raise ValueError()
-        backtest_portfolio_config(body.payload, {m.label: m for m in MODEL_CATALOG})
+        backtest_portfolio_config(body.payload, {m.label: m for m in MODEL_CATALOG},
+                                  require_total=not body.allow_non_100_weights)
     except Exception:
         raise HTTPException(422, "Enter a valid named version-1 portfolio with known strategies, weights, capital and FX.") from None
     if body.id and not body.expected_updated_at:

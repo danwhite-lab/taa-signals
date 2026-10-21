@@ -1,11 +1,12 @@
 .page { min-width: 0; overflow-wrap: normal; word-break: normal; }
 .page li { flex-wrap: wrap; min-width: 0; }
 .page button { max-width: 100%; white-space: normal; overflow-wrap: normal; word-break: normal; }
-.page input, .page textarea { min-width: 0; max-width: 100%; }
+.page input, .page textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .summary { margin: 24px 0; min-width: 0; }
 .summary h2 { line-height: 1.5; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .badge { display: inline-block; padding: 4px 10px; border: 1px solid #92b7a8; border-radius: 12px; background: #e5f2ed; color: #1c5343; font-size: .85rem; }
 .metadata { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+.metadata label { flex: 1 1 13rem; min-width: 0; }
 .metadata dt { font-size: .85rem; color: #52606d; }
 .metadata dd { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
 .tableScroll { overflow-x: auto; max-width: 100%; }
@@ -14,5 +15,13 @@
 .sleeves th:first-child, .sleeves td:first-child { min-width: 12rem; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .sleeves th:last-child, .sleeves td:last-child { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .sleeves tfoot { font-weight: 700; }
+.sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 7rem; font-variant-numeric: tabular-nums; }
+.sleeves input { width: 7rem; box-sizing: border-box; }
+.sleeves button { min-width: 2.5rem; }
+.addSleeve { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 16px; }
+.addSleeve label { flex: 1 1 16rem; min-width: 0; }
+.addSleeve select { display: block; width: 100%; max-width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; }
+.addSleeve button { min-width: 2.5rem; margin-bottom: 8px; }
+.warning { border-left: 3px solid #b77719; background: #fff8e9; padding: 12px; line-height: 1.6; }
 .advanced { margin: 18px 0; }
 .advanced summary { cursor: pointer; font-weight: 600; }
