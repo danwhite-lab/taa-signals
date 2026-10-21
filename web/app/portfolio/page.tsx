@@ -3,7 +3,43 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
-import { date } from "../../lib/format";
+import { date, number, percent } from "../../lib/format";
+import styles from "./portfolio.module.css";
+
+function numeric(value: unknown): number | null {
+  if (typeof value !== "number" && !(typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()))) return null;
+  const result = Number(value);
+  return Number.isFinite(result) ? result : null;
+}
+
+function PortfolioSummary({ name, json, isDefault, defaultOnSave }: { name: string; json: string; isDefault: boolean; defaultOnSave: boolean }) {
+  let payload: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+  } catch { /* Invalid drafts stay editable; never display an old saved summary. */ }
+  const sleeves = Array.isArray(payload?.sleeves) ? payload.sleeves.map(value => {
+    const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    return { name: typeof row.model === "string" && row.model.trim() ? row.model : "Unavailable", weight: numeric(row.weight) };
+  }) : null;
+  const capital = numeric(payload?.total_ils), fx = numeric(payload?.ils_per_usd);
+  const total = sleeves?.every(row => row.weight !== null) ? sleeves.reduce((sum, row) => sum + row.weight!, 0) : null;
+  const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
+  return <section className={styles.summary} aria-label="Portfolio summary">
+    <h2>{name.trim() || "Name not entered"}</h2>
+    {(isDefault || defaultOnSave) && <span className={styles.badge}>{isDefault ? "Default" : "Default on save"}</span>}
+    {!payload && <p role="alert">Summary unavailable: enter valid Portfolio JSON below. Your draft has not been changed.</p>}
+    <dl className={styles.metadata}>
+      <div><dt>Total capital (ILS)</dt><dd>{capital === null ? "Unavailable" : `₪${number(capital, true)}`}</dd></div>
+      <div><dt>ILS per USD rate</dt><dd>{fx === null ? "Unavailable" : number(fx)}</dd></div>
+    </dl>
+    {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
+      <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th></tr></thead>
+      <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>{weight(row.weight)}</td></tr>)}</tbody>
+      <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td></tr></tfoot>
+    </table></div> : <p>Sleeve summary unavailable: enter a sleeve list in Portfolio JSON.</p>}
+  </section>;
+}
 
 export default function Portfolio() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -68,7 +104,7 @@ export default function Portfolio() {
       setPortfolios(await api<SavedPortfolio[]>("/api/portfolios")); choose(null); setMessage("Portfolio deleted.");
     }, true);
   }
-  return <main className="portfolio-page">
+  return <main className={`portfolio-page ${styles.page}`}>
     <h1>Saved portfolios</h1>
     <p>{email}</p>
     <div className="actions"><button disabled={busy} onClick={() => {
@@ -89,11 +125,14 @@ export default function Portfolio() {
         {item.name}{item.is_default ? " · Default" : ""}</button><small>Updated {date(item.updated_at)}</small></li>)}</ul>
       <button disabled={busy || uncertain} onClick={() => requestChoose(null)}>New portfolio</button>
     </section>
+    {selected && <PortfolioSummary name={name} json={json} isDefault={selected.is_default} defaultOnSave={makeDefault}/>}
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>
       {selected && <p role="status">Loaded: {selected.name}</p>}
       <p>Minimal migration form: paste version-1 portfolio JSON exported from the existing app. It retains its exact strategy names, weights, capital and FX. No holdings are created or changed.</p>
       <label>Portfolio name<input value={name} maxLength={80} disabled={busy || uncertain} onChange={event => setName(event.target.value)} /></label>
-      <label>Portfolio JSON<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => setJson(event.target.value)} /></label>
+      <details className={styles.advanced} key={selected?.id ?? "new"}><summary>Advanced: edit JSON</summary>
+        <label>Portfolio JSON<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => setJson(event.target.value)} /></label>
+      </details>
       <label><input type="checkbox" checked={makeDefault} disabled={busy || uncertain}
         onChange={event => setMakeDefault(event.target.checked)} /> Make this the default when saving</label>
       <p>Leaving this unchecked preserves existing defaults; it does not clear a default portfolio.</p>

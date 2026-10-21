@@ -1,0 +1,18 @@
+.page { min-width: 0; overflow-wrap: normal; word-break: normal; }
+.page li { flex-wrap: wrap; min-width: 0; }
+.page button { max-width: 100%; white-space: normal; overflow-wrap: normal; word-break: normal; }
+.page input, .page textarea { min-width: 0; max-width: 100%; }
+.summary { margin: 24px 0; min-width: 0; }
+.summary h2 { line-height: 1.5; white-space: normal; overflow-wrap: normal; word-break: normal; }
+.badge { display: inline-block; padding: 4px 10px; border: 1px solid #92b7a8; border-radius: 12px; background: #e5f2ed; color: #1c5343; font-size: .85rem; }
+.metadata { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+.metadata dt { font-size: .85rem; color: #52606d; }
+.metadata dd { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.tableScroll { overflow-x: auto; max-width: 100%; }
+.sleeves { width: 100%; border-collapse: collapse; table-layout: auto; }
+.sleeves th, .sleeves td { padding: 12px 8px; border-bottom: 1px solid #e3e8ed; text-align: left; }
+.sleeves th:first-child, .sleeves td:first-child { min-width: 12rem; white-space: normal; overflow-wrap: normal; word-break: normal; }
+.sleeves th:last-child, .sleeves td:last-child { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.sleeves tfoot { font-weight: 700; }
+.advanced { margin: 18px 0; }
+.advanced summary { cursor: pointer; font-weight: 600; }
