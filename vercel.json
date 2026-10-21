@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm --prefix web ci",
+  "buildCommand": "npm --prefix web run build",
+  "outputDirectory": "web/out",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 300,
+      "includeFiles": "{src/haa/**,server/**,app.py,data/deep_history/**,web/content/**}",
+      "excludeFiles": "{web/node_modules/**,web/.next/**,web/out/**,web/app/**,web/tests/**,tests/**,api/tests/**,docs/**,static/**,.streamlit/**,**/__pycache__/**}"
+    }
+  },
+  "crons": [{ "path": "/api/cron/refresh-prices", "schedule": "15 3 * * *" }],
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index.py" }
+  ]
+}
