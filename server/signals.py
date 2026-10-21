@@ -3,6 +3,9 @@
 No app.py import, evaluation, user settings, alternate data or JS calculations.
 """
 from dataclasses import fields
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
 import inspect
 import os
 from time import perf_counter
@@ -22,6 +25,17 @@ from .signals_wire import clean, table
 DISCLAIMER = "Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution."
 LIVE_NOTICE = "Public inputs use complete original-loader snapshots cached for up to five minutes, or the existing live Yahoo/TASE/macro loaders on a miss. Original source fields and dates are preserved. No cached/live splice, gap fill or substituted source."
 RESULTS = ResultCache()
+FORCE_LIVE = ContextVar("force_live_public_inputs", default=False)
+
+
+@contextmanager
+def input_policy(*, force_live=False):
+    """Request-local loader policy, independent of page, model or instrument."""
+    token = FORCE_LIVE.set(force_live)
+    try:
+        yield
+    finally:
+        FORCE_LIVE.reset(token)
 
 
 def safe_error(exc):
@@ -45,10 +59,20 @@ def selector(definition):
             "implementations": implementations(selected.strategy, selected.variant)}
 
 
-def load_inputs(definition, *, daily_bars=False):
+def load_inputs(definition, *, daily_bars=False, force_live=False):
     from .input_cache import inputs
-    return inputs(definition.model_class(), daily_bars,
-                  lambda: live_inputs(definition, daily_bars=daily_bars))
+    from .market_cache import model_inputs, fresh
+    if force_live or FORCE_LIVE.get():
+        result = live_inputs(definition, daily_bars=daily_bars)
+        result[0].attrs["input_source"] = {"source": "live", "loaded_at": datetime.now(timezone.utc).isoformat(), "snapshot_fallback": False}
+        return result
+    compute = lambda: model_inputs(definition, lambda: live_inputs(definition, daily_bars=daily_bars), daily_bars=daily_bars)
+    result = inputs(definition.model_class(), daily_bars, compute)
+    origin = result[0].attrs.get("input_source", {})
+    # A five-minute hit must not stretch the 36-hour snapshot age limit.
+    if origin.get("source") == "daily_snapshot" and not fresh(origin["refresh_stamps"]):
+        return compute()
+    return result
 
 
 def live_inputs(definition, *, daily_bars=False):

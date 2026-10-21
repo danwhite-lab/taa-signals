@@ -327,11 +327,12 @@ def today(request: Request, session=Depends(private_api.authenticated)):
     # Vercel forwards the rewrite capture as ?path=today even when the
     # browser requested /api/today with no query. It is routing, not input.
     params = request.query_params.multi_items()
-    if any(key not in {"path", "preview"} or (key=="path" and value!="today") or (key=="preview" and value not in {"true", "false"}) for key,value in params) or len({key for key,_ in params}) != len(params):
+    if any(key not in {"path", "preview", "live"} or (key=="path" and value!="today") or (key in {"preview", "live"} and value not in {"true", "false"}) for key,value in params) or len({key for key,_ in params}) != len(params):
         raise HTTPException(400, "Today reads your saved default portfolio; query parameters are not supported.")
     started = perf_counter()
     portfolios = private_api.portfolios(session)
-    result = today_page.compose(portfolios, _engine_code_version(), include_preview=request.query_params.get("preview", "true")=="true")
+    with signals_page.input_policy(force_live=request.query_params.get("live", "false")=="true"):
+        result = today_page.compose(portfolios, _engine_code_version(), include_preview=request.query_params.get("preview", "true")=="true")
     result["timing"]["request_seconds"] = round(perf_counter()-started, 6)
     return result
 

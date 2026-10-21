@@ -190,11 +190,13 @@ def test_existing_loaders_scope_sources_and_fred_oecd_failures_are_visible(monke
     monkeypatch.setattr(page.data, "download_yahoo_prices", yahoo)
     monkeypatch.setattr(page.data, "download_fred_series", lambda assets: (_ for _ in ()).throw(RuntimeError("Mock FRED outage")))
     prices, metadata, warnings = page.load_inputs(definition_for_label("Inflation Compass Standard"))
-    assert warnings == ["FRED retrieval issue: Mock FRED outage"] and prices.T5YIE.isna().all()
+    assert warnings[0] == "FRED retrieval issue: Mock FRED outage" and prices.T5YIE.isna().all()
+    assert "complete existing live loader" in warnings[-1]
     assert "T5YIE" not in calls[0][0] and len(calls[0][0]) == 10
     monkeypatch.setattr(page.data, "download_oecd_cli_diffusion", lambda: (_ for _ in ()).throw(RuntimeError("Mock OECD outage")))
     _, _, warnings = page.load_inputs(definition_for_label("GGCEM Link Original"))
-    assert warnings == ["OECD CLI retrieval issue: Mock OECD outage. This signal is using the disclosed SPY/BIL failsafe."]
+    assert warnings[0] == "OECD CLI retrieval issue: Mock OECD outage. This signal is using the disclosed SPY/BIL failsafe."
+    assert "complete existing live loader" in warnings[-1]
 
 
 def test_us_tase_requires_original_adjusted_us_and_tase_adapter(monkeypatch):

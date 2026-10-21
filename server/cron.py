@@ -5,15 +5,32 @@ import os
 from time import perf_counter
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
+import pandas as pd
 
 from fastapi import APIRouter, Header, HTTPException
 
 from haa import data, tase_data
 from haa.model_catalog import MODEL_CATALOG
+from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from .cache import cache_client, write_prices
 
 router = APIRouter()
 YAHOO_SOURCE = "yfinance:adjusted-close-and-open:v1"
+TASE_SOURCE = "tasekit:existing-adapter:v1"
+FRED_SOURCE = "fred:existing-daily-loader:v1"
+
+
+def catalog_assets():
+    assets = set()
+    for item in MODEL_CATALOG:
+        strategy = item.model_class()
+        assets.update(getattr(strategy, "data_assets", ASSETS))
+        assets.add(getattr(strategy, "benchmark_asset", "SPY"))
+    return assets
+
+
+def fred_universe():
+    return sorted(catalog_assets().intersection(FRED_ASSETS))
 
 
 def yahoo_universe():
@@ -22,11 +39,12 @@ def yahoo_universe():
         strategy = item.model_class()
         assets.update(getattr(strategy, "market_data_assets", getattr(strategy, "data_assets", ())))
     # TASE assets use their own adapter; this is not a proxy mapping.
-    return sorted(assets - set(tase_data.TASE_ISRAEL_ASSET_IDS))
+    assets.update(catalog_assets())
+    yahoo = assets - set(tase_data.TASE_ISRAEL_ASSET_IDS) - set(FRED_ASSETS) - {OECD_CLI_DIFFUSION_ASSET}
+    return sorted(set(data.default_ticker_map(yahoo).values()))
 
 
 def bars_rows(closes, opens, symbol):
-    import pandas as pd
     frame = pd.DataFrame({"close": closes[symbol], "open": opens[symbol]}).sort_index()
     return [{"date": date.isoformat(),
              "close": None if pd.isna(row.close) else float(row.close),
@@ -66,6 +84,8 @@ def refresh_prices(authorization: str | None = Header(default=None)):
         rows = bars_rows(closes, opens, symbol)
         if rows:
             rows[0]["refresh_id"] = refresh_id
+            rows[0]["index_name"] = closes.index.name
+            rows[0]["index_unit"] = closes.index.unit
         write_prices(client, symbol, YAHOO_SOURCE, rows)
         return rows[-1]["date"]
 
@@ -75,13 +95,25 @@ def refresh_prices(authorization: str | None = Header(default=None)):
                  "source": item.source, "security_id": item.security_id,
                  "units": "Unmodified provider history units; not broker execution quotes"}
                 for date, value in item.prices.dropna().sort_index().items()]
-        write_prices(client, asset, "tasekit:existing-adapter:v1", rows)
+        if rows:
+            rows[0].update(refresh_id=refresh_id, index_name=item.prices.index.name, index_unit=item.prices.index.unit)
+        write_prices(client, asset, TASE_SOURCE, rows)
+        return rows[-1]["date"]
+
+    def fred(symbol):
+        frame = data.download_fred_series((symbol,))
+        rows = [{"date": date.isoformat(), "price": None if pd.isna(value) else float(value)}
+                for date, value in frame[symbol].sort_index().items()]
+        if rows:
+            rows[0].update(refresh_id=refresh_id, index_name=frame.index.name, index_unit=frame.index.unit)
+        write_prices(client, symbol, FRED_SOURCE, rows)
         return rows[-1]["date"]
 
     jobs = [(symbol, lambda s=symbol: yahoo(s)) for symbol in yahoo_universe()]
     jobs += [(asset, lambda a=asset: tase(a)) for asset in sorted(tase_data.TASE_ISRAEL_ASSET_IDS)]
+    jobs += [(symbol, lambda s=symbol: fred(s)) for symbol in fred_universe()]
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda job: attempt(*job), jobs))
     return {"checked_at": datetime.now(timezone.utc).isoformat(),
             "success": all(row["success"] for row in results), "results": results,
-            "note": "Provider history only; no proxy or gap fill. Non-price macro series are not cached."}
+            "note": "Provider history only; no proxy or gap fill. Catalog FRED daily observations are cached; OECD remains live."}

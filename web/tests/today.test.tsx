@@ -179,7 +179,21 @@ it("fetches only on load and explicit Refresh and prevents concurrent refreshes"
   expect(mock.response).toHaveBeenCalledTimes(2); expect(screen.getByText(text.loading)).toBeTruthy();
   expect(screen.queryByText(payload.caption)).toBeNull();
   resolve(json(payload)); await screen.findByText(payload.caption);
-  expect(mock.response.mock.calls.every(args => args.length === 1 && args[0] === "/api/today?preview=false")).toBe(true);
+  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false","/api/today?preview=false&live=true"]);
+});
+
+it('keeps a live Refresh live when its preview is subsequently opened',async()=>{
+  mock.response.mockImplementation(async()=>json(payload));render(<Page/>);await screen.findByText(payload.caption);
+  fireEvent.click(screen.getByText(text.refresh));await screen.findByText(payload.caption);
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  await waitFor(()=>expect(mock.response).toHaveBeenCalledWith('/api/today?preview=true&live=true'));
+});
+
+it('gives table-heavy pages room without changing default or Rules widths',()=>{
+  const css=readFileSync('./app/globals.css','utf8');
+  expect(css).toContain('.today-page, .compare-page, .research-page, .rebalance-page, .portfolio-page { max-width: 1160px; }');
+  expect(css).toContain('main { max-width: 860px;');
+  expect(css).toContain('.rules-page { max-width: 940px;');
 });
 
 it("shows the exact normal setup message when there is no default", async () => {

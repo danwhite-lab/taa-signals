@@ -30,23 +30,25 @@ export default function TodayPage() {
   const inFlight = useRef(false);
   const [previewBusy,setPreviewBusy] = useState(false), [previewLoaded,setPreviewLoaded] = useState(false);
   const generation = useRef(0);
+  const live = useRef(false);
   async function preview() {
     if(previewBusy || previewLoaded) return;
     const current=generation.current; setPreviewBusy(true);
     try {
-      const response=await authorizedResponse("/api/today?preview=true");
+      const response=await authorizedResponse(`/api/today?preview=true${live.current ? "&live=true" : ""}`);
       if(!response.ok) throw new Error(requestError(response.status));
       const next=await response.json() as Today;
       if(current===generation.current){setValue(previous=>previous && {...previous,previews:next.previews,preview_caption:next.preview_caption});setPreviewLoaded(true);}
     } catch {if(current===generation.current)setError(text.requestError);}
     finally {if(current===generation.current)setPreviewBusy(false);}
   }
-  async function load() {
+  async function load(forceLive = false) {
     if (inFlight.current) return;
+    live.current = forceLive;
     generation.current++;setPreviewLoaded(false);setPreviewBusy(false);
     inFlight.current = true; setBusy(true); setError(""); setValue(null);
     try {
-      const response = await authorizedResponse("/api/today?preview=false");
+      const response = await authorizedResponse(`/api/today?preview=false${forceLive ? "&live=true" : ""}`);
       if (!response.ok) {
         let message = requestError(response.status);
         // Only recognized server reasons are displayed; never echo raw bodies.
@@ -68,7 +70,7 @@ export default function TodayPage() {
   }
   useEffect(() => { void load(); }, []);
   return <main className="today-page"><h1>{text.title}</h1>
-    <button disabled={busy} onClick={() => void load()}>{text.refresh}</button>
+    <button disabled={busy} onClick={() => void load(true)}>{text.refresh}</button>
     {busy && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
     {value && (!value.has_default ? <div className="signal-info"><Markdown>{text.setup}</Markdown></div> : <>
       {value.caption && <p className="signal-caption">{value.caption}</p>}

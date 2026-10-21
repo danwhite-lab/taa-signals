@@ -59,6 +59,7 @@ button:disabled { opacity: .5; cursor: default; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 main { max-width: 860px; margin: 0 auto; padding: 64px 24px; }
+.today-page, .compare-page, .research-page, .rebalance-page, .portfolio-page { max-width: 1160px; }
 header { margin-bottom: 36px; }
 h1 { font-size: clamp(2rem, 5vw, 2.8rem); letter-spacing: -0.04em; margin: 12px 0; }
 h2 { font-size: 1.1rem; margin-top: 0; }
