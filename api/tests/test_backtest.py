@@ -28,6 +28,26 @@ def bundle(label):
     return prices, metadata, warnings, prices * .999 if label == "A-RVol Shifter V3 Cash-Only" else None
 
 
+@pytest.mark.parametrize("label", ["Inflation Compass Standard Israel", "Inflation Compass Steady (80-day) Israel", "Inflation Compass Fast (40-day) Israel"])
+def test_compass_israel_bounds_and_results_name_actual_execution_start(signed_in, monkeypatch, label):
+    prices, metadata, warnings = fixtures(label)
+    # Freeze only the tests' history eligibility, not the production signals.
+    from haa import portfolio_signals
+    original = portfolio_signals.to_month_end
+    monkeypatch.setattr(portfolio_signals, "to_month_end", lambda frame: original(frame, as_of=pd.Timestamp("2024-06-14")))
+    monkeypatch.setattr(page, "load_data", lambda selected: (prices, metadata, warnings, None))
+    selected = definition_for_label(label)
+    _, _, _, _, bounds, captions = page.prepare(selected, prices)
+    assert bounds["start_min"] >= prices.XLE_IL.first_valid_index().date().isoformat()
+    assert any("ILS-hedged utilities (MTF 1150507)" in caption for caption in captions)
+    response = client.post("/api/backtest", headers=HEADERS, json={"label": label})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["currency"] == "ILS"
+    assert result["actual_execution_start"][:10] == bounds["start_min"]
+    assert any("1150507" in caption for caption in result["captions"])
+
+
 @pytest.mark.parametrize('label', ['HAA-Simple', 'A-RVol Shifter V3 Cash-Only', 'HAA-Simple Israel'])
 def test_currency_fee_policy_report_cache_and_off_parity(signed_in, monkeypatch, label):
     prices, metadata, warnings, opens = bundle(label)

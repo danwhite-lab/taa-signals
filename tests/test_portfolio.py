@@ -59,6 +59,7 @@ def test_holdings_are_grouped_by_execution_currency():
 
 
 def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_logic():
+    assert execution_security_label("XLU_IL", "ILS") == "ILS-hedged utilities (MTF 1150507) — 1150507"
     assert execution_security_label("CSPX_IL", "ILS") == "CSPX — 1159250"
     assert execution_security_label("IEF_IL", "ILS") == "IEF — iShares $ Treasury Bond 7–10yr UCITS — 1159268"
     assert execution_security_label("SPMO_IL", "ILS") == "MTF Tracking S&P 500 Momentum (4D) — 5140850"

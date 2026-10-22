@@ -66,7 +66,12 @@ def load_inputs(definition, *, daily_bars=False, force_live=False):
         result = live_inputs(definition, daily_bars=daily_bars)
         result[0].attrs["input_source"] = {"source": "live", "loaded_at": datetime.now(timezone.utc).isoformat(), "snapshot_fallback": False}
         return result
-    compute = lambda: model_inputs(definition, lambda: live_inputs(definition, daily_bars=daily_bars), daily_bars=daily_bars)
+    # Daily snapshots currently contain the default TASE window only. A model
+    # requesting longer actual history must load its whole original bundle;
+    # keep the five-minute complete-input cache, never splice a short snapshot.
+    def compute():
+        live = lambda: live_inputs(definition, daily_bars=daily_bars)
+        return live() if getattr(definition.model_class, "tase_history_years", None) else model_inputs(definition, live, daily_bars=daily_bars)
     result = inputs(definition.model_class(), daily_bars, compute)
     origin = result[0].attrs.get("input_source", {})
     # A five-minute hit must not stretch the 36-hour snapshot age limit.
@@ -114,7 +119,8 @@ def live_inputs(definition, *, daily_bars=False):
         downloaded = downloaded.join(auxiliary, how="outer")
     if tase:
         try:
-            local, local_meta = tase_data.download_tase_israel_prices(tase)
+            years = getattr(strategy, "tase_history_years", None)
+            local, local_meta = tase_data.download_tase_israel_prices(tase, **({"history_years": years} if years else {}))
         except tase_data.TaseDataError as exc:
             failures.append(f"Public TASE/Maya retrieval issue: {safe_error(exc)}")
             local = pd.DataFrame(columns=tase, dtype=float)

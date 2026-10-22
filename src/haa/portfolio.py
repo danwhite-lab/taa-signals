@@ -48,6 +48,7 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "XLK_IL"): "iShares S&P 500 IT UCITS — 1159193",
     ("ILS", "XLV_IL"): "MTF סל S&P Health Care (4D) — 1150390",
     ("ILS", "XLP_IL"): "MTF S&P Consumer Staples — 1150366",
+    ("ILS", "XLU_IL"): "ILS-hedged utilities (MTF 1150507) — 1150507",
     ("USD", "BIL"): "BIL USD - 5139076",
 }
 

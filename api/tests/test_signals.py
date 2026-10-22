@@ -213,6 +213,25 @@ def test_us_tase_requires_original_adjusted_us_and_tase_adapter(monkeypatch):
     assert set(calls[1]) == set(definition.model_class.execution_assets)
 
 
+def test_compass_israel_requests_extended_local_history_only_and_avoids_short_snapshot(monkeypatch):
+    from server import market_cache
+    definition = definition_for_label("Inflation Compass Standard Israel")
+    prices, metadata, _ = fixtures(definition.label)
+    calls = []
+    monkeypatch.setattr(page.data, "download_yahoo_prices", lambda mapping, **kw: prices.reindex(columns=mapping))
+    monkeypatch.setattr(page.data, "download_fred_series", lambda assets: prices.reindex(columns=assets))
+    def tase(assets, **kwargs):
+        calls.append((tuple(assets), kwargs))
+        return prices.reindex(columns=assets), metadata.reindex(assets)
+    monkeypatch.setattr(page.tase_data, "download_tase_israel_prices", tase)
+    monkeypatch.setattr(market_cache, "model_inputs", lambda *a, **kw: pytest.fail("Do not silently use a five-year snapshot"))
+    page.load_inputs(definition)
+    assert calls[0][1] == {"history_years": 8}
+    assert set(calls[0][0]) == {"XLE_IL", "XLK_IL", "XLU_IL", "XLP_IL", "IEF_IL"}
+    page.live_inputs(definition_for_label("HAA-Simple Israel"))
+    assert calls[-1][1] == {}
+
+
 def test_verbatim_presentation_port_ast_parity_and_no_streamlit_import():
     original = ast.parse((ROOT / "app.py").read_text())
     block = next(node for node in ast.walk(original) if isinstance(node, ast.With) and

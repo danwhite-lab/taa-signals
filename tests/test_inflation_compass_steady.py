@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from haa.strategies import InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteady, InflationCompassSteadyIsrael
 from haa.validation import ValidationInput, profile_for, run_deterministic_validation
@@ -123,4 +124,74 @@ def test_israel_execution_variants_use_the_identical_usd_compass_calculations():
         (InflationCompassSteady, InflationCompassSteadyIsrael),
     )
     for original, israel in pairs:
-        assert original().decisions(prices).equals(israel().decisions(prices))
+        original_rows, local_rows = original().decisions(prices), israel().decisions(prices)
+        signal_columns = original_rows.columns.difference(["target_weights", "previous_weights", "selected_asset", "selected_assets", "previous_asset"])
+        pd.testing.assert_frame_equal(original_rows[signal_columns], local_rows[signal_columns], check_exact=True)
+
+
+@pytest.mark.parametrize("model", [InflationCompassFastIsrael, InflationCompassStandardIsrael, InflationCompassSteadyIsrael])
+@pytest.mark.parametrize("growth,inflation,expected", [(True, True, {"XLE_IL": 1.}), (True, False, {"XLK_IL": 1.}),
+    (False, True, {"XLU_IL": 1.}), (False, False, {"XLP_IL": .5, "IEF_IL": .5})])
+def test_israel_regimes_map_only_execution_holdings(model, growth, inflation, expected):
+    prices = daily_prices(t5yie_start=2.1 if inflation else 1.9, t5yie_step=.002 if inflation else 0, spy_step=.001 if growth else -.001)
+    result = model().decisions(prices)
+    assert result.iloc[-1].target_weights == expected
+    assert result.attrs["ic_israel_actual_execution"] is True
+
+
+def local_prices():
+    from haa.market_sessions import tase_equity_sessions
+    from haa.constants import INFLATION_COMPASS_ISRAEL_EXECUTION_ASSETS
+    prices = daily_prices()
+    dates = tase_equity_sessions(str(prices.index.min().date()), str(prices.index.max().date()))
+    local = pd.DataFrame({a: 100*1.001**np.arange(len(dates)) for a in INFLATION_COMPASS_ISRAEL_EXECUTION_ASSETS}, index=dates)
+    return prices.join(local, how="outer")
+
+
+@pytest.mark.parametrize("model", [InflationCompassFastIsrael, InflationCompassStandardIsrael, InflationCompassSteadyIsrael])
+def test_israel_runs_real_monthly_engine_on_synthetic_us_and_tase_prices(model):
+    from haa.engine import run_backtest
+    prices = local_prices()
+    strategy = model()
+    result = run_backtest(strategy.decisions(prices), prices.resample("ME").last(), 1000., daily_prices=prices)
+    assert not result.monthly.empty
+    assert result.audit.execution_date.gt(result.audit.index).all()
+    assert result.audit.target_weights.map(lambda w: set(w) <= {"XLE_IL", "XLK_IL", "XLU_IL", "XLP_IL", "IEF_IL"}).all()
+
+
+def test_execution_skips_pre_inception_periods_without_changing_signal_dates():
+    from haa.ic_israel_execution import execution_schedule
+    prices = local_prices()
+    decisions = InflationCompassStandardIsrael().decisions(prices)
+    original_dates = decisions.index.copy()
+    prices.loc[prices.index < "2020-12-01", "XLE_IL"] = np.nan
+    schedule = execution_schedule(decisions, prices, "SPY")
+    assert min(v[0] for v in schedule.values()) >= pd.Timestamp("2020-12-01")
+    assert decisions.index.equals(original_dates)
+    # Unused utilities can start later; they must not force an all-five start.
+    prices["XLU_IL"] = np.nan
+    assert execution_schedule(decisions, prices, "SPY") == schedule
+
+
+def test_internal_missing_fund_price_stops_with_id_and_date_not_forward_fill():
+    from haa.ic_israel_execution import execution_schedule
+    prices = local_prices()
+    decisions = InflationCompassStandardIsrael().decisions(prices)
+    schedule = execution_schedule(decisions, prices, "SPY")
+    entry = min(v[0] for v in schedule.values())
+    prices.loc[entry, "XLE_IL"] = np.nan
+    with pytest.raises(ValueError, match=f"1145903.*{entry:%Y-%m-%d}"):
+        execution_schedule(decisions, prices, "SPY")
+
+
+def test_slowdown_waits_for_both_real_funds_and_names_missing_bond():
+    from haa.ic_israel_execution import execution_schedule
+    prices = local_prices()
+    decisions = InflationCompassStandardIsrael().decisions(prices)
+    decisions["target_weights"] = [{"XLP_IL": .5, "IEF_IL": .5} for _ in range(len(decisions))]
+    prices.loc[prices.index < "2020-12-01", "IEF_IL"] = np.nan
+    schedule = execution_schedule(decisions, prices, "SPY")
+    assert min(v[0] for v in schedule.values()) >= pd.Timestamp("2020-12-01")
+    prices["IEF_IL"] = np.nan
+    with pytest.raises(ValueError, match="IEF_IL.*1159268.*no actual fund price"):
+        execution_schedule(decisions, prices, "SPY")

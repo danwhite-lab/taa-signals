@@ -29,7 +29,7 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert resolve("Inflation Compass", "Standard", "Israel").model_class is InflationCompassStandardIsrael
     assert resolve("Inflation Compass", "Fast (40-day)", "Israel").model_class is InflationCompassFastIsrael
     assert resolve("Inflation Compass", "Standard", "Israel").execution_currency == "ILS"
-    assert not resolve("Inflation Compass", "Standard", "Israel").model_class.backtest_available
+    assert resolve("Inflation Compass", "Standard", "Israel").model_class.backtest_available
     assert resolve("HAA", "Simple", "Israel").model_class is HAASimpleIsrael
     assert resolve("HAA", "HAA 4", "Israel").model_class is HAA4Israel
     assert resolve("HAA", "HAA 4", "Israel").execution_currency == "ILS"
@@ -71,3 +71,12 @@ def test_catalog_selection_resolves_existing_stable_model_class():
 
 def test_inflation_compass_variants_use_standard_fast_steady_order():
     assert variants("Inflation Compass") == ("Standard", "Fast (40-day)", "Steady (80-day)")
+
+
+@pytest.mark.parametrize("variant", ["Standard", "Fast (40-day)", "Steady (80-day)"])
+def test_israel_compass_describes_actual_funds_and_approved_hedged_utilities(variant):
+    item = resolve("Inflation Compass", variant, "Israel")
+    assert item.model_class.backtest_available and item.execution_currency == "ILS"
+    assert "ILS-hedged utilities (MTF 1150507)" in item.description
+    for sid in ("1145903", "1159193", "1150366", "1159268"):
+        assert sid in item.description

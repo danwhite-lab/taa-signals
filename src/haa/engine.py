@@ -188,9 +188,19 @@ def _run_weighted_backtest(
     execution_prices = daily_prices.sort_index() if daily_prices is not None else prices
     rows: list[dict] = []
     decision_dates = pd.DatetimeIndex(decisions.index)
+    actual_schedule = None
+    if decisions.attrs.get("ic_israel_actual_execution"):
+        from .ic_israel_execution import execution_schedule
+        if daily_prices is None:
+            raise ValueError("Inflation Compass Israel requires actual daily TASE fund prices.")
+        actual_schedule = execution_schedule(decisions, execution_prices, benchmark_asset, start, end, execution_delay_business_days)
     for position, (signal_date, decision) in enumerate(decisions.iterrows()):
         weights = _normalise_weights(decision["target_weights"])
-        if daily_prices is None:
+        if actual_schedule is not None:
+            if signal_date not in actual_schedule:
+                continue
+            execution_date, holding_end = actual_schedule[signal_date]
+        elif daily_prices is None:
             loc = prices.index.get_indexer([signal_date])[0]
             if loc < 0 or loc + 1 >= len(prices.index):
                 continue
