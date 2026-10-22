@@ -35,7 +35,7 @@ it("links the manifest and Apple touch icon through the root metadata", () => {
   const layout = readFileSync("./app/layout.tsx", "utf8");
   expect(layout).toContain('manifest: "/manifest.webmanifest"');
   expect(layout).toContain('apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]');
-  expect(layout).toContain('appleWebApp: { capable: true, title: "TAA Signals"');
+  expect(layout).toContain('appleWebApp: { capable: true, title: "Signalboard"');
   expect(layout).toContain("<TopNavigation />");
   expect(layout).toContain("<AuthGate>{children}</AuthGate>");
 });

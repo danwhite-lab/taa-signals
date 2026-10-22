@@ -78,6 +78,10 @@ footer { margin-top: 24px; font-size: 0.85rem; }
 .topbar-inner { max-width: 1280px; margin: 0 auto; padding: 18px 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 20px 32px; }
 .brand { font-weight: 700; font-size: 1rem; white-space: nowrap; display: flex; align-items: center; gap: 10px; }
 .preview-badge { background: #edf2f7; color: #52606d; border-radius: 4px; padding: 3px 6px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.rule-list { display: grid; gap: .4rem; padding: 0; list-style: none; }
+.rule-list li { display: block; padding: 0; }
+.rule-list button { width: 100%; text-align: left; white-space: normal; overflow-wrap: normal; word-break: normal; }
+.rule-list button[aria-pressed="true"] { border-color: #0f2747; background: #edf2f7; font-weight: 600; }
 .primary-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .primary-nav a, .primary-nav span { padding: 9px 10px; font-size: 0.85rem; text-decoration: none; border-radius: 5px; white-space: nowrap; }
 .primary-nav span[aria-disabled] { color: #7b8794; cursor: default; }
