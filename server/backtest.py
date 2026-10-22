@@ -123,6 +123,10 @@ def prepare(selected, all_prices):
     if common_start is None or common_end is None or common_start > common_end:
         raise ValueError("The selected model assets have no common month-end observations. Check the data sources or upload compatible CSV histories.")
     daily = getattr(strategy, "execution_frequency", "monthly") == "daily"
+    actual_window = getattr(strategy, "backtest_window", None)
+    if actual_window:
+        common_start, common_end = actual_window(prices)
+        captions.append(f"Actual TASE execution starts {common_start.date()}; no proxy or pre-fund extension. Fund IDs: 1145903, 1159193, 1150507, 1150366, 1159268. ILS-hedged utilities (MTF 1150507).")
     if daily:
         available = strategy.decisions(prices)
         if available.empty:
@@ -139,7 +143,7 @@ def prepare(selected, all_prices):
             captions.append(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
         if common_start is None or common_start > common_end:
             raise ValueError("No completed post-signal execution session is available.")
-    end_limit = common_end if daily else prices.index.max()
+    end_limit = common_end if daily or actual_window else prices.index.max()
     frequency = "daily execution" if daily else "monthly"
     bounds = {"start_min": common_start.date().isoformat(), "start_max": common_end.date().isoformat(),
               "end_min": common_start.date().isoformat(), "end_max": end_limit.date().isoformat()}
@@ -236,6 +240,9 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
               "data_validation": table(metadata.loc[list(prices.columns)].join(data.date_ranges(prices))),
               "calculated_at": datetime.now(timezone.utc).isoformat(), "calculation_timing": timing,
               "data_origin": "Existing live loaders; no cached/live price splice or proxy substitution."}
+    if getattr(strategy, "backtest_window", None):
+        public["actual_execution_start"] = result.audit.execution_date.min().isoformat()
+        public["captions"].append(f"Actual TASE execution starts {result.audit.execution_date.min():%Y-%m-%d}. ILS-hedged utilities (MTF 1150507); actual fund history only.")
     return clean({"kind": "single-backtest-v1", "public": public, "downloads": downloads})
 
 

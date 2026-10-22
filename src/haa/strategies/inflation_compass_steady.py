@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from copy import copy
 
 from ..constants import INFLATION_COMPASS_DATA_ASSETS, INFLATION_COMPASS_MARKET_ASSETS
 from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
+from ..constants import INFLATION_COMPASS_ISRAEL_DATA_ASSETS, INFLATION_COMPASS_ISRAEL_EXECUTION_MAP
+from ..tase_data import INFLATION_COMPASS_HISTORY_YEARS
 
 
 class InflationCompassBase:
@@ -183,22 +186,53 @@ class InflationCompassFast(InflationCompassBase):
     )
 
 
-class InflationCompassSteadyIsrael(InflationCompassSteady):
-    """Israel execution labels with the unchanged USD Compass signal inputs."""
+class InflationCompassIsraelExecution:
+    """Unchanged US signals; actual TASE execution, including ILS-hedged utilities (MTF 1150507).
+
+    The approved hedged utilities exposure differs from the unhedged original.
+    Only real fund prices are executable; no proxy or pre-inception extension.
+    """
+
+    data_assets = INFLATION_COMPASS_ISRAEL_DATA_ASSETS
+    market_data_assets = INFLATION_COMPASS_MARKET_ASSETS
+    signal_assets = INFLATION_COMPASS_DATA_ASSETS
+    tase_history_years = INFLATION_COMPASS_HISTORY_YEARS
+    backtest_available = True
+
+    def decisions(self, daily_prices, decision_dates=None, include_current_month=False):
+        signal_model = copy(self)
+        signal_model.data_assets = self.signal_assets
+        result = InflationCompassBase.decisions(signal_model, daily_prices, decision_dates, include_current_month)
+        if result.empty:
+            return result
+        mapping = INFLATION_COMPASS_ISRAEL_EXECUTION_MAP
+        for column in ("target_weights", "previous_weights"):
+            result[column] = result[column].map(lambda weights: {mapping[a]: w for a, w in weights.items()})
+        result["selected_asset"] = result.target_weights.map(lambda w: ", ".join(w))
+        result["selected_assets"] = result.selected_asset
+        result["previous_asset"] = result.previous_weights.map(lambda w: ", ".join(w) if w else None)
+        result.attrs["ic_israel_actual_execution"] = True
+        return result
+
+    def backtest_window(self, prices):
+        from ..ic_israel_execution import execution_schedule
+        schedule = execution_schedule(self.decisions(prices), prices, self.benchmark_asset)
+        return min(d[0] for d in schedule.values()), max(d[1] for d in schedule.values())
+
+
+class InflationCompassSteadyIsrael(InflationCompassIsraelExecution, InflationCompassSteady):
+    """80d US signals; real TASE funds with ILS-hedged utilities (MTF 1150507)."""
 
     name = "Inflation Compass Steady (80-day) Israel"
-    backtest_available = False
 
 
-class InflationCompassStandardIsrael(InflationCompassStandard):
-    """Israel execution labels with the unchanged USD Compass signal inputs."""
+class InflationCompassStandardIsrael(InflationCompassIsraelExecution, InflationCompassStandard):
+    """60d US signals; real TASE funds with ILS-hedged utilities (MTF 1150507)."""
 
     name = "Inflation Compass Standard Israel"
-    backtest_available = False
 
 
-class InflationCompassFastIsrael(InflationCompassFast):
-    """Israel execution labels with the unchanged USD Compass signal inputs."""
+class InflationCompassFastIsrael(InflationCompassIsraelExecution, InflationCompassFast):
+    """40d US signals; real TASE funds with ILS-hedged utilities (MTF 1150507)."""
 
     name = "Inflation Compass Fast (40-day) Israel"
-    backtest_available = False

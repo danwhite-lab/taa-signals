@@ -31,11 +31,13 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLK_IL": "1159193",
     "XLV_IL": "1150390",
     "XLP_IL": "1150366",
+    "XLU_IL": "1150507",
     "GOLD_IL": "1147875",
     "HAREL_GOV_BONDS_IL": "5131792",
 }
-TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "GOLD_IL"})
+TASE_ETF_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "XLU_IL", "GOLD_IL"})
 PUBLIC_HISTORY_YEARS = 5
+INFLATION_COMPASS_HISTORY_YEARS = 8
 RVOL_PUBLISHED_CLOSE_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL"})
 
 # Default locally tradable implementations for the substitution mode. They
@@ -106,10 +108,10 @@ def parse_published_eod_closes(csv_text: str) -> pd.DataFrame:
         raise TaseDataError(f"Cannot parse published TASE closing valuations: {exc}") from exc
 
 
-def download_published_eod_closes(security_id: str) -> pd.DataFrame:
+def download_published_eod_closes(security_id: str, *, history_years=PUBLIC_HISTORY_YEARS) -> pd.DataFrame:
     from tasekit.api import TaseClient
     result = parse_published_eod_closes(TaseClient().fetch_eod_csv(security_id.zfill(8), 7))
-    first_date = pd.Timestamp.now(tz="Asia/Jerusalem").tz_localize(None).normalize() - pd.DateOffset(years=PUBLIC_HISTORY_YEARS)
+    first_date = pd.Timestamp.now(tz="Asia/Jerusalem").tz_localize(None).normalize() - pd.DateOffset(years=history_years)
     return result.loc[first_date:]
 
 
@@ -164,10 +166,11 @@ def _default_security_factory(security_id: str):
 class TasePriceSource:
     """Fetch and cache immutable copies of public TASE/Maya price histories."""
 
-    def __init__(self, security_factory: Callable[[str], object] | None = None):
+    def __init__(self, security_factory: Callable[[str], object] | None = None, *, history_years=PUBLIC_HISTORY_YEARS):
         self._use_published_closes = security_factory is None
         self._security_factory = security_factory or _default_security_factory
         self._cache: dict[str, TaseSeries] = {}
+        self._history_years = history_years
 
     def fetch_asset(self, asset: str) -> TaseSeries:
         if asset not in TASE_ISRAEL_ASSET_IDS:
@@ -183,7 +186,10 @@ class TasePriceSource:
                 # ``etf_history`` endpoint is for a different ETF endpoint
                 # and returns no data for them; normal security history is
                 # the supported public series and contains Adj Close.
-                frame = download_published_eod_closes(security_id) if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS else security.history(years=PUBLIC_HISTORY_YEARS)
+                if self._use_published_closes and self._history_years > PUBLIC_HISTORY_YEARS:
+                    frame = download_published_eod_closes(security_id, history_years=self._history_years)
+                else:
+                    frame = download_published_eod_closes(security_id) if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS else security.history(years=self._history_years)
                 field, label = select_etf_price_field(frame, asset)
                 source = f"TASE via tasekit ({label})"
                 if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS:
@@ -195,6 +201,8 @@ class TasePriceSource:
                 field, label = "Close", "Maya published redemption price"
                 source = f"Maya via tasekit ({label})"
             series = _normalise_series(frame, field, asset)
+            if self._history_years > PUBLIC_HISTORY_YEARS:
+                source += f"; requested {self._history_years} years; actual available history starts {series.index.min():%Y-%m-%d}; no pre-fund extension"
         except TaseDataError:
             raise
         except Exception as exc:
@@ -216,9 +224,9 @@ class TasePriceSource:
         return pd.DataFrame(series), pd.DataFrame(metadata).set_index("asset")
 
 
-def download_tase_israel_prices(assets: Iterable[str] = TASE_ISRAEL_ASSET_IDS) -> tuple[pd.DataFrame, pd.DataFrame]:
+def download_tase_israel_prices(assets: Iterable[str] = TASE_ISRAEL_ASSET_IDS, *, history_years=PUBLIC_HISTORY_YEARS) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Download the requested Israeli security histories."""
-    return TasePriceSource().fetch_all(assets)
+    return TasePriceSource(history_years=history_years).fetch_all(assets)
 
 
 def download_tase_security_prices(role_to_security_id: Mapping[str, str]) -> tuple[pd.DataFrame, pd.DataFrame]:

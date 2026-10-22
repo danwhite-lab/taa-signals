@@ -39,6 +39,7 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "XLK_IL": "1159193",
         "XLV_IL": "1150390",
         "XLP_IL": "1150366",
+        "XLU_IL": "1150507",
         "GOLD_IL": "1147875",
         "HAREL_GOV_BONDS_IL": "5131792",
     }
@@ -165,3 +166,25 @@ def test_default_rvol_source_uses_published_closes_other_sources_are_unchanged(m
     assert downloaded == ["1149038"]
     assert calls == [("1159250", "history")]
     assert "no-trade valuations retained" in local.source
+
+
+def test_compass_extended_window_is_per_source_and_default_stays_five_years(monkeypatch):
+    import haa.tase_data as module
+    frame = pd.DataFrame({"Adj Close": [100.]}, index=pd.DatetimeIndex(["2019-01-02"]))
+    calls = []
+    class Security:
+        def history(self, **kwargs):
+            calls.append(kwargs)
+            return frame
+    TasePriceSource(lambda _: Security()).fetch_asset("XLE_IL")
+    TasePriceSource(lambda _: Security(), history_years=module.INFLATION_COMPASS_HISTORY_YEARS).fetch_asset("XLU_IL")
+    assert calls == [{"years": 5}, {"years": 8}]
+    assert module.PUBLIC_HISTORY_YEARS == 5
+    assert "XLU_IL" in module.TASE_ETF_ASSETS
+    downloaded = []
+    monkeypatch.setattr(module, "_default_security_factory", lambda _: Security())
+    monkeypatch.setattr(module, "download_published_eod_closes", lambda sid, **kw: downloaded.append((sid, kw)) or frame)
+    result = TasePriceSource(history_years=8).fetch_asset("XLU_IL")
+    assert downloaded == [("1150507", {"history_years": 8})]
+    assert result.prices.index.min() == pd.Timestamp("2019-01-02")
+    assert "actual available history starts 2019-01-02" in result.source
