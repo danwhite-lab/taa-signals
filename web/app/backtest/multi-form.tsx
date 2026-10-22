@@ -4,6 +4,8 @@ import text from "../../content/backtest.json";
 import words from "../../content/backtest-multi.json";
 import { backtestRequest } from "../../lib/backtestApi";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
+import { TaxControls } from "../../components/BacktestAssumptions";
+import { savedChoices } from "../../lib/ui-order";
 
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
 type Sleeve = { id: number; model: string; weight: number };
@@ -77,7 +79,9 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         ? (await backtestRequest<{portfolios: {id: string; name: string}[]}>("/api/compare/options", {signal})).portfolios
         : await backtestRequest<{id: string; name: string}[]>("/api/portfolios", {signal});
       if (signal?.aborted) return;
-      setSaved(rows); setSelected(previous => rows.some(row => row.id === previous) ? previous : rows[0]?.id ?? "");
+      const ordered = await savedChoices(rows, () => backtestRequest<{id:string;is_default?:boolean}[]>("/api/portfolios", {signal}));
+      if (signal?.aborted) return;
+      setSaved(ordered); setSelected(previous => ordered.some(row => row.id === previous) ? previous : ordered[0]?.id ?? "");
     } catch (failure) { if (!signal?.aborted) setSavedError((failure as Error).message); }
     finally { if (!signal?.aborted) setLoadingSaved(false); }
   }
@@ -117,15 +121,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         {loadingSaved && <p role="status">{words.loadingSaved}</p>}
         <label>{words.saved}<select value={selected} disabled={loadingSaved} onChange={event => setSelected(event.target.value)}>{saved.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
         {!saved.length && !loadingSaved && !savedError && <p>{words.emptySaved}</p>}
-        {savedError && <button type="button" onClick={() => void listSaved()}>{words.retrySaved}</button>}
-        <button type="button" disabled={!selected || loadingSaved} onClick={() => void load()}>{words.load}</button>
+        {savedError && <button className="btn btn-secondary" type="button" onClick={() => void listSaved()}>{words.retrySaved}</button>}
+        <button className="btn btn-secondary" type="button" disabled={!selected || loadingSaved} onClick={() => void load()}>{words.load}</button>
         <label>{words.file}<input type="file" accept=".json,application/json" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
-        <button type="button" disabled={!file} onClick={() => void loadFile()}>{words.loadFile}</button>
+        <button className="btn btn-secondary" type="button" disabled={!file} onClick={() => void loadFile()}>{words.loadFile}</button>
         <p>{mode === "deep" ? words.deepLoadCaption : words.loadCaption}</p>
       </details>
       {warnings.map((warning, i) => <p role="alert" key={i}>{warning}</p>)}
       <h2>{mode === "deep" ? words.proxySleeves : words.sleeves}</h2><p>{mode === "deep" ? words.proxyCaption : words.sleeveCaption}</p>
-      <button type="button" title={mode === "deep" ? words.addProxyHelp : words.addHelp}
+      <button className="btn btn-secondary" type="button" title={mode === "deep" ? words.addProxyHelp : words.addHelp}
         disabled={daily || (mode === "deep" ? sleeves.length >= (config?.blend_options.length ?? 0) : sleeves.length >= 100)} onClick={() => {
           const model = mode === "deep" ? config?.blend_options.find(key => !sleeves.some(s => s.model === key)) : "HAA-Simple";
           if (!model) return; setValid(false); setSleeves(previous => [...previous, { id: nextId.current++, model, weight: 0 }]); onChange();
@@ -134,7 +138,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         const current = config?.models.find(m => m.label === s.model);
         const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
         return <div className="backtest-sleeve" key={s.id}>
-          <button type="button" disabled={sleeves.length === 1} onClick={() => { setValid(false); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>{words.remove}</button>
+          <button className="btn btn-destructive" type="button" disabled={sleeves.length === 1} onClick={() => { setValid(false); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>{words.remove}</button>
           {mode === "deep" ? <label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
             {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label> : <div className="signal-selector">
             {!current && <p role="alert">{words.unavailable.replace("{model}", s.model)}</p>}
@@ -165,15 +169,17 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}</>}
       <div className="backtest-grid">
         <label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>
-        <Fees value={form} onChange={change} />
-        <label>{daily ? words.dailyTax : text.taxEnabled}<input type="checkbox" disabled={daily} checked={!daily && form.tax_enabled} onChange={event => change({ tax_enabled: event.target.checked })} /></label>
-        {!daily && <label>{text.taxRate}<input type="number" min="0" max="100" disabled={!form.tax_enabled} value={form.tax_rate} onChange={event => change({ tax_rate: event.target.valueAsNumber })} /></label>}
         <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); change({}); }} /></label>
         {dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}
         <label>{mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}<input type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></label>
         <label>{mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}<input type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></label>
-      </div>{dca && <p>{config?.dca_caption}</p>}<p>{words.dateHelp}</p>
-      <button type="button" disabled={!valid || running || !config} onClick={() => void onRun(body)}>{running ? text.running : text.run}</button>
+      </div>
+      <Fees value={form} onChange={change}>
+        <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
+          onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} />
+      </Fees>
+      {dca && <p>{config?.dca_caption}</p>}<p>{words.dateHelp}</p>
+      <button className="btn btn-primary" type="button" disabled={!valid || running || !config} onClick={() => void onRun(body)}>{running ? text.running : text.run}</button>
     </fieldset>
   </section>;
 }

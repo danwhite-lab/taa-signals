@@ -24,7 +24,7 @@ export default function TestLogin() {
     <fieldset disabled={busy}>
       <label>{text.email}<input type="email" autoComplete="username" maxLength={320} required value={email} onChange={e=>setEmail(e.target.value)}/></label>
       <label>{text.password}<input type="password" autoComplete="current-password" maxLength={4096} required value={password} onChange={e=>setPassword(e.target.value)}/></label>
-      <button type="submit">{busy ? text.busy : text.submit}</button>
+      <button className="btn btn-secondary" type="submit">{busy ? text.busy : text.submit}</button>
     </fieldset>{error && <p role="alert">{error}</p>}
   </form></section>;
 }

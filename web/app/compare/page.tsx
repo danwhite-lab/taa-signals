@@ -5,6 +5,8 @@ import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import text from "../../content/compare.json";
 import { compareRequest, compareDownload } from "../../lib/compareApi";
+import { AssumptionRow, TaxControls } from "../../components/BacktestAssumptions";
+import { savedChoices } from "../../lib/ui-order";
 
 type Mode = "models" | "portfolios";
 type Settings = {mode: Mode; models: string[]; portfolio_ids: string[]; method: "monthly" | "daily"; initial: number; fee_pct: number; tax_enabled: boolean; tax_rate: number; start: string; end: string};
@@ -33,8 +35,9 @@ export default function ComparePage() {
   const inFlight = useRef(false);
   useEffect(()=>{
     const controller = new AbortController(); setError("");
-    void compareRequest<Options>("/api/compare/options",{signal:controller.signal}).then(value=>{
-      if(!controller.signal.aborted) {setOptions(value);setSettings(previous=>previous ?? {...value.defaults,start:"",end:""});}
+    void compareRequest<Options>("/api/compare/options",{signal:controller.signal}).then(async value=>{
+      const portfolios = await savedChoices(value.portfolios, () => compareRequest<{id:string;is_default?:boolean}[]>("/api/portfolios", {signal:controller.signal}));
+      if(!controller.signal.aborted) {setOptions({...value,portfolios});setSettings(previous=>previous ?? {...value.defaults,start:"",end:""});}
     }).catch((failure:Error)=>{if(!controller.signal.aborted) setError(failure.message);});
     return ()=>controller.abort();
   },[retry]);
@@ -50,7 +53,7 @@ export default function ComparePage() {
   }
   function download(kind: string) {
     const item=result?.downloads.find(d=>d.kind===kind);
-    return item && <button key={kind} onClick={()=>void compareDownload(result!.cache.key,kind,item.filename).catch(()=>setError(text.downloadError))}>{item.label}</button>;
+    return item && <button className="btn btn-secondary" key={kind} onClick={()=>void compareDownload(result!.cache.key,kind,item.filename).catch(()=>setError(text.downloadError))}>{item.label}</button>;
   }
   const models=settings?.mode!=="portfolios";
   const selected=options?.models.filter(m=>settings?.models.includes(m.label)) ?? [];
@@ -59,9 +62,9 @@ export default function ComparePage() {
   const suffix=result?.tax_enabled ? "after" : "pre";
   return <main className="backtest-page"><h1>{models ? text.title : text.portfolioTitle}</h1>
     {error && <p role="alert">{error}</p>}
-    {error && options && <button disabled={running} onClick={()=>void run()}>{text.retry}</button>}
+    {error && options && <button className="btn btn-secondary" disabled={running} onClick={()=>void run()}>{text.retry}</button>}
     {!options && !error && <p role="status">{text.loading}</p>}
-    {!options && error && <button onClick={()=>setRetry(n=>n+1)}>{text.retry}</button>}
+    {!options && error && <button className="btn btn-secondary" onClick={()=>setRetry(n=>n+1)}>{text.retry}</button>}
     {options && settings && <>
       <fieldset disabled={running}><label>{text.mode}<select value={settings.mode} onChange={e=>change({mode:e.target.value as Mode})}>{Object.entries(text.modes).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       {models ? <fieldset aria-label={text.models}><legend>{text.models}</legend>{options.models.map(m=><label key={m.label}><input type="checkbox" checked={settings.models.includes(m.label)} onChange={e=>change({models:e.target.checked?[...settings.models,m.label]:settings.models.filter(label=>label!==m.label)})}/>{m.label}</label>)}</fieldset> :
@@ -72,14 +75,14 @@ export default function ComparePage() {
       {!models && <p>{text.neutral}</p>}
       <fieldset disabled={running}>
         {!models && <><label>{text.method}<select value={settings.method} onChange={e=>change({method:e.target.value as Settings["method"]})}>{Object.entries(text.methods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><p>{text.methodCaption}</p></>}
-        <label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.valueAsNumber})}/></label>
-        <label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.valueAsNumber})}/></label>
-        <label><input type="checkbox" checked={settings.tax_enabled} onChange={e=>change({tax_enabled:e.target.checked})}/>{text.tax}</label>
-        <label>{text.rate}<input type="number" min="0" max="100" step="0.1" disabled={!settings.tax_enabled} value={settings.tax_rate} onChange={e=>change({tax_rate:e.target.valueAsNumber})}/></label>
+        <AssumptionRow><label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.valueAsNumber})}/></label></AssumptionRow>
+        <TaxControls enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/>
+        <div className="backtest-grid"><label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.valueAsNumber})}/></label>
         <label>{models ? text.start : text.portfolioStart}<input type="date" value={settings.start} onChange={e=>change({start:e.target.value})}/></label>
         <label>{models ? text.end : text.portfolioEnd}<input type="date" value={settings.end} onChange={e=>change({end:e.target.value})}/></label>
+        </div>
         <p>{text.dateHelp}</p>{models && mismatch && <p className="signal-warning">{text.hint}</p>}
-      </fieldset><button disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
+      </fieldset><button className="btn btn-primary" disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
       </>}
     </>}

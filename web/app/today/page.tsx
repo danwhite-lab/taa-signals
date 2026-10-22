@@ -70,7 +70,7 @@ export default function TodayPage() {
   }
   useEffect(() => { void load(); }, []);
   return <main className="today-page"><h1>{text.title}</h1>
-    <button disabled={busy} onClick={() => void load(true)}>{text.refresh}</button>
+    <button className="btn btn-primary" disabled={busy} onClick={() => void load(true)}>{text.refresh}</button>
     {busy && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
     {value && (!value.has_default ? <div className="signal-info"><Markdown>{text.setup}</Markdown></div> : <>
       {value.caption && <p className="signal-caption">{value.caption}</p>}
@@ -82,7 +82,7 @@ export default function TodayPage() {
         <tbody>{value.signals.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{sleeveName(row.label)}</td><td>{row.weight_text ?? text.dash}</td>
           <td>{row.holding_display?.length ? names(row.holding_display) : text.unavailable}</td>
           <td>{numbers(row.holding_display)}</td><td>{row.amounts?.map((a,j)=><div key={j}>{fmt.number(a.amount,true)} {a.currency}</div>) ?? text.dash}</td>
-          <td>{row.status_code === "ok" ? text.ok : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>
+          <td>{row.status_code === "ok" ? null : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>
       <HistorySources sleeves={value.public_sleeves} />
       {!value.holdings && <p className="signal-warning">{text.combinedWarning}</p>}
       {!!value.shared_holdings?.length && <p>{text.shared}: {value.shared_holdings.map(a=>`${a.holding}: ${fmt.number(a.amount,true)} ${a.currency}`).join("; ")}</p>}

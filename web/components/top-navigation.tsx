@@ -11,7 +11,7 @@ export default function TopNavigation() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="brand"><Link href="/today/">Signalboard</Link> <TestLoginBadge /></div>
+        <div className="brand">Signalboard <TestLoginBadge /></div>
         <nav aria-label="Primary navigation" className="primary-nav">
           {pages.map((page) => (
             <Link key={page} href={`/${page.toLowerCase().replaceAll(" ", "-")}/`} aria-current={pathname.replace(/\/$/, "") === `/${page.toLowerCase().replaceAll(" ", "-")}` ? "page" : undefined}>

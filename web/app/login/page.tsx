@@ -16,7 +16,7 @@ export default function Login() {
       if (problem) throw new Error("Google sign-in could not be started. Please try again.");
     } catch (problem) { setError((problem as Error).message); setBusy(false); }
   }
-  return <main className="login-page"><button disabled={busy} onClick={() => void login()}>
+  return <main className="login-page"><button className="btn btn-primary" disabled={busy} onClick={() => void login()}>
     {busy ? "Opening Google…" : "Sign in with Google"}</button>
     {error && <p role="alert">{error}</p>}<TestLogin /></main>;
 }

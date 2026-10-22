@@ -13,10 +13,11 @@ import { metadata as catalogueMetadata } from '../app/strategy-catalogue/layout'
 
 afterEach(()=>{cleanup();vi.unstubAllGlobals();mock.redirect.mockClear();});
 
-it('uses the catalogue nav link and Signalboard home link while keeping TEST LOGIN',()=>{
+it('uses the catalogue nav link and plain Signalboard title while keeping TEST LOGIN',()=>{
   render(<Navigation/>);
   // next/link normalizes trailing slashes in the test runtime.
-  expect(screen.getByRole('link',{name:'Signalboard'}).getAttribute('href')?.replace(/\/$/,'')).toBe('/today');
+  expect(screen.queryByRole('link',{name:'Signalboard'})).toBeNull();
+  expect(screen.getByText('Signalboard')).toBeTruthy();
   const link=screen.getByRole('link',{name:'Strategy Catalogue'});
   expect(link.getAttribute('href')?.replace(/\/$/,'')).toBe('/strategy-catalogue');
   expect(link.getAttribute('aria-current')).toBe('page');
@@ -53,11 +54,15 @@ it('sorts generic models alphabetically, selects the first and shows currency an
   const buttons=within(list).getAllByRole('button');
   expect(buttons.map(b=>b.textContent)).toEqual(['alpha USD','Beta ILS','Zulu ILS']);
   expect(buttons[0].getAttribute('aria-pressed')).toBe('true');
+  expect(buttons[0].classList.contains('is-selected')).toBe(true);
+  expect(buttons[0].classList.contains('list-row')).toBe(true);
   expect(screen.queryByRole('combobox')).toBeNull();
   expect(screen.getByRole('heading',{level:1}).textContent).toBe('Strategy Catalogue');
   expect(screen.getByText('Strategy Catalogue',{selector:'.eyebrow'})).toBeTruthy();
   expect(screen.getByRole('heading',{name:'alpha rules'})).toBeTruthy();
   fireEvent.click(buttons[2]);
+  expect(buttons[2].classList.contains('is-selected')).toBe(true);
+  expect(buttons[0].classList.contains('is-selected')).toBe(false);
   expect(screen.getByRole('heading',{name:'Zulu rules'})).toBeTruthy();
   expect(screen.getByText('Zulu risk warning')).toBeTruthy();
   expect(screen.getByText('Original implementation notes.')).toBeTruthy();

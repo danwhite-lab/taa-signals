@@ -61,13 +61,13 @@ export default function StrategyCataloguePage() {
       {error && <section role="alert" className="rules-error">
         <h2>Strategy Catalogue could not be loaded</h2>
         <pre>{error}</pre>
-        <button onClick={() => setAttempt((value) => value + 1)}>Try again</button>
+        <button className="btn btn-secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
       </section>}
       {!content && !error && <p role="status">Loading methodology…</p>}
       {content && model && <>
         <ul className="rule-list" aria-label="Strategies">
           {content.models.map((item) => <li key={item.label}>
-            <button type="button" aria-pressed={selected === item.label} onClick={() => setSelected(item.label)}>
+            <button className={`btn list-row${selected === item.label ? " is-selected" : ""}`} type="button" aria-pressed={selected === item.label} onClick={() => setSelected(item.label)}>
               {item.label} <span className="currency">{item.execution_currency}</span>
             </button>
           </li>)}

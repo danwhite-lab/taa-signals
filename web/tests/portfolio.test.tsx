@@ -23,9 +23,36 @@ function mockLoad() {
   });
 }
 
+it('lists default first then A-Z, with a separate Default tag, date and primary New button above',async()=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  const rows=[{...saved,id:'b',name:'beta',is_default:false},{...saved,id:'z',name:'Zulu',is_default:true},{...saved,id:'a',name:'Alpha',is_default:false}];
+  calls.api.mockImplementation(async(path,init)=>path==='/api/portfolios'?rows:original(path,init));
+  render(<Portfolio/>);
+  const list=await screen.findByRole('list',{name:'Saved portfolios'});
+  await waitFor(()=>expect(within(list).getAllByRole('button')).toHaveLength(3));
+  expect(within(list).getAllByRole('button').map(b=>b.getAttribute('aria-label'))).toEqual(['Zulu','Alpha','beta']);
+  const first=within(list).getAllByRole('button')[0];
+  expect(within(first).getByText('Default').className).toBe('list-tag');
+  expect(within(first).getByText('Zulu').textContent).toBe('Zulu');
+  expect(within(first).getByText(/Updated/).tagName).toBe('SMALL');
+  const add=screen.getByRole('button',{name:'New portfolio'});
+  expect(add.classList.contains('btn-primary')).toBe(true);
+  expect(add.compareDocumentPosition(list)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('sorts Model to add A-Z without choosing a model automatically',async()=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  calls.api.mockImplementation(async(path,init)=>path==='/api/backtest/config?mode=portfolio'?{models:[{label:'Zulu'},{label:'beta'},{label:'Alpha'}]}:original(path,init));
+  render(<Portfolio/>);fireEvent.click(await screen.findByRole('button',{name:'Fake portfolio'}));
+  const select=screen.getByLabelText('Model to add');
+  await waitFor(()=>expect(within(select).getAllByRole('option')).toHaveLength(4));
+  expect(within(select).getAllByRole('option').map(o=>o.textContent)).toEqual(['Choose a model','Alpha','beta','Zulu']);
+  expect(select).toHaveProperty('value','');
+});
+
 it("lists saved data, revision, default and sends loaded timestamp on edit", async () => {
   mockLoad(); render(<Portfolio />);
-  fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  fireEvent.click(await screen.findByText("Fake portfolio"));
   expect(screen.getByLabelText("Portfolio name")).toHaveProperty("value", "Fake portfolio");
   fireEvent.click(screen.getByText("Save portfolio"));
   await screen.findByText("Portfolio saved.");
@@ -36,7 +63,7 @@ it("lists saved data, revision, default and sends loaded timestamp on edit", asy
 it("conflict preserves draft, blocks repeat mutations, and reload recovers", async () => {
   vi.spyOn(window,"confirm").mockReturnValue(true);
   mockLoad(); render(<Portfolio />);
-  fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  fireEvent.click(await screen.findByText("Fake portfolio"));
   const before = calls.api.getMockImplementation()!;
   calls.api.mockImplementation(async (path, init) => {
     if (init?.method === "POST") throw new Error("Mock conflict");
@@ -53,7 +80,7 @@ it("conflict preserves draft, blocks repeat mutations, and reload recovers", asy
 
 it("loads the library automatically and marks the loaded selection",async()=>{
   mockLoad();render(<Portfolio/>);
-  const button=await screen.findByRole("button",{name:"Fake portfolio · Default"});
+  const button=await screen.findByRole("button",{name:"Fake portfolio"});
   await waitFor(()=>expect(button).toHaveProperty("disabled",false));
   expect(calls.api.mock.calls.filter(([path])=>path==="/api/portfolios")).toHaveLength(1);
   expect(button.getAttribute("aria-pressed")).toBe("false");fireEvent.click(button);
@@ -66,21 +93,21 @@ it.each(["Portfolio name","Portfolio JSON","Make this the default when saving"])
   const second={...saved,id:"fake-second",name:"Fake second",payload:{...payload,name:"Fake second"}};
   calls.api.mockImplementation(async(path,init)=>path==="/api/portfolios"?[saved,second]:original(path,init));
   const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
-  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   const input=screen.getByLabelText(field);
   if(field==="Make this the default when saving")fireEvent.click(input);
   else fireEvent.change(input,{target:{value:"Unsaved fake draft"}});
-  fireEvent.click(screen.getByText("Fake second · Default"));
+  fireEvent.click(screen.getByText("Fake second"));
   expect(confirm).toHaveBeenCalledOnce();expect(screen.getByText("Loaded: Fake portfolio")).toBeTruthy();
   expect(input).toHaveProperty(field==="Make this the default when saving"?"checked":"value",field==="Make this the default when saving"?false:"Unsaved fake draft");
-  confirm.mockReturnValue(true);fireEvent.click(screen.getByText("Fake second · Default"));
+  confirm.mockReturnValue(true);fireEvent.click(screen.getByText("Fake second"));
   expect(screen.getByText("Loaded: Fake second")).toBeTruthy();
   expect(screen.getByLabelText("Portfolio name")).toHaveProperty("value","Fake second");
 });
 
 it("guards New portfolio and manual refresh, including workspace edits",async()=>{
   mockLoad();const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
-  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   fireEvent.change(screen.getByLabelText("Portfolio name"),{target:{value:"Unsaved fake draft"}});
   fireEvent.click(screen.getByText("New portfolio"));expect(screen.getByText("Loaded: Fake portfolio")).toBeTruthy();
   fireEvent.click(screen.getByText("Reload saved data"));expect(calls.api.mock.calls.filter(([path])=>path==="/api/portfolios")).toHaveLength(1);
@@ -94,12 +121,12 @@ it("guards New portfolio and manual refresh, including workspace edits",async()=
 it("still lists saved portfolios if another initial read fails",async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;
   calls.api.mockImplementation(async(path,init)=>{if(path==="/api/workspace")throw new Error("Mock read failed");return original(path,init);});
-  render(<Portfolio/>);await screen.findByRole("alert");expect(await screen.findByText("Fake portfolio · Default")).toBeTruthy();
+  render(<Portfolio/>);await screen.findByRole("alert");expect(await screen.findByText("Fake portfolio")).toBeTruthy();
 });
 
 it("workspace form saves one preference using its loaded revision, not fabricated holdings", async () => {
   mockLoad(); render(<Portfolio />);
-  await screen.findByText("Fake portfolio · Default");
+  await screen.findByText("Fake portfolio");
   fireEvent.click(screen.getByText("Save workspace preference"));
   await screen.findByText("Workspace saved.");
   const [, init] = calls.api.mock.calls.find(([, init]) => init?.method === "PUT")!;
@@ -107,7 +134,7 @@ it("workspace form saves one preference using its loaded revision, not fabricate
 });
 
 it("shows a readable loaded summary above the form and keeps JSON collapsed",async()=>{
-  mockLoad();render(<Portfolio/>);const button=await screen.findByText("Fake portfolio · Default");
+  mockLoad();render(<Portfolio/>);const button=await screen.findByText("Fake portfolio");
   expect(screen.queryByRole("region",{name:"Portfolio summary"})).toBeNull();fireEvent.click(button);
   const summary=screen.getByRole("region",{name:"Portfolio summary"});
   expect(within(summary).getByRole("heading",{name:"Fake portfolio"})).toBeTruthy();
@@ -127,7 +154,7 @@ it("shows a readable loaded summary above the form and keeps JSON collapsed",asy
 });
 
 it("updates the summary from edits and saves full precision without changing the request contract",async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   fireEvent.change(screen.getByLabelText("Portfolio name"),{target:{value:"Fake edited name"}});
   screen.getByText("Advanced: edit JSON").closest("details")!.open=true;
   const edited={...payload,name:'Fake edited name',total_ils:12345.6789,ils_per_usd:3.14159,sleeves:[
@@ -158,13 +185,13 @@ it("updates a pending default badge but does not pretend unchecking clears a sav
   expect(within(summary).getByText("Default on save")).toBeTruthy();
   fireEvent.click(screen.getByLabelText("Make this the default when saving"));
   expect(within(summary).queryByText("Default on save")).toBeNull();
-  cleanup();mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  cleanup();mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   fireEvent.click(screen.getByLabelText("Make this the default when saving"));
   expect(within(screen.getByRole("region",{name:"Portfolio summary"})).getByText("Default")).toBeTruthy();
 });
 
 it("does not show stale saved numbers or invented totals for invalid or incomplete draft JSON",async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   fireEvent.change(screen.getByLabelText("Portfolio JSON"),{target:{value:"{"}});
   const summary=screen.getByRole("region",{name:"Portfolio summary"});
   expect(within(summary).getByRole("alert").textContent).toContain("Summary unavailable");
@@ -178,7 +205,7 @@ it("does not show stale saved numbers or invented totals for invalid or incomple
 });
 
 it("shows the actual draft total rather than normalizing weights to 100",async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio · Default"));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   fireEvent.change(screen.getByLabelText("Portfolio JSON"),{target:{value:JSON.stringify({...payload,sleeves:[
     {model:"Fake first",weight:50},{model:"Fake second",weight:40}]})}});
   const table=screen.getByRole("table",{name:"Portfolio sleeves"});
@@ -193,7 +220,7 @@ it("keeps phone wrapping and overflow rules local to Portfolio without mid-word 
 });
 
 it('edits name, capital, FX and weights into JSON without losing unrelated fields or changing untouched precision',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify({...payload,custom_note:'Fake retained field',sleeves:[{id:17,model:'Buy and Hold SPY',weight:100}]})}});
   fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake builder name'}});
   fireEvent.change(screen.getByLabelText('Total capital (ILS)'),{target:{value:'5432.1234'}});
@@ -209,7 +236,7 @@ it('edits name, capital, FX and weights into JSON without losing unrelated field
 });
 
 it('uses the Backtest model list without duplicates and removes the requested row, not the last',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   const dropdown=screen.getByLabelText('Model to add');
   await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
   expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
@@ -227,7 +254,7 @@ it('uses the Backtest model list without duplicates and removes the requested ro
 
 it('warns live and requires confirmation to save a non-100 draft without normalization',async()=>{
   mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
-  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'90'}});
   expect(screen.getByRole('row',{name:/Total/}).textContent).toBe('Total90.00%');
   fireEvent.click(screen.getByText('Save portfolio'));
@@ -240,7 +267,7 @@ it('warns live and requires confirmation to save a non-100 draft without normali
 });
 
 it('updates every editable field and available models from Advanced JSON',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   screen.getByText('Advanced: edit JSON').closest('details')!.open=true;
   const next={...payload,name:'Fake from JSON',total_ils:500,ils_per_usd:3.5,sleeves:[{model:'Buy and Hold IEF',weight:100}]};
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
@@ -256,7 +283,7 @@ it('updates every editable field and available models from Advanced JSON',async(
 
 it.each(['Total capital (ILS)','ILS per USD rate','Weight for Buy and Hold SPY (row 1)'])('guards unsaved table edit %s before another portfolio is loaded',async label=>{
   mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
-  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   fireEvent.change(screen.getByLabelText(label),{target:{value:'50'}});
   fireEvent.click(screen.getByText('New portfolio'));
   expect(confirm).toHaveBeenCalledWith('Discard unsaved portfolio edits?');
@@ -264,7 +291,7 @@ it.each(['Total capital (ILS)','ILS per USD rate','Weight for Buy and Hold SPY (
 });
 
 it('can build a new portfolio without inventing capital or FX',async()=>{
-  mockLoad();render(<Portfolio/>);await screen.findByText('Fake portfolio · Default');
+  mockLoad();render(<Portfolio/>);await screen.findByText('Fake portfolio');
   fireEvent.click(screen.getByText('New portfolio'));
   expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('value','');
   expect(screen.getByLabelText('ILS per USD rate')).toHaveProperty('value','');
@@ -280,7 +307,7 @@ it('can build a new portfolio without inventing capital or FX',async()=>{
 });
 
 it('does not overwrite malformed JSON through the builder or save empty/invalid fields',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:'{'}});
   expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('disabled',true);
   expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',true);
@@ -294,7 +321,7 @@ it('does not overwrite malformed JSON through the builder or save empty/invalid 
 it('retries a failed model list without losing the editable draft',async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;let fail=true;
   calls.api.mockImplementation(async(path,init)=>{if(path==='/api/backtest/config?mode=portfolio'&&fail)throw Error('Mock failure');return original(path,init);});
-  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   await screen.findByText('Available models could not be loaded. Existing drafts are unchanged.');
   fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake draft preserved'}});
   fail=false;fireEvent.click(screen.getByText('Retry model list'));
@@ -303,7 +330,7 @@ it('retries a failed model list without losing the editable draft',async()=>{
 });
 
 it('defaults legacy portfolios to no transfers and stores that rule on save',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   expect(screen.getByLabelText('Sleeve transfer rule')).toHaveProperty('value','none');
   expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value).transfer_rule).toBeUndefined();
   fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
@@ -312,7 +339,7 @@ it('defaults legacy portfolios to no transfers and stores that rule on save',asy
 });
 
 it('edits and saves the quarterly cap with its model identity and precise parameters',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   const base={...payload,sleeves:[{id:991,model:'A-RVol Shifter V3 Cash-Only',weight:20},{model:'Buy and Hold SPY',weight:80}]};
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(base)}});
   fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'rvol_cap'}});
@@ -327,7 +354,7 @@ it('edits and saves the quarterly cap with its model identity and precise parame
 });
 
 it('keeps transfer controls in sync with JSON and warns instead of retargeting a removed cap sleeve',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   const rule={mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:22,target_percent:11};
   const next={...payload,sleeves:[{model:rule.sleeve_model,weight:10},{model:'Buy and Hold SPY',weight:90}],transfer_rule:rule};
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
@@ -346,7 +373,7 @@ it('keeps transfer controls in sync with JSON and warns instead of retargeting a
 
 it('treats transfer edits as unsaved and refuses invalid cap parameters',async()=>{
   mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
-  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio · Default'));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'annual_target'}});
   fireEvent.click(screen.getByText('New portfolio'));expect(confirm).toHaveBeenCalledWith('Discard unsaved portfolio edits?');
   const next={...payload,sleeves:[{model:'A-RVol Shifter V3 Cash-Only',weight:100}],transfer_rule:{mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:10,target_percent:20}};

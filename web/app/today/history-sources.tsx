@@ -52,7 +52,7 @@ export default function HistorySources({ sleeves }: { sleeves: HistorySleeve[] }
     <p className={styles.note}>{text.buyHoldNote}</p>
     <details><summary>{text.historySources}</summary>
       <DisplayTable value={table} label={text.historySources} />
-      <button type="button" onClick={download}>{text.historyCsv}</button>
+      <button className="btn btn-secondary" type="button" onClick={download}>{text.historyCsv}</button>
     </details>
   </div>;
 }
