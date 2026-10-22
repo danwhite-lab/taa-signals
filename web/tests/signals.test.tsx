@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import words from "../content/signals.json";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("../lib/api", () => ({ api: mocks.api }));
@@ -31,7 +32,7 @@ it.each(["monthly", "daily", "buy_and_hold"] as const)("renders %s without calcu
   expect(screen.getByText(/Rules-based informational signal only/)).toBeTruthy();
   if (mode === "monthly") {
     expect(screen.getByRole("region", { name: "Current allocation" })).toBeTruthy();
-    expect(screen.getByText(/Provisional only/)).toBeTruthy();
+    expect(screen.getByText(words.provisional)).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Rationale" }));
     expect(screen.getByText("Mock explanation")).toBeTruthy();
   } else {
@@ -90,4 +91,29 @@ it("offers retry when loading fails", async () => {
   render(<SignalsPage />);
   await screen.findByText("Mock API unavailable");
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
+it("keeps summary and preview fields visible, allocation text intact, and explanations collapsed", () => {
+  const value = payload("monthly");
+  value.current.allocation = "50% Example fund — 1234567 / 50% Other fund — 7654321";
+  value.current.effective_text = "Original effective holding-period text.";
+  value.preview!.caption = "Original longer explanation.";
+  render(<SignalsView value={value}/>);
+  const card = screen.getByRole("region", {name:"Current allocation"});
+  expect(within(card).getByText(value.current.allocation)).toBeTruthy();
+  for (const field of [words.allocation,words.signal,words.regime,words.action]) expect(within(card).getByText(field)).toBeTruthy();
+  expect(screen.getByText(words.summary).closest("details")).toBeNull();
+  expect(screen.getByText(words.preview).closest("details")).toBeNull();
+  expect(screen.getByText("Original effective holding-period text.")).toBeTruthy();
+  expect(screen.getByText(words.no)).toBeTruthy();
+  const more = screen.getByText(words.moreDetails).closest("details")!;
+  expect(more.open).toBe(false);
+  expect(within(more).getByText("Original longer explanation.")).toBeTruthy();
+  expect(screen.getByText("Mock cache warning")).toBeTruthy();
+});
+
+it("keeps an unavailable preview visible rather than hiding it in a disclosure", () => {
+  const value = payload("monthly"); value.preview!.decision = null;
+  render(<SignalsView value={value}/>);
+  expect(screen.getByText("No preview").closest("details")).toBeNull();
 });

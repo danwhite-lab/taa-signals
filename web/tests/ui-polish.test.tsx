@@ -47,4 +47,7 @@ it('defines shared light buttons, accent, destructive, focus and selected-list s
   for(const name of ['.btn-primary','.btn-destructive','.list-row.is-selected','.segment:has(input:checked)',':focus-visible'])expect(css).toContain(name);
   expect(css).not.toContain('button { background: #17202a');
   expect(css).toContain('.list-date');expect(css).toContain('.assumption-row');
+  expect(css).not.toContain('.dca-row > label:not(.toggle-label) { font-size: 0; }');
+  expect(css).toContain('.backtest-page .dca-row input:not([type=checkbox]) { font-size: .85rem; min-height: 38px; width: 100%; }');
+  expect(css).toContain('.backtest-page input.toggle-switch[type=checkbox]:checked { background: var(--accent)');
 });

@@ -1,0 +1,12 @@
+{
+  "fund": "Fund",
+  "value": "Value",
+  "units": "Units",
+  "price": "Price",
+  "outside": "Outside the rebalance",
+  "remove": "Remove",
+  "editPrice": "Edit price",
+  "source": "source",
+  "stale": "Stale",
+  "missing": "Missing"
+}

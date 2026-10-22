@@ -1,0 +1,18 @@
+{
+  "allocation": "Allocation",
+  "signal": "Signal",
+  "regime": "Regime",
+  "action": "Action",
+  "summary": "Signal summary",
+  "instruction": "Instruction",
+  "target": "Target allocation",
+  "preview": "Next month preview (provisional)",
+  "pricesThrough": "Prices through",
+  "projectedRegime": "Projected regime",
+  "projectedAllocation": "Projected allocation",
+  "changed": "Change vs current",
+  "yes": "Yes",
+  "no": "No",
+  "provisional": "Provisional only, not a trading instruction",
+  "moreDetails": "More details"
+}
