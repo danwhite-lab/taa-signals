@@ -78,7 +78,7 @@ export default function ResearchPage() {
   }
   const gated = !loading && options?.gate !== "available";
   const variants = [...new Set(options?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
-  function download(kind: string) { const item = result?.downloads.find(d => d.kind === kind); return item && <button onClick={() => void researchDownload(result!.cache.key, kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>; }
+  function download(kind: string) { const item = result?.downloads.find(d => d.kind === kind); return item && <button className="btn btn-secondary" onClick={() => void researchDownload(result!.cache.key, kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>; }
   return <main className="backtest-page"><h1>{text.title}</h1>
     {options && <fieldset disabled={running} className="signal-selector">
       <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={e => choose(e.target.value)}>{[...new Set(options.models.map(m => m.strategy))].sort().map(s => <option key={s}>{s}</option>)}</select></label>
@@ -86,13 +86,13 @@ export default function ResearchPage() {
       <label>{text.implementation}<select value={label} onChange={e => {setLabel(e.target.value); clear();}}>{options.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
     </fieldset>}
     {loading && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
-    {!loading && error && <button onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
+    {!loading && error && <button className="btn btn-secondary" onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
     {gated ? <p className="signal-info">{options?.reason}</p> : options?.profile && !loading && <>
       <p>{text.caption}</p><details><summary>{text.readTitle}</summary><Markdown>{text.readMarkdown.replace(/^ {4,}/gm, "")}</Markdown></details>
       <p>{options.profile.caption}</p><details><summary>{text.scope}</summary><DataTable value={options.profile.parameters} /><p>{options.profile.notes}</p></details>
       <h2>{text.quick}</h2><p>{result?.history.caption ?? options.history?.caption}</p><p>{text.info}</p>
       <label>{text.initial}<input type="number" min="1" disabled={running} value={initial} onChange={e => {setInitial(e.target.valueAsNumber); clear();}} /></label><p>{text.currency}: {options.currency}</p>
-      <button disabled={running || loading} onClick={() => void run()}>{running ? text.running : text.run}</button>
+      <button className="btn btn-primary" disabled={running || loading} onClick={() => void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.longRun} · {text.elapsed}: {elapsed}</p>}
       {!result && !running && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
       {options.warnings.map((w,i) => <p className="signal-warning" key={i}>{w}</p>)}

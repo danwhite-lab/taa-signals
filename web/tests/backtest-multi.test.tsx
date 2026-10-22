@@ -12,11 +12,11 @@ const config = { models: [{ label: "HAA-Simple", strategy: "HAA", variant: "Simp
   proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Mock caveat" }, { key: "haa_simple", label: "HAA proxy", caveat: "Mock caveat" }, { key: "gem", label: "GEM proxy", caveat: "Mock GEM caveat" }, { key: "rvol_daily", label: "Daily proxy", caveat: "Mock daily caveat" }],
   single_options: ["century_momentum", "haa_simple", "gem", "rvol_daily"], blend_options: ["century_momentum", "haa_simple", "gem"], benchmarks: [{ key: "sp500", label: "Mock benchmark", caveat: "Mock benchmark caveat" }] };
 afterEach(() => { cleanup(); mock.request.mockReset(); });
-function setup(mode: "portfolio" | "deep") {
+function setup(mode: "portfolio" | "deep", defaultId?: string) {
   const run = vi.fn(async (_body: Record<string, unknown>) => {}); const changed = vi.fn();
   mock.request.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path.startsWith("/api/backtest/config")) return config;
-    if (path === "/api/portfolios") return [{ id: "fake-id", name: "Fake portfolio" }];
+    if (path === "/api/portfolios") return defaultId ? [{id:'fake-id',is_default:defaultId==='fake-id'},{id:'fake-second',is_default:defaultId==='fake-second'}] : [{ id: "fake-id", name: "Fake portfolio" }];
     if (path === "/api/compare/options") return {portfolios:[{ id: "fake-id", name: "Fake portfolio" },{id:"fake-second",name:"Fake second"}]};
     if (path === "/api/backtest/load") return { sleeves: [{ id: 1, model: mode === "deep" ? "haa_simple" : "HAA-Simple", weight: 100 }], initial: 3000, warnings: [] };
     const body = JSON.parse(init?.body as string);
@@ -26,6 +26,14 @@ function setup(mode: "portfolio" | "deep") {
   render(<MultiForm mode={mode} running={false} onRun={run} onChange={changed} />);
   return { run, changed };
 }
+
+it('puts the default saved portfolio first and selects it when the old default was first item',async()=>{
+  setup('portfolio','fake-second');await screen.findByText('Fake second');
+  const select=screen.getByLabelText(words.saved) as HTMLSelectElement;
+  expect(Array.from(select.options).map(o=>o.value)).toEqual(['fake-second','fake-id']);
+  expect(select.value).toBe('fake-second');
+  fireEvent.change(select,{target:{value:'fake-id'}});expect(select.value).toBe('fake-id');
+});
 
 it("only validates on edits; runs solely on the explicit button, disabled for invalid weights", async () => {
   const {run} = setup("portfolio");

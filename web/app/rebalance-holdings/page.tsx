@@ -100,10 +100,10 @@ export default function RebalanceHoldings() {
     {busy && <p role="status">{state ? text.working : text.loading}</p>}
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
     {paused && <p role="alert">{text.paused}</p>}
-    <button disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
+    <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
     {state && <>
       <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
-      <button disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
+      <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
         const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
       })}>{text.generate}</button>
       {dirty && <p>{text.unsaved}</p>}{changed && <p>{text.changed}</p>}
@@ -113,12 +113,12 @@ export default function RebalanceHoldings() {
       <section><h2>{text.holdings}</h2><p>{text.editorCaption}</p><p>{text.addCaption}</p>
         <details><summary>{text.add}</summary>
           <label>{text.known}<select value={known} disabled={busy} onChange={event => setKnown(event.target.value)}><option value="">—</option>
-            {Object.values(state.instruments).map(item => <option key={item.id} value={item.id}>{item.label} · {item.currency} · {item.id}</option>)}</select></label>
-          <button disabled={busy || !known} onClick={() => void action(() => add(state.instruments[known]))}>{text.addSelected}</button>
+            {Object.values(state.instruments).sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" })).map(item => <option key={item.id} value={item.id}>{item.label} · {item.currency} · {item.id}</option>)}</select></label>
+          <button className="btn btn-secondary" disabled={busy || !known} onClick={() => void action(() => add(state.instruments[known]))}>{text.addSelected}</button>
           <p>{text.customCaption}</p><label>{text.market}<select value={market} onChange={event => setMarket(event.target.value)}>{text.markets.map(value => <option key={value}>{value}</option>)}</select></label>
           <label>{text.identifier}<input value={identifier} onChange={event => setIdentifier(event.target.value)} /></label>
           <label>{text.currency}<select value={currency} onChange={event => setCurrency(event.target.value)}><option value="">{text.marketDefault}</option>{text.currencies.map(value => <option key={value}>{value}</option>)}</select></label>
-          <button disabled={busy} onClick={() => void action(async () => add(await request<Instrument>("/api/rebalance/security", { identifier, market, currency: currency || null })))}>{text.custom}</button>
+          <button className="btn btn-secondary" disabled={busy} onClick={() => void action(async () => add(await request<Instrument>("/api/rebalance/security", { identifier, market, currency: currency || null })))}>{text.custom}</button>
         </details>
         <div className="signal-table-scroll"><table aria-label={text.holdings}><thead><tr>{["Security", "Fund", "Currency", "Outside the rebalance", ...inputKeys, "Remove"].map(key => <th key={key}>{label(key)}</th>)}
           {Object.entries(text.quoteColumns).map(([key, value]) => <th key={key}>{value}</th>)}</tr></thead><tbody>
@@ -132,14 +132,14 @@ export default function RebalanceHoldings() {
           </tr>)}
         </tbody></table></div>
         <p>{text.automaticCaption}</p><p>{text.manualCaption}</p>
-        <button disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
+        <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
         {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
           <div className="signal-table-scroll"><table><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
             <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></div></section>}
         <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
         <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
           <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
-        <button disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+        <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
       </section>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
@@ -147,16 +147,16 @@ export default function RebalanceHoldings() {
       {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
         {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
         {plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
-        {!!plan.orders.length && <button disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
+        {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
         {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
           <label>{text.paid}<input inputMode="decimal" value={confirmed[order.id]?.paid_ils ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], paid_ils: event.target.value } }))} /></label></div>)}
           <label><input type="checkbox" checked={ack} disabled={busy} onChange={event => setAck(event.target.checked)} />{text.acknowledge}</label>
-          <button disabled={busy || paused || !ack} onClick={() => void action(async () => { const value = await request<{ account: Account }>("/api/rebalance/record", {
+          <button className="btn btn-secondary" disabled={busy || paused || !ack} onClick={() => void action(async () => { const value = await request<{ account: Account }>("/api/rebalance/record", {
             ...args(), plan, acknowledge: ack, confirmations: plan.orders.map(order => ({ id: order.id, ...confirmed[order.id] })) }); await persist(value.account, true); })}>{text.done}</button>
-          <button disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
       </section>}
-      <details><summary>{text.details}</summary><button disabled={busy || paused} onClick={() => void action(() => refresh())}>{text.refresh}</button><p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
+      <details><summary>{text.details}</summary><button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(() => refresh())}>{text.refresh}</button><p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
         <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre></details>
       <details><summary>{text.signals}</summary><label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
         {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

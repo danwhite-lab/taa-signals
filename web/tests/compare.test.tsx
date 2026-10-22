@@ -30,8 +30,16 @@ function select(label:string,values:string[]){
 it("uses the existing sign-in gate",async()=>{
   render(<AuthGate><Page/></AuthGate>);await screen.findByText("Sign in with Google");expect(mock.request).not.toHaveBeenCalled();
 });
+
+it('sorts saved portfolios default-first without changing the selected set',async()=>{
+  const portfolios=[{id:'b',name:'beta'},{id:'a',name:'Alpha'},{id:'z',name:'Zulu'}];
+  mock.request.mockImplementation(async(path)=>path==='/api/compare/options'?{...options,portfolios,defaults:{...options.defaults,mode:'portfolios'}}:[{id:'z',is_default:true}]);
+  render(<Page/>);const group=await screen.findByRole('group',{name:text.saved});
+  expect(Array.from(group.querySelectorAll('label')).map(l=>l.textContent)).toEqual(['Zulu','Alpha','beta']);
+  expect(Array.from(group.querySelectorAll<HTMLInputElement>('input')).every(input=>!input.checked)).toBe(true);
+});
 it("loads options only and preserves independent tax-off defaults",async()=>{
-  await ready();expect(mock.request).toHaveBeenCalledTimes(1);expect(mock.request.mock.calls[0][0]).toBe("/api/compare/options");
+  await ready();expect(mock.request).toHaveBeenCalledTimes(2);expect(mock.request.mock.calls[0][0]).toBe("/api/compare/options");
   expect(screen.getByLabelText(text.tax)).toHaveProperty("checked",false);expect(screen.getByLabelText(text.rate)).toHaveProperty("disabled",true);
   expect(screen.getByLabelText(text.initial)).toHaveProperty("value","100000");expect(screen.getByLabelText(text.start)).toHaveProperty("value","");
   expect(screen.getByText(text.modelsCaption)).toBeTruthy();expect(screen.getByText(text.dateHelp)).toBeTruthy();
@@ -72,7 +80,7 @@ it("clears on tax, model, mode, method and saved selections",async()=>{
 });
 it("guards duplicate requests and disables controls in flight",async()=>{
   let resolve!:(value:unknown)=>void;
-  mock.request.mockImplementation((path:string)=>path==="/api/compare/options"?Promise.resolve(options):new Promise(done=>{resolve=done;}));
+  mock.request.mockImplementation((path:string)=>path==="/api/compare/options"?Promise.resolve(options):path==="/api/portfolios"?Promise.resolve([]):new Promise(done=>{resolve=done;}));
   render(<Page/>);const run=await screen.findByRole("button",{name:text.run});fireEvent.click(run);fireEvent.click(run);
   expect(mock.request.mock.calls.filter(([path])=>path==="/api/compare")).toHaveLength(1);expect(run).toHaveProperty("disabled",true);
   expect((screen.getByLabelText(text.mode) as HTMLSelectElement).closest("fieldset")).toHaveProperty("disabled",true);
@@ -83,5 +91,6 @@ it("shows timeout without partial results",async()=>{
 });
 it("keeps words in data and contains no financial calculations, local storage or record writes",()=>{
   const source=readFileSync("./app/compare/page.tsx","utf8");expect(source).toContain('content/compare.json');
-  expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);expect(source).not.toMatch(/\/api\/workspace|\/api\/portfolios|localStorage|sessionStorage|toFixed|parseFloat|cumprod|cummax/);
+  expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);expect(source).not.toMatch(/\/api\/workspace|localStorage|sessionStorage|toFixed|parseFloat|cumprod|cummax/);
+  expect(source).not.toMatch(/method:\s*["'](?:PUT|DELETE)["']/);
 });

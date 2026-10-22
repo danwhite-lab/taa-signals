@@ -36,13 +36,14 @@ it('renders the six clear signal columns, short names, separate security numbers
   render(<Page/>);await screen.findByText(payload.caption);
   const table=within(screen.getByRole('table',{name:text.sleeveSignals}));
   expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Weight','Holding','Security No.','Amount','Status']);
-  for(const label of ['A-RVol V3','Gold GLD','Inflation Compass','Unmapped full strategy name','Mock MTF fund','5140850','risk-on','OK','Check data','Unavailable','Mock missing prices','SPMO 60%','IEF 40%'])
+  for(const label of ['A-RVol V3','Gold GLD','Inflation Compass','Unmapped full strategy name','Mock MTF fund','5140850','risk-on','Check data','Unavailable','Mock missing prices','SPMO 60%','IEF 40%'])
     expect(table.getAllByText(label).length).toBeGreaterThan(0);
   expect(table.getByText('risk-on').tagName).toBe('SMALL');
   const cells=within(table.getAllByRole('row')[1]).getAllByRole('cell');
   expect(cells[2].textContent).toBe('Mock MTF fund');
   expect(cells[3].textContent).toBe('5140850');
-  expect(cells[5].textContent).toBe('OKrisk-on');
+  expect(cells[5].textContent).toBe('risk-on');
+  expect(table.queryByText('OK')).toBeNull();
   expect(within(table.getAllByRole('row')[3]).getAllByRole('cell')[5].textContent).toBe('UnavailableMock missing prices');
   expect(table.queryByText(/100%/)).toBeNull();
   expect(table.queryByText(/Fake holding:/)).toBeNull();

@@ -8,6 +8,7 @@ import text from "../../content/backtest.json";
 import multiText from "../../content/backtest-multi.json";
 import MultiForm from "./multi-form";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
+import { TaxControls } from "../../components/BacktestAssumptions";
 import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 
 type Row = Record<string, unknown>;
@@ -117,10 +118,14 @@ export default function BacktestPage() {
   const variants = [...new Set(options?.models.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
   const implementations = options?.models.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
-    <label>{text.mode}<select disabled={running} value={mode} onChange={event => { setMode(event.target.value as typeof mode); update({}); }}><option value="single">{text.single}</option><option value="portfolio">{text.portfolio}</option><option value="deep">{text.deep}</option></select></label>
+    <fieldset className="segmented" role="radiogroup" aria-label={text.mode} disabled={running}><legend>{text.mode}</legend>
+      {(["single", "portfolio", "deep"] as const).map(value => <label className="segment" key={value}>
+        <input type="radio" name="backtest-mode" value={value} checked={mode === value} onChange={() => { setMode(value); update({}); }} />{text[value]}
+      </label>)}
+    </fieldset>
     {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})} />}
     {loading && <p role="status">{text.loading}</p>}
-    {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!options && <button onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
+    {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!options && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
     {mode === "single" && options && current && <>
       <fieldset disabled={running} className="backtest-controls"><legend>{text.single}</legend>
         <div className="signal-selector">
@@ -131,21 +136,21 @@ export default function BacktestPage() {
         </div>
         <p>{text.currency}: {options.currency}</p>
         <div className="backtest-grid"><label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>
-          <Fees value={form} onChange={update} />
-          <label>{text.taxEnabled}<input type="checkbox" checked={form.tax_enabled} onChange={event => update({ tax_enabled: event.target.checked })} /></label>
-          <label>{text.taxRate}<input type="number" min="0" max="100" step="0.1" disabled={!form.tax_enabled} value={form.tax_rate} onChange={event => update({ tax_rate: event.target.valueAsNumber })} /></label>
           <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); update({}); }} /></label>
           {dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}
           <label>{text.start}<input type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></label>
           <label>{text.end}<input type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></label>
         </div>
+        <Fees value={form} onChange={update}>
+          <TaxControls enabled={form.tax_enabled} rate={form.tax_rate} step={.1} onEnabled={tax_enabled => update({tax_enabled})} onRate={tax_rate => update({tax_rate})} />
+        </Fees>
         {dca && <p>{options.dca_caption}</p>}
         {options.reference_replay_available && <><label>{text.reference}<input type="checkbox" checked={form.reference_replay} onChange={event => update({ reference_replay: event.target.checked })} /></label><p>{options.reference_caption}</p></>}
       </fieldset>
       {options.captions.map((value, index) => <p key={index}>{value}</p>)}
       {options.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
       <details><summary>{text.validation}</summary><DataTable value={options.data_validation} label={text.sources} /></details>
-      <button type="button" disabled={running || loading} onClick={() => void run()}>{running ? text.running : text.run}</button>
+      <button className="btn btn-primary" type="button" disabled={running || loading} onClick={() => void run()}>{running ? text.running : text.run}</button>
     </>}
     {running && <div role="status"><p>{text.longRun}</p><p>{text.elapsed}: {elapsed}</p></div>}
     {changed && <p>{text.changed}</p>}
@@ -176,7 +181,7 @@ export default function BacktestPage() {
       <details><summary>{text.periods}</summary><DataTable value={result.periods} label={text.periods} /></details>
       <details><summary>{text.ledger}</summary><DataTable value={result.tax_events} label={text.ledger} /></details>
       <details><summary>{text.returns}</summary><DataTable value={result.annual} label={text.annual} /><DataTable value={result.monthly} label={text.monthly} /></details>
-      <section><h2>{text.downloads}</h2><div className="actions">{result.downloads.map(item => <button key={item.kind}
+      <section><h2>{text.downloads}</h2><div className="actions">{result.downloads.map(item => <button className="btn btn-secondary" key={item.kind}
         onClick={() => void backtestDownload(result.cache.key, item.kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>)}</div></section>
       <details><summary>{text.timing}</summary><pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre></details>
     </div>}

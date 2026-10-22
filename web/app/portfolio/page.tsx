@@ -6,6 +6,7 @@ import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
 import transferWords from "../../content/backtest-multi.json";
+import { byLabel, savedOrder } from "../../lib/ui-order";
 
 function numeric(value: unknown): number | null {
   if (typeof value !== "number" && !(typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()))) return null;
@@ -74,7 +75,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
   const capital = numeric(payload?.total_ils), fx = numeric(payload?.ils_per_usd);
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
-  const available = models?.filter(model => !sleeves?.some(row => row.name === model)) ?? [];
+  const available = models?.filter(model => !sleeves?.some(row => row.name === model)).sort(byLabel) ?? [];
   const rule = transferRule(payload);
   const ruleMode = typeof rule?.mode === 'string' ? rule.mode : '';
   const ruleError = payload ? transferError(payload) : null;
@@ -124,18 +125,18 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>
         <NumberField label={`Weight for ${row.name} (row ${index + 1})`} value={row.weight} decimals={2} disabled={disabled}
           onChange={value => editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), weight: value } : original))} />
-      </td><td><button type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
+      </td><td><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
         onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></td></tr>)}</tbody>
       <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td><td /></tr></tfoot>
     </table></div> : <p>Sleeve summary unavailable: enter a sleeve list in Portfolio JSON.</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
-    {modelsError ? <p role="alert">{modelsError} <button type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
+    {modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
     <div className={styles.addSleeve}>
       <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
         value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
         <option value="">Choose a model</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
-      <button type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
+      <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
         editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
       }}>+</button>
     </div>
@@ -245,10 +246,10 @@ export default function Portfolio() {
   return <main className={`portfolio-page ${styles.page}`}>
     <h1>Saved portfolios</h1>
     <p>{email}</p>
-    <div className="actions"><button disabled={busy} onClick={() => {
+    <div className="actions"><button className="btn btn-secondary" disabled={busy} onClick={() => {
       if ((!dirty && !preferenceDirty) || window.confirm("Discard unsaved edits and reload saved data?")) void act(load);
     }}>Reload saved data</button>
-      <button disabled={busy} onClick={() => void act(async () => {
+      <button className="btn btn-secondary" disabled={busy} onClick={() => void act(async () => {
         const { error } = await supabaseBrowser().auth.signOut();
         if (error) throw error; window.location.replace("/login/");
       })}>Sign out</button></div>
@@ -257,11 +258,10 @@ export default function Portfolio() {
     <section><h2>Your library</h2>
       {busy && <p role="status">Loading saved data…</p>}
       {!busy && !portfolios.length && !error && <p>No saved portfolios loaded.</p>}
-      <ul>{portfolios.map(item => <li key={item.id}><button disabled={busy || uncertain} aria-pressed={selected?.id === item.id}
-        style={selected?.id === item.id ? { backgroundColor: "#e5f2ed", color: "#1c5343", outline: "2px solid #326454", fontWeight: 700 } : undefined}
+      <button className="btn btn-primary" disabled={busy || uncertain} onClick={() => requestChoose(null)}>New portfolio</button>
+      <ul className="saved-list" aria-label="Saved portfolios">{savedOrder(portfolios).map(item => <li key={item.id}><button className={`btn list-row${selected?.id === item.id ? " is-selected" : ""}`} aria-label={item.name} disabled={busy || uncertain} aria-pressed={selected?.id === item.id}
         onClick={() => requestChoose(item)}>
-        {item.name}{item.is_default ? " · Default" : ""}</button><small>Updated {date(item.updated_at)}</small></li>)}</ul>
-      <button disabled={busy || uncertain} onClick={() => requestChoose(null)}>New portfolio</button>
+        <span className="row-name" title={item.name}>{item.name}</span>{item.is_default && <span className="list-tag">Default</span>}<small className="list-date">Updated {date(item.updated_at)}</small></button></li>)}</ul>
     </section>
     {(selected || json) && <PortfolioSummary key={selected?.id ?? 'new'} name={name} json={json} isDefault={selected?.is_default ?? false}
       defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
@@ -276,13 +276,13 @@ export default function Portfolio() {
       <label><input type="checkbox" checked={makeDefault} disabled={busy || uncertain}
         onChange={event => setMakeDefault(event.target.checked)} /> Make this the default when saving</label>
       <p>Leaving this unchecked preserves existing defaults; it does not clear a default portfolio.</p>
-      <div className="actions"><button disabled={busy || uncertain || !workspace} onClick={() => void save()}>Save portfolio</button>
-        {selected && <button disabled={busy || uncertain} onClick={() => void remove()}>Delete portfolio</button>}</div>
+      <div className="actions"><button className="btn btn-secondary" disabled={busy || uncertain || !workspace} onClick={() => void save()}>Save portfolio</button>
+        {selected && <button className="btn btn-destructive" disabled={busy || uncertain} onClick={() => void remove()}>Delete portfolio</button>}</div>
     </section>
     <section><h2>Synced workspace</h2><p>Loaded revision: {workspace?.revision ?? "Not loaded"}. Shared holdings and unmigrated settings stay intact.</p>
       <label>Workspace portfolio name<input value={preferredName} maxLength={80} disabled={busy || uncertain}
         onChange={event => setPreferredName(event.target.value)} /></label>
-      <button disabled={busy || uncertain || !workspace} onClick={() => void act(async () => {
+      <button className="btn btn-secondary" disabled={busy || uncertain || !workspace} onClick={() => void act(async () => {
         if (!workspace) return;
         setWorkspace(await api<Workspace>("/api/workspace", { method: "PUT", body: JSON.stringify({
           revision: workspace.revision, payload: { portfolio_name: preferredName },

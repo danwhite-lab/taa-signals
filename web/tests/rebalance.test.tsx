@@ -36,6 +36,12 @@ async function ready() {
   await waitFor(() => expect(screen.getByText(text.save)).toHaveProperty("disabled", false));
 }
 
+it('sorts known securities by label and leaves the empty choice selected',async()=>{
+  await ready();const select=screen.getByLabelText(text.known) as HTMLSelectElement;
+  expect(Array.from(select.options).map(o=>o.value)).toEqual(['',other.id,item.id]);
+  expect(select.value).toBe('');
+});
+
 it("requires the existing login gate before fetching holdings", async () => {
   render(<AuthGate><Page /></AuthGate>); await screen.findByText("Sign in with Google"); expect(mock.request).not.toHaveBeenCalled();
 });

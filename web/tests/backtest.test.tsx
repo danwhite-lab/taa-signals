@@ -47,9 +47,22 @@ it("defaults to tax ON at 25% and currency-specific broker fees, with the other 
   expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty("value", "0.05");
   expect(screen.getByLabelText(text.ilsMinimumFee)).toHaveProperty("value", "2");
   expect(screen.getByLabelText(text.usdFlatFee)).toHaveProperty("value", "5");
-  expect(screen.getByRole("option", { name: text.portfolio })).toHaveProperty("disabled", false);
-  expect(screen.getByRole("option", { name: text.deep })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("radio", { name: text.portfolio })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("radio", { name: text.deep })).toHaveProperty("disabled", false);
   expect(screen.queryByText(text.reference)).toBeNull();
+});
+
+it('switches all three modes with the same default using native grouped radios',async()=>{
+  await ready();const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>path.startsWith('/api/backtest/config')?{models:[],proxies:[],single_options:[],blend_options:[],benchmarks:[]}:
+    path==='/api/backtest/validate'?{valid:true,message:'Example validated'}:path==='/api/compare/options'?{portfolios:[]}:path==='/api/portfolios'?[]:original(path,init));
+  expect(screen.getByRole('radiogroup',{name:text.mode})).toBeTruthy();
+  expect(screen.getByRole('radio',{name:text.single})).toHaveProperty('checked',true);
+  for(const label of [text.portfolio,text.deep,text.single]){
+    fireEvent.click(screen.getByRole('radio',{name:label}));
+    expect(screen.getByRole('radio',{name:label})).toHaveProperty('checked',true);
+  }
+  expect(mock.request.mock.calls.some(([path])=>path==='/api/backtest')).toBe(false);
 });
 
 it("validates controls before posting and clears stale results on edit", async () => {

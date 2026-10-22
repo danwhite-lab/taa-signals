@@ -54,7 +54,7 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
       <p>{current.instruction}</p>
     </section>}
     <div className="signal-tabs" role="tablist" aria-label="Signal detail views">
-      {tabs.map(tab => <button key={tab} role="tab" aria-selected={tab === selected} id={`signal-tab-${tab}`}
+      {tabs.map(tab => <button className="btn btn-secondary" key={tab} role="tab" aria-selected={tab === selected} id={`signal-tab-${tab}`}
         aria-controls={`signal-panel-${tab}`} onClick={() => setActive(tab)}>{tab}</button>)}
     </div>
     <section role="tabpanel" id={`signal-panel-${selected}`} aria-labelledby={`signal-tab-${selected}`}>
@@ -81,7 +81,7 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
       </>}
       {selected === "History" && value.history && <>
         <p>{value.history.count} decisions · newest first</p>
-        <button onClick={() => downloadHistory(value.history!.csv, value.history!.filename)}>{value.history.download_label}</button>
+        <button className="btn btn-secondary" onClick={() => downloadHistory(value.history!.csv, value.history!.filename)}>{value.history.download_label}</button>
         <SignalTableView value={value.history.table} label="Signal history" />
       </>}
       {selected === "Data" && value.data && <>
@@ -141,7 +141,7 @@ export default function SignalsPage() {
         {implementations.map(model => <option key={model.label} value={model.label}>{model.implementation}</option>)}</select></label>
     </div>}
     {error && <section role="alert"><h1>Signals could not be loaded</h1><p>{error}</p>
-      <button onClick={() => setAttempt(value => value + 1)}>Try again</button></section>}
+      <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></section>}
     {!payload && !error && <p role="status">Loading signals from the existing Python engine…</p>}
     {payload && <SignalsView key={label} value={payload} />}
     {!payload && <footer>Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution.</footer>}
