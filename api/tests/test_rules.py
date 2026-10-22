@@ -44,11 +44,12 @@ def test_generated_tase_rules_and_missing_descriptions_are_not_replaced():
 
 
 def test_rules_need_no_live_market_data_or_streamlit_execution(monkeypatch):
+    from haa import data, tase_data
     def forbidden(*args, **kwargs):
         raise AssertionError("Rules must not fetch market data")
-    monkeypatch.setattr(module.engine_data, "download_yahoo_prices", forbidden)
-    monkeypatch.setattr(module.engine_data, "download_yahoo_daily_bars", forbidden)
-    monkeypatch.setattr(module.engine_tase, "TasePriceSource", forbidden)
+    monkeypatch.setattr(data, "download_yahoo_prices", forbidden)
+    monkeypatch.setattr(data, "download_yahoo_daily_bars", forbidden)
+    monkeypatch.setattr(tase_data, "TasePriceSource", forbidden)
     module._shared_rules.cache_clear()
     assert client.get("/api/rules").status_code == 200
 
@@ -62,7 +63,7 @@ def test_rule_source_failure_is_visible(monkeypatch):
     assert response.json()["detail"] == "ValueError: Shared rule source is missing"
 
 
-def test_deployment_bundles_source_and_navigation_keeps_other_pages_disabled():
+def test_deployment_bundles_source_and_navigation_names_the_catalogue():
     assert "/app.py" not in (ROOT / ".vercelignore").read_text().splitlines()
     source = (ROOT / "web" / "components" / "top-navigation.tsx").read_text()
     tree = ast.parse((ROOT / "app.py").read_text())
@@ -71,6 +72,7 @@ def test_deployment_bundles_source_and_navigation_keeps_other_pages_disabled():
                       and node.args and isinstance(node.args[0], ast.Constant)
                       and node.args[0].value == "Primary navigation")
     for name in ast.literal_eval(navigation.args[1]):
+        name = "Strategy Catalogue" if name == "Rules" else name
         assert f'"{name}"' in source
-    assert '["Rules", "Portfolio", "Signals", "Backtest", "Rebalance Holdings", "Today", "Research", "Compare"].includes(page)' in source
-    assert 'aria-disabled="true"' in source
+    assert 'aria-disabled="true"' not in source
+    assert 'href="/today/">Signalboard</Link>' in source

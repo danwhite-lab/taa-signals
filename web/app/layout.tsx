@@ -5,8 +5,8 @@ import TopNavigation from "../components/top-navigation";
 import AuthGate from "../components/AuthGate";
 
 export const metadata: Metadata = {
-  title: "TAA Signals — migration preview",
-  description: "Strategy catalogue from the existing TAA Signals Python engine.",
+  title: "Signalboard",
+  description: "Strategy signals, portfolios and backtests.",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
-  appleWebApp: { capable: true, title: "TAA Signals", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Signalboard", statusBarStyle: "default" },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

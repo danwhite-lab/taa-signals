@@ -31,10 +31,12 @@ def test_catalogue_is_exact_live_engine_metadata():
     assert all("model_class" not in item for item in response.json())
 
 
-def test_diagnostics_remain_and_private_endpoints_require_auth():
+def test_catalogue_remains_diagnostics_removed_and_private_endpoints_require_auth():
     paths = [route.path for route in module.app.routes if hasattr(route, "path")]
     paths += [route.path for router in (module.private_api.router, module.cron.router) for route in router.routes]
-    assert {"/api/strategies", "/api/rules", "/api/price-check", "/api/workspace", "/api/me", "/api/portfolios", "/api/cron/refresh-prices"}.issubset(paths)
+    assert {"/api/strategies", "/api/rules", "/api/workspace", "/api/me", "/api/portfolios", "/api/cron/refresh-prices"}.issubset(paths)
+    assert "/api/price-check" not in paths
+    assert client.get("/api/price-check").status_code == 404
     assert client.get("/api/workspace").status_code == 401
     assert client.post("/api/strategies", json={}).status_code == 405
     assert client.get("/api/holdings").status_code == 404
