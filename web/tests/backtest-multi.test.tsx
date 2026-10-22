@@ -56,7 +56,7 @@ it('passes editable fee assumptions and an explicit off switch in portfolio mode
   fireEvent.change(screen.getByLabelText(text.usdFlatFee),{target:{value:'7'}});
   fireEvent.change(screen.getByLabelText(text.ilsMinimumFee),{target:{value:'4'}});
   fireEvent.change(screen.getByLabelText(text.ilsFeePercent),{target:{value:'.1'}});
-  fireEvent.click(screen.getByLabelText(text.feesEnabled));
+  fireEvent.click(screen.getByLabelText("Trading fees"));
   await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
   fireEvent.click(screen.getByRole('button',{name:text.run}));
   expect(run.mock.calls[0][0]).toMatchObject({fees_enabled:false,usd_flat_fee:7,ils_minimum_fee:4,ils_fee_percent:.1});

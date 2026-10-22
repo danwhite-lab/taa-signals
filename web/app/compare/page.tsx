@@ -5,7 +5,7 @@ import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import text from "../../content/compare.json";
 import { compareRequest, compareDownload } from "../../lib/compareApi";
-import { AssumptionRow, TaxControls } from "../../components/BacktestAssumptions";
+import { AmountAndDates, DateField, CostsAndTax, AssumptionRow, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
 
 type Mode = "models" | "portfolios";
@@ -75,12 +75,9 @@ export default function ComparePage() {
       {!models && <p>{text.neutral}</p>}
       <fieldset disabled={running}>
         {!models && <><label>{text.method}<select value={settings.method} onChange={e=>change({method:e.target.value as Settings["method"]})}>{Object.entries(text.methods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><p>{text.methodCaption}</p></>}
-        <AssumptionRow><label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.valueAsNumber})}/></label></AssumptionRow>
-        <TaxControls enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/>
-        <div className="backtest-grid"><label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.valueAsNumber})}/></label>
-        <label>{models ? text.start : text.portfolioStart}<input type="date" value={settings.start} onChange={e=>change({start:e.target.value})}/></label>
-        <label>{models ? text.end : text.portfolioEnd}<input type="date" value={settings.end} onChange={e=>change({end:e.target.value})}/></label>
-        </div>
+        <AmountAndDates initial={<label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.valueAsNumber})}/></label>} start={<DateField label="Start" hint={models ? text.start : text.portfolioStart}><input aria-label={models ? text.start : text.portfolioStart} type="date" value={settings.start} onChange={e=>change({start:e.target.value})}/></DateField>} end={<DateField label="End" hint={models ? text.end : text.portfolioEnd}><input aria-label={models ? text.end : text.portfolioEnd} type="date" value={settings.end} onChange={e=>change({end:e.target.value})}/></DateField>} />
+        <CostsAndTax><AssumptionRow><label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.valueAsNumber})}/></label></AssumptionRow>
+        <TaxControls enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/></CostsAndTax>
         <p>{text.dateHelp}</p>{models && mismatch && <p className="signal-warning">{text.hint}</p>}
       </fieldset><button className="btn btn-primary" disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}

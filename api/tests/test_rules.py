@@ -1,4 +1,5 @@
 import ast
+import json
 from pathlib import Path
 
 from test_api import ROOT, client, module
@@ -75,4 +76,36 @@ def test_deployment_bundles_source_and_navigation_names_the_catalogue():
         name = "Strategy Catalogue" if name == "Rules" else name
         assert f'"{name}"' in source
     assert 'aria-disabled="true"' not in source
-    assert 'href="/today/">Signalboard</Link>' in source
+    assert '<div className="brand">Signalboard <TestLoginBadge /></div>' in source
+
+
+def test_plain_rules_match_supplied_text_without_changing_technical_fields():
+    supplied = json.loads((ROOT / "data" / "strategy_plain_language.json").read_text())["strategies"]
+    for row in client.get("/api/rules").json()["models"]:
+        expected = supplied.get(row["label"], {})
+        assert row["plain_text"] == expected.get("plain_language")
+        assert row["plain_flags"] == expected.get("flags", [])
+
+
+def test_missing_plain_label_is_safe(monkeypatch):
+    monkeypatch.setattr(module, "_plain_rules", lambda: {})
+    rows = client.get("/api/rules").json()["models"]
+    assert rows
+    assert all(row["plain_text"] is None and row["plain_flags"] == [] for row in rows)
+
+
+def test_plain_file_is_read_once(monkeypatch):
+    module._plain_rules.cache_clear()
+    original = Path.read_text
+    reads = []
+    def counted(path, *args, **kwargs):
+        if path.name == "strategy_plain_language.json":
+            reads.append(path)
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", counted)
+    try:
+        assert client.get("/api/rules").status_code == 200
+        assert client.get("/api/rules").status_code == 200
+        assert len(reads) == 1
+    finally:
+        module._plain_rules.cache_clear()

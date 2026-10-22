@@ -26,16 +26,18 @@ it('keeps fee values and tax rate when toggles disable their shared row controls
     </Fees>;
   }
   render(<Form/>);
+  expect(screen.getByRole("switch", {name:"Trading fees"})).toHaveProperty("checked", true);
+  expect(screen.getByRole("switch", {name:text.taxEnabled})).toHaveProperty("checked", true);
   const disclosure=screen.getByText('How fees work').closest('details')!;
   expect(disclosure.open).toBe(false);expect(disclosure.textContent).toContain(text.feeHelp);
   fireEvent.change(screen.getByLabelText(text.usdFlatFee),{target:{value:'9'}});
-  fireEvent.click(screen.getByLabelText(text.feesEnabled));
+  fireEvent.click(screen.getByLabelText("Trading fees"));
   for(const label of [text.ilsFeePercent,text.ilsMinimumFee,text.usdFlatFee])expect(screen.getByLabelText(label)).toHaveProperty('disabled',true);
   expect(screen.getByLabelText(text.usdFlatFee)).toHaveProperty('value','9');
   fireEvent.click(screen.getByLabelText(text.taxEnabled));
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty('disabled',true);
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty('value','25');
-  const feesRow=screen.getByLabelText(text.feesEnabled).closest('.assumption-row')!;
+  const feesRow=screen.getByLabelText("Trading fees").closest('.assumption-row')!;
   expect(feesRow.nextElementSibling?.contains(screen.getByLabelText(text.taxEnabled))).toBe(true);
 });
 

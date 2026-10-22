@@ -199,7 +199,7 @@ it('gives table-heavy pages room without changing default or Rules widths',()=>{
   const css=readFileSync('./app/globals.css','utf8');
   expect(css).toContain('.today-page, .compare-page, .research-page, .rebalance-page, .portfolio-page { max-width: 1160px; }');
   expect(css).toContain('main { max-width: 860px;');
-  expect(css).toContain('.rules-page { max-width: 940px;');
+  expect(css).toContain('.rules-page { max-width: 1160px;');
 });
 
 it("shows the exact normal setup message when there is no default", async () => {

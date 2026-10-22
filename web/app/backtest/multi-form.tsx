@@ -4,7 +4,7 @@ import text from "../../content/backtest.json";
 import words from "../../content/backtest-multi.json";
 import { backtestRequest } from "../../lib/backtestApi";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
-import { TaxControls } from "../../components/BacktestAssumptions";
+import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
 
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
@@ -167,13 +167,8 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{words.benchmarkHelp}</p>
           <p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p><p>{daily ? words.dailyCaption : words.proxyTax.replace("{benchmark}", config?.benchmarks.find(b => b.key === form.benchmark)?.label ?? "")}</p>
           {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}</>}
-      <div className="backtest-grid">
-        <label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>
-        <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); change({}); }} /></label>
-        {dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}
-        <label>{mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}<input type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></label>
-        <label>{mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}<input type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></label>
-      </div>
+      <AmountAndDates initial={<label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
+        dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
       <Fees value={form} onChange={change}>
         <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
           onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} />
