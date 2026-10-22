@@ -10,6 +10,8 @@ type ModelRules = {
   implementation: string;
   execution_currency: string;
   markdown: string | null;
+  plain_text?: string | null;
+  plain_flags?: string[];
   risk_warning: string | null;
   description_missing: boolean;
 };
@@ -21,6 +23,19 @@ export default function StrategyCataloguePage() {
   const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [view, setView] = useState<"plain" | "technical">("plain");
+  const [filter, setFilter] = useState("All");
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("catalogue-view") === "technical") setView("technical");
+    } catch { /* Storage can be unavailable; Plain remains the default. */ }
+  }, []);
+
+  function chooseView(value: "plain" | "technical") {
+    setView(value);
+    try { localStorage.setItem("catalogue-view", value); } catch { /* The toggle still works without storage. */ }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -49,7 +64,10 @@ export default function StrategyCataloguePage() {
     return () => controller.abort();
   }, [attempt]);
 
-  const model = content?.models.find((item) => item.label === selected);
+  const visible = content?.models.filter(item => filter === "All" || item.execution_currency === (filter === "Israel" ? "ILS" : "USD")) ?? [];
+  const model = visible.find(item => item.label === selected) ?? visible[0];
+  const plain = view === "plain" && Boolean(model?.plain_text);
+  const copy = plain ? model?.plain_text : model?.markdown;
 
   return (
     <main className="rules-page" id="main-content">
@@ -64,20 +82,43 @@ export default function StrategyCataloguePage() {
         <button className="btn btn-secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
       </section>}
       {!content && !error && <p role="status">Loading methodology…</p>}
-      {content && model && <>
+      {content && <div className="catalogue-layout">
+        <div className="catalogue-sidebar">
+        <fieldset className="segmented" aria-label="Execution market"><legend>Execution market</legend>
+          {["All", "Israel", "US"].map(value => <label className="segment" key={value}><input type="radio" name="catalogue-filter" checked={filter === value} onChange={() => {
+            setFilter(value);
+            const first = content.models.filter(item => value === "All" || item.execution_currency === (value === "Israel" ? "ILS" : "USD"));
+            if (!first.some(item => item.label === selected)) setSelected(first[0]?.label ?? "");
+          }} />{value}</label>)}
+        </fieldset>
+        <p className="assumption-hint" role="status">{visible.length} strategies</p>
         <ul className="rule-list" aria-label="Strategies">
-          {content.models.map((item) => <li key={item.label}>
-            <button className={`btn list-row${selected === item.label ? " is-selected" : ""}`} type="button" aria-pressed={selected === item.label} onClick={() => setSelected(item.label)}>
+          {visible.map((item) => <li key={item.label}>
+            <button className={`btn list-row${model?.label === item.label ? " is-selected" : ""}`} type="button" aria-pressed={model?.label === item.label} onClick={() => setSelected(item.label)}>
               {item.label} <span className="currency">{item.execution_currency}</span>
             </button>
           </li>)}
         </ul>
+        </div>
+        <div className="catalogue-detail">
+        <fieldset className="segmented" aria-label="Rule view"><legend>Rule view</legend>
+          {(["plain", "technical"] as const).map(value => <label className="segment" key={value}><input type="radio" name="catalogue-view" checked={view === value} onChange={() => chooseView(value)} />{value === "plain" ? "Plain" : "Technical"}</label>)}
+        </fieldset>
+        {!model && <p>No strategies in this filter.</p>}
+        {model && <>
         <section className="rule-card" aria-labelledby="model-heading">
           <div className="rule-meta"><span>{model.execution_currency}</span><span>{model.implementation}</span></div>
           <h2 id="model-heading">{model.label}</h2>
-          {model.description_missing || model.markdown === null
+          {!copy
             ? <p className="missing-rule" role="status">This implementation has no rule description in the existing Streamlit source. No substitute text has been added.</p>
-            : <div className="rule-copy"><Markdown>{model.markdown}</Markdown></div>}
+            : <div className="rule-copy"><Markdown>{copy}</Markdown></div>}
+          {view === "plain" && <>
+            {!plain && <p className="assumption-hint">No plain version yet</p>}
+            <p className="assumption-hint">Simplified. The Technical view has the exact numbers.</p>
+            {plain && Boolean(model.plain_flags?.length) && <ul className="plain-flags" aria-label="Plain-language notes">
+              {model.plain_flags?.map(flag => <li key={flag}>{flag}</li>)}
+            </ul>}
+          </>}
         </section>
         {model.risk_warning && <aside className="rule-warning" aria-label="Risk and implementation warning">
           <div className="rule-copy"><Markdown>{model.risk_warning}</Markdown></div>
@@ -86,7 +127,9 @@ export default function StrategyCataloguePage() {
           <summary>Implementation and data notes</summary>
           <div className="rule-copy"><Markdown>{content.implementation_notes}</Markdown></div>
         </details>}
-      </>}
+        </>}
+        </div>
+      </div>}
     </main>
   );
 }

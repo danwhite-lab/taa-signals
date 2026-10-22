@@ -43,7 +43,12 @@ it("defaults to tax ON at 25% and currency-specific broker fees, with the other 
   await ready();
   expect(screen.getByLabelText(text.taxEnabled)).toHaveProperty("checked", true);
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty("value", "25");
-  expect(screen.getByLabelText(text.feesEnabled)).toHaveProperty("checked", true);
+  expect(screen.getByLabelText("Trading fees")).toHaveProperty("checked", true);
+  expect(screen.getByRole("heading", {name:"Amount and dates"})).toBeTruthy();
+  expect(screen.getByRole("heading", {name:"Costs and tax"})).toBeTruthy();
+  expect(screen.getByText("Start", {selector:"label"})).toBeTruthy();
+  expect(screen.getByText("End", {selector:"label"})).toBeTruthy();
+  expect(screen.getByText(text.start, {selector:".assumption-hint"})).toBeTruthy();
   expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty("value", "0.05");
   expect(screen.getByLabelText(text.ilsMinimumFee)).toHaveProperty("value", "2");
   expect(screen.getByLabelText(text.usdFlatFee)).toHaveProperty("value", "5");
@@ -90,7 +95,7 @@ it("sends editable currency fees, disables them explicitly and shows both fee to
   expect(screen.getByText('After-tax backtest: 18.00')).toBeTruthy();
   const call=mock.request.mock.calls.find(([path])=>path==='/api/backtest');
   expect(JSON.parse(call![1].body)).toMatchObject({fees_enabled:true,ils_fee_percent:.1,ils_minimum_fee:3,usd_flat_fee:6});
-  fireEvent.click(screen.getByLabelText(text.feesEnabled));
+  fireEvent.click(screen.getByLabelText("Trading fees"));
   expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty('disabled',true);
   expect(screen.queryByText('Total fees paid (USD)')).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:text.run}));

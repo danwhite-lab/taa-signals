@@ -1,6 +1,7 @@
 """Vercel ASGI entrypoint; the existing engine remains authoritative."""
 from dataclasses import fields
 import ast
+import json
 from functools import lru_cache
 from pathlib import Path
 import sys
@@ -130,16 +131,25 @@ def _shared_rules():
     return rules, "\n\n".join(notes)
 
 
+@lru_cache(maxsize=1)
+def _plain_rules():
+    path = Path(__file__).resolve().parents[1] / "data" / "strategy_plain_language.json"
+    return json.loads(path.read_text(encoding="utf-8"))["strategies"]
+
+
 @app.get("/api/rules")
 def rules(response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
     try:
         descriptions, notes = _shared_rules()
+        plain = _plain_rules()
         return {"source": "app.py:MODEL_RULES", "implementation_notes": notes,
                 "models": [{"label": item.label, "strategy": item.strategy,
                             "variant": item.variant, "implementation": item.implementation,
                             "execution_currency": item.execution_currency,
                             "markdown": descriptions.get(item.label),
+                            "plain_text": plain.get(item.label, {}).get("plain_language"),
+                            "plain_flags": plain.get(item.label, {}).get("flags", []),
                             "description_missing": item.label not in descriptions,
                             "risk_warning": getattr(item.model_class, "risk_warning", None)}
                            for item in MODEL_CATALOG]}

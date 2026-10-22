@@ -1,0 +1,313 @@
+{
+  "generated": "2026-10-22",
+  "source": "taa-signals repo, main branch: app.py MODEL_RULES + src/haa/model_catalog.py + strategy code (read-only)",
+  "note": "Plain-language rule texts keyed by the exact strategy label used by /api/rules and the Strategy Catalogue UI. Technical text stays unchanged; this is the Plain side of the Plain/Technical toggle.",
+  "flag_notes": {
+    "derived_from_code": "No published rule description on the site today (the catalogue says so); this plain text was written from the app's code and catalogue metadata, not from an official description.",
+    "approximate_backtest": "Important: its backtest uses American substitute funds' returns, not real Israeli fund prices, so shown results are approximate.",
+    "experimental": "Marked EXPERIMENTAL in the app.",
+    "satellite": "Leveraged satellite: not meant as a core holding."
+  },
+  "strategies": {
+    "Century Momentum Israel": {
+      "label": "Century Momentum Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Once a month, check if the Israeli S&P 500 momentum fund (MTF 5140850) sits above its average price of the last 10 months. If yes, hold that fund; if not, hold a US government bond fund (1159268) instead. A momentum fund simply holds the S&P 500 stocks that rose the most recently. The idea: own stocks while they rise, sit in bonds when they fall.",
+      "flags": []
+    },
+    "Inflation Compass Standard Israel": {
+      "label": "Inflation Compass Standard Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Once a month, US data answers two questions: are stocks rising (S&P 500 above its 200-day average) and is inflation rising (the market's 5-year inflation forecast above 2% and climbing)? The two answers pick one of four TASE funds: energy (1145903), technology (1159193), shekel-hedged utilities (1150507), or half consumer staples (1150366) and half US Treasuries (1159268). Everything is bought on the Tel Aviv exchange in shekels.",
+      "flags": [
+        "derived_from_code"
+      ]
+    },
+    "Buy and Hold Gold Israel": {
+      "label": "Buy and Hold Gold Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Buy the TASE gold fund (1147875) and hold it, forever. No signals, no selling rules, no switches. You simply get whatever gold does, in shekels, minus the fund's built-in fees.",
+      "flags": []
+    },
+    "Buy and Hold Harel Government Bonds Israel": {
+      "label": "Buy and Hold Harel Government Bonds Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Buy the Harel Israeli government bond fund (5131792) and hold it, forever. No signals or switches. You get the slow, steady return of Israeli government bonds.",
+      "flags": []
+    },
+    "A-RVol Shifter V3 Cash-Only": {
+      "label": "A-RVol Shifter V3 Cash-Only",
+      "execution_currency": "USD",
+      "plain_language": "A daily watchdog that shifts between three risk levels, like a three-speed gearbox: a 3x leveraged Nasdaq fund (TQQQ) when markets are calm, a 2x version (QLD) at medium risk, and cash-like US T-bills (BIL) when markets look dangerous. It steps down when market jumpiness crosses set lines, or when the S&P 500 falls well below its 200-day average, or when junk bonds weaken versus safe corporate bonds; it steps back up when calm returns. Decisions use each day's closing prices and trades happen at the next day's open. This is a careful interpretation of the creator's posts, not a verified copy of his published results.",
+      "flags": []
+    },
+    "A-RVol Shifter V3 Cash-Only Israel": {
+      "label": "A-RVol Shifter V3 Cash-Only Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The same three-speed watchdog as the US version, but it reads Israeli fund prices and holds Israeli funds. Full risk: the TASE x3 monthly-reset Nasdaq fund (1187079). Medium risk: half 1187079 and half the plain Harel Nasdaq fund (1149038), reset back to 50/50 on the first trading day of each year. Low risk: a shekel cash fund (Ayalon 5117700). Trades happen at the next session's closing price. This is a local adaptation, not a copy of the US daily-reset version.",
+      "flags": []
+    },
+    "A-RVol V3 US Signals / TASE — 1x Middle": {
+      "label": "A-RVol V3 US Signals / TASE — 1x Middle",
+      "execution_currency": "ILS",
+      "plain_language": "American signals, Israeli funds. The watchdog reads the original US data, but you hold TASE funds: the x3 fund 1187079 at full risk, the plain Harel Nasdaq fund 1149038 at medium risk (instead of 2x), and Ayalon cash 5117700 at low risk. Trades happen on the first TASE session after the US signal, at closing prices.",
+      "flags": [
+        "experimental"
+      ]
+    },
+    "A-RVol V3 US Signals / TASE — 50:50 Middle": {
+      "label": "A-RVol V3 US Signals / TASE — 50:50 Middle",
+      "execution_currency": "ILS",
+      "plain_language": "Identical to the 1x Middle version, except the medium-risk state is half Harel Nasdaq (1149038) and half the x3 fund (1187079). The mix is allowed to drift during the year and resets to 50/50 on the first TASE session of each year.",
+      "flags": [
+        "experimental"
+      ]
+    },
+    "BAA-G4 (Aggressive)": {
+      "label": "BAA-G4 (Aggressive)",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, four early-warning assets (US stocks, developed-market stocks, emerging-market stocks, US bonds) get a momentum score that counts recent months most. If all four are healthy, hold 100% of the strongest of Nasdaq (QQQ), emerging markets, developed markets or US bonds. If even one warning turns negative, pick the three strongest from a defensive list (inflation-protected bonds, commodities, T-bills, government and corporate bonds) and swap any of the three that is weaker than T-bills for T-bills. One weak warning is enough to go defensive.",
+      "flags": []
+    },
+    "BAA-G4 (Aggressive) Israel": {
+      "label": "BAA-G4 (Aggressive) Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The unchanged US BAA-G4 signals, with each holding shown through an Israeli fund (for example QQQ becomes 1186063, commodities become gold 1147875, cash becomes Ayalon 5136866).",
+      "flags": [
+        "approximate_backtest"
+      ]
+    },
+    "Buy and Hold ACWI": {
+      "label": "Buy and Hold ACWI",
+      "execution_currency": "USD",
+      "plain_language": "Buy the world stock fund ACWI (iShares MSCI ACWI) and hold it, forever. One fund owning stocks from the whole world, US included. No signals or switches.",
+      "flags": []
+    },
+    "Buy and Hold Global Israel": {
+      "label": "Buy and Hold Global Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Buy the TASE FTSE All-World fund (1209220) in shekels and hold it, forever. One fund owning stocks from the whole world. No signals or switches.",
+      "flags": []
+    },
+    "Buy and Hold Gold GLD": {
+      "label": "Buy and Hold Gold GLD",
+      "execution_currency": "USD",
+      "plain_language": "Buy the US gold ETF GLD and hold it, forever. No signals or switches; you get whatever gold does in dollars.",
+      "flags": []
+    },
+    "Buy and Hold IEF": {
+      "label": "Buy and Hold IEF",
+      "execution_currency": "USD",
+      "plain_language": "Buy IEF, the US 7-10 year government bond ETF, and hold it, forever. No signals or switches; you get the steady return of mid-term US government bonds.",
+      "flags": []
+    },
+    "Buy and Hold QQQ": {
+      "label": "Buy and Hold QQQ",
+      "execution_currency": "USD",
+      "plain_language": "Buy QQQ, the Nasdaq-100 ETF (the 100 big tech-heavy US companies), and hold it, forever. No signals or switches.",
+      "flags": []
+    },
+    "Buy and Hold QQQ Israel": {
+      "label": "Buy and Hold QQQ Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Buy the TASE Nasdaq-100 fund (1186063) in shekels and hold it, forever. No signals or switches.",
+      "flags": []
+    },
+    "Buy and Hold SPY": {
+      "label": "Buy and Hold SPY",
+      "execution_currency": "USD",
+      "plain_language": "Buy SPY, the S&P 500 ETF (500 big US companies), and hold it, forever. No signals or switches.",
+      "flags": []
+    },
+    "Buy and Hold SPY Israel": {
+      "label": "Buy and Hold SPY Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Buy CSPX on the Tel Aviv exchange (security 1159250), the S&P 500 in shekels, and hold it, forever. No signals or switches.",
+      "flags": []
+    },
+    "Century Momentum": {
+      "label": "Century Momentum",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, compare the US momentum fund SPMO with its average price of the last 10 months. Above the average: hold SPMO. At or below it: hold US 7-10 year government bonds (IEF). SPMO holds the S&P 500 stocks with the strongest recent momentum, so this rides strong stocks and steps aside into bonds when the trend breaks.",
+      "flags": []
+    },
+    "Chimeric Asset Allocation": {
+      "label": "Chimeric Asset Allocation",
+      "execution_currency": "USD",
+      "plain_language": "An experimental monthly strategy. Ten mostly leveraged ETFs (3x US stocks, 3x Europe, 3x emerging markets, 3x small companies, commodities, 2x energy, 2x gold, very-long and 3x-long government bonds) each get nine trend and momentum scores; scores are reduced for assets that move in lockstep with the group, so diversified assets rank higher. Hold the top four at 25% each, but only those whose own momentum is positive; empty slots go to government bonds or T-bills. If inflation-protected bond momentum turns negative, keep fewer risky slots and move more to bonds and T-bills.",
+      "flags": [
+        "experimental"
+      ]
+    },
+    "Chimeric Asset Allocation Full Retreat": {
+      "label": "Chimeric Asset Allocation Full Retreat",
+      "execution_currency": "USD",
+      "plain_language": "The same Chimeric strategy with one change: when inflation-protected bond momentum turns negative, move 100% into the stronger of government bonds (IEF) or T-bills (SGOV) instead of keeping some risky positions. When momentum is zero or positive, it behaves exactly like standard Chimeric.",
+      "flags": [
+        "experimental"
+      ]
+    },
+    "GEM": {
+      "label": "GEM",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, compare 12-month returns of US stocks (SPY), stocks outside the US (VEU), and cash-like T-bills (BIL). If US stocks beat T-bills, hold the stronger of US or non-US stocks. If not, hide in US bonds (AGG). One of the oldest and simplest momentum switches: stocks when they are winning, bonds when they are not.",
+      "flags": []
+    },
+    "GEM Israel": {
+      "label": "GEM Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The unchanged US GEM signals, executed with Israeli funds: CSPX (1159250) for US stocks, 5142476 for stocks outside the US, and 1159102 for bonds.",
+      "flags": [
+        "approximate_backtest"
+      ]
+    },
+    "GGCEM Link Original": {
+      "label": "GGCEM Link Original",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, read the OECD's leading indicators, an official early-warning score for each member country's economy. If more than half of the countries are improving, go risk-on: hold the stronger 12-month performer of US stocks or non-US stocks. If half or fewer are improving, go risk-off: hold the stronger of government bonds or T-bills. If the OECD data is missing, a fallback uses US stocks versus cash instead.",
+      "flags": []
+    },
+    "GGCEM Link Original Israel": {
+      "label": "GGCEM Link Original Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The unchanged OECD and momentum signals, executed with Israeli funds: CSPX (1159250), world stocks 5142476, Treasuries 1159268, and Ayalon cash 5136866.",
+      "flags": [
+        "approximate_backtest"
+      ]
+    },
+    "Growth-Inflation Concentrated": {
+      "label": "Growth-Inflation Concentrated",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, two questions: is the S&P 500 above its 200-day average (growth up?), and is a basket of inflation-loving sectors above its 200-day average (inflation up?)? The four possible answers each point to one US sector fund: growth + inflation to energy (XLE), growth alone to technology (XLK), inflation alone to health care (XLV), neither to consumer staples (XLP). Inflation Compass is the newer, improved version of this same idea.",
+      "flags": []
+    },
+    "Growth-Inflation Concentrated Israel": {
+      "label": "Growth-Inflation Concentrated Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The same two US questions, but each answer buys an Israeli sector fund in shekels: energy (1145903), technology (1159193), health care (1150390) or consumer staples (1150366).",
+      "flags": []
+    },
+    "Growth-Inflation Diversified": {
+      "label": "Growth-Inflation Diversified",
+      "execution_currency": "USD",
+      "plain_language": "The same growth and inflation questions as the Concentrated version, but each answer holds a fixed pair of US sector funds at 50/50 instead of a single one: growth + inflation holds energy and industrials, growth alone holds technology and consumer discretionary, inflation alone holds energy and materials, neither holds health care and staples. Spreading each bet across two sectors softens single-sector surprises.",
+      "flags": []
+    },
+    "HAA-Simple": {
+      "label": "HAA-Simple",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, measure momentum (the average of the 1, 3, 6 and 12-month gains, called 13612U) for US stocks (SPY) and inflation-protected bonds (TIP). If both are positive, hold SPY. Otherwise hold the stronger of 7-10 year government bonds (IEF) or cash-like T-bills (BIL). TIP is the canary: like the bird miners used as an early warning, it tends to weaken before trouble arrives.",
+      "flags": []
+    },
+    "HAA-Simple Israel": {
+      "label": "HAA-Simple Israel",
+      "execution_currency": "ILS",
+      "plain_language": "HAA-Simple with Israeli funds. TIP stays a US signal-only canary. If both TIP and TASE CSPX (1159250) have positive momentum, hold CSPX; otherwise hold the stronger of the TASE US Treasury fund (1159268) or the Ayalon shekel cash fund (5136866). All funds need a real 12-month history before they can be used.",
+      "flags": []
+    },
+    "HAA-Simple Leveraged 2x (SSO)": {
+      "label": "HAA-Simple Leveraged 2x (SSO)",
+      "execution_currency": "USD",
+      "plain_language": "HAA-Simple's exact signal, but when it holds stocks it buys SSO, a fund that aims for double the S&P 500's daily move, both up and down. The defensive side stays in ordinary unleveraged bonds or T-bills. A high-drawdown satellite, not a core holding: a fast crash inside one month cannot be caught by a monthly signal.",
+      "flags": [
+        "satellite"
+      ]
+    },
+    "HAA 4": {
+      "label": "HAA 4",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, TIP is the sole canary. If its momentum is zero or negative, hold the stronger of government bonds (IEF) or T-bills (BIL). If it is positive, rank US stocks (SPY), developed-market stocks (VEA), real estate (VNQ) and IEF by momentum, hold the top two at 50% each, then swap any of the two whose own momentum is not positive for the defensive winner. This can leave you half in stocks and half in bonds.",
+      "flags": []
+    },
+    "HAA 4 Israel": {
+      "label": "HAA 4 Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The published HAA 4 US signals, with holdings mapped to Israeli funds: CSPX (1159250), world stocks ex-US (5142476), US real estate (5131834), Treasuries (1159268) and Ayalon cash (5136866).",
+      "flags": [
+        "approximate_backtest"
+      ]
+    },
+    "HAA 4 Leveraged 2x": {
+      "label": "HAA 4 Leveraged 2x",
+      "execution_currency": "USD",
+      "plain_language": "HAA 4's decisions are calculated on ordinary 1x funds, and only then each holding is swapped for its 2x version: SSO for SPY, EFO for VEA, URE for VNQ, UST for IEF. These funds aim for double the daily move, so over a month the result can differ from exactly 2x. A high-drawdown satellite, not a core holding.",
+      "flags": [
+        "satellite"
+      ]
+    },
+    "HAA Classic (No QQQ)": {
+      "label": "HAA Classic (No QQQ)",
+      "execution_currency": "USD",
+      "plain_language": "The original HAA recipe without QQQ. Once a month, if the TIP canary's momentum is positive, rank eight assets (government bonds IEF and TLT, US stocks SPY and small companies IWM, commodities PDBC, developed stocks VEA, real estate VNQ, emerging markets VWO) and hold the top four at 25% each. If the canary is zero or negative, hold the stronger of IEF or T-bills.",
+      "flags": []
+    },
+    "HAA Classic Leveraged 2x (No QQQ)": {
+      "label": "HAA Classic Leveraged 2x (No QQQ)",
+      "execution_currency": "USD",
+      "plain_language": "HAA Classic's decisions calculated on ordinary 1x funds, then each selected holding is swapped for its 2x version (UST, SSO, UWM, UBT, EFO, URE, EET); commodities and T-bills stay unleveraged. A high-drawdown satellite, not a core holding, and a monthly signal cannot catch a fast crash.",
+      "flags": [
+        "satellite"
+      ]
+    },
+    "Inflation Compass Standard": {
+      "label": "Inflation Compass Standard",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, two questions from US data: are stocks rising (S&P 500 above its 200-day average) and is inflation rising (the market's 5-year inflation forecast above 2% and climbing, checked over 60 trading days)? The answers pick one holding: energy (XLE), technology (XLK), utilities (XLU), or half consumer staples and half government bonds (XLP/IEF). Works only from 2003 because the inflation data did not exist before.",
+      "flags": []
+    },
+    "Inflation Compass Fast (40-day)": {
+      "label": "Inflation Compass Fast (40-day)",
+      "execution_currency": "USD",
+      "plain_language": "Inflation Compass with a quicker inflation test: it looks back 40 trading days instead of 60. It enters and exits inflation regimes earlier, at the cost of more false alarms and more trading.",
+      "flags": []
+    },
+    "Inflation Compass Fast (40-day) Israel": {
+      "label": "Inflation Compass Fast (40-day) Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The fast 40-day US Inflation Compass signals, executed through the same four TASE funds as the standard Israel version: energy (1145903), technology (1159193), shekel-hedged utilities (1150507), or half staples (1150366) and half Treasuries (1159268).",
+      "flags": [
+        "derived_from_code"
+      ]
+    },
+    "Inflation Compass Steady (80-day)": {
+      "label": "Inflation Compass Steady (80-day)",
+      "execution_currency": "USD",
+      "plain_language": "Inflation Compass with a slower inflation test: it looks back 80 trading days instead of 60. It changes regimes less often, accepting later entries in exchange for fewer false alarms.",
+      "flags": []
+    },
+    "Inflation Compass Steady (80-day) Israel": {
+      "label": "Inflation Compass Steady (80-day) Israel",
+      "execution_currency": "ILS",
+      "plain_language": "The steady 80-day US Inflation Compass signals, executed through the same four TASE funds: energy (1145903), technology (1159193), shekel-hedged utilities (1150507), or half staples (1150366) and half Treasuries (1159268).",
+      "flags": [
+        "derived_from_code"
+      ]
+    },
+    "Momentum-Correlation Triplet": {
+      "label": "Momentum-Correlation Triplet",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, score 14 assets (US and world stocks, government and inflation-protected bonds, gold, commodities, real estate) by their average 3, 6 and 12-month momentum, and keep only those beating cash-like T-bills, up to five. From those five, choose the group of three that moved least in lockstep over the past year, and hold the three equally; if fewer than three qualify, the rest sits in T-bills. The idea: three winners that are unlikely to all fall on the same day. Note: the site has no published description for this one today, so this text was written from the code.",
+      "flags": [
+        "derived_from_code"
+      ]
+    },
+    "Orthogonal Alpha (BTAL/QLD)": {
+      "label": "Orthogonal Alpha (BTAL/QLD)",
+      "execution_currency": "USD",
+      "plain_language": "A monthly barbell. Always hold 25% QLD (2x Nasdaq, the growth engine) and 25% BTAL (a fund built to do well when risky stocks fall relative to calm ones, the crash cushion). The remaining 50% goes to whichever side is working: if BTAL's momentum beats T-bills, it becomes 75% BTAL / 25% QLD; otherwise 25% BTAL / 75% QLD. You are always holding both attack and defence, only the tilt changes.",
+      "flags": []
+    },
+    "TA-125 Smart Momentum": {
+      "label": "TA-125 Smart Momentum",
+      "execution_currency": "ILS",
+      "plain_language": "Simply buy and hold the Migdal TA-125 Smart Momentum fund (5134713). The fund's underlying index does the work: it shifts weights between TA-125 stocks by momentum and trend, including the 50-day versus 200-day average relationship. You make no timing decisions, and the suggested maximum is 20% of a portfolio.",
+      "flags": []
+    },
+    "VAA-G4 (T1/B1)": {
+      "label": "VAA-G4 (T1/B1)",
+      "execution_currency": "USD",
+      "plain_language": "Once a month, compute a momentum score that counts recent months most for seven assets. If any of the four risky ones (US stocks, developed stocks, emerging stocks, or US bonds AGG) is not positive, hold 100% of the strongest defensive asset: corporate bonds (LQD), government bonds (IEF) or short government bonds (SHY). Otherwise hold 100% of the single strongest risky asset. Deliberately jumpy: one weak asset out of four triggers full defence.",
+      "flags": []
+    }
+  }
+}

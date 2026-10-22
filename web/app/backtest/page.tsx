@@ -8,7 +8,7 @@ import text from "../../content/backtest.json";
 import multiText from "../../content/backtest-multi.json";
 import MultiForm from "./multi-form";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
-import { TaxControls } from "../../components/BacktestAssumptions";
+import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 
 type Row = Record<string, unknown>;
@@ -134,13 +134,9 @@ export default function BacktestPage() {
             onChange={event => choose(current.strategy, event.target.value)}>{variants.map(value => <option key={value ?? "none"} value={value ?? ""}>{value ?? text.noVariants}</option>)}</select></label>
           <label>{text.implementation}<select value={form.label} onChange={event => update({ label: event.target.value })}>{implementations.map(value => <option key={value.label} value={value.label}>{value.implementation}</option>)}</select></label>
         </div>
-        <p>{text.currency}: {options.currency}</p>
-        <div className="backtest-grid"><label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>
-          <label>{text.dcaEnabled}<input type="checkbox" checked={dca} onChange={event => { setDca(event.target.checked); update({}); }} /></label>
-          {dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}
-          <label>{text.start}<input type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></label>
-          <label>{text.end}<input type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></label>
-        </div>
+        <p className="assumption-hint">{text.currency}: {options.currency}</p>
+        <AmountAndDates initial={<label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={text.start}><input aria-label={text.start} type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={text.end}><input aria-label={text.end} type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></DateField>}
+          dca={<><Toggle checked={dca} onChange={value => { setDca(value); update({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
         <Fees value={form} onChange={update}>
           <TaxControls enabled={form.tax_enabled} rate={form.tax_rate} step={.1} onEnabled={tax_enabled => update({tax_enabled})} onRate={tax_rate => update({tax_rate})} />
         </Fees>
