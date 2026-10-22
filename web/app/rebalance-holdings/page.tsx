@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import text from "../../content/rebalance.json";
+import holdings from "../../content/holdings.json";
+import HoldingEditorRow from "../../components/HoldingEditorRow";
 import { rebalanceRequest as request, saveHoldings, RebalanceError } from "../../lib/rebalanceApi";
 import * as fmt from "../../lib/format";
 
@@ -16,8 +18,6 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
-const inputKeys = ["Value (₪ / $)", "Units", "Manual price per unit", "Price date", "Minimum order (₪)"];
-const label = (key: string) => text.columns[key as keyof typeof text.columns] ?? key;
 const show = (value: unknown, context="") => fmt.cell(value, context);
 
 export default function RebalanceHoldings() {
@@ -120,17 +120,11 @@ export default function RebalanceHoldings() {
           <label>{text.currency}<select value={currency} onChange={event => setCurrency(event.target.value)}><option value="">{text.marketDefault}</option>{text.currencies.map(value => <option key={value}>{value}</option>)}</select></label>
           <button className="btn btn-secondary" disabled={busy} onClick={() => void action(async () => add(await request<Instrument>("/api/rebalance/security", { identifier, market, currency: currency || null })))}>{text.custom}</button>
         </details>
-        <div className="signal-table-scroll"><table aria-label={text.holdings}><thead><tr>{["Security", "Fund", "Currency", "Outside the rebalance", ...inputKeys, "Remove"].map(key => <th key={key}>{label(key)}</th>)}
-          {Object.entries(text.quoteColumns).map(([key, value]) => <th key={key}>{value}</th>)}</tr></thead><tbody>
-          {rows.map(row => <tr key={String(row.Security)}><td>{row.Security}</td><td>{row.Fund}</td><td>{row.Currency}</td>
-            <td><input type="checkbox" aria-label={`${label("Outside the rebalance")} ${row.Security}`} checked={!!row["Outside the rebalance"]} disabled={busy} onChange={event => edit(String(row.Security), "Outside the rebalance", event.target.checked)} /></td>
-            {inputKeys.map(key => <td key={key}><input aria-label={`${label(key)} ${row.Security}`} type={key === "Price date" ? "date" : "text"} inputMode={key === "Price date" ? undefined : "decimal"}
-              value={String(row[key] ?? "")} disabled={busy} onChange={event => edit(String(row.Security), key, event.target.value)}
-              onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} /></td>)}
-            <td><input type="checkbox" aria-label={`${label("Remove")} ${row.Security}`} checked={!!row.Remove} disabled={busy} onChange={event => edit(String(row.Security), "Remove", event.target.checked)} /></td>
-            {Object.keys(text.quoteColumns).map(key => <td key={key}>{show(state.quotes[String(row.Security)]?.[key],key)}</td>)}
-          </tr>)}
-        </tbody></table></div>
+        <div className="holdings-editor" role="list" aria-label={text.holdings}>
+          <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.outside, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
+          {rows.map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit}
+            onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
+        </div>
         <p>{text.automaticCaption}</p><p>{text.manualCaption}</p>
         <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
         {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
@@ -139,7 +133,7 @@ export default function RebalanceHoldings() {
         <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
         <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
           <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
-        <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+        <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
       </section>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>

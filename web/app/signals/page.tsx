@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import { api } from "../../lib/api";
+import words from "../../content/signals.json";
 
 type Row = Record<string, unknown>;
 export type SignalTable = { columns: string[]; rows: Row[]; display_rows?: Row[] };
@@ -49,9 +50,12 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
     {current.table && <section><SignalTableView value={current.table} label="Current signal" /></section>}
     {current.information && <p className="signal-info">{current.information}</p>}
     {value.mode === "monthly" && current.available && <section className="current-allocation" aria-label="Current allocation">
-      <p className="eyebrow">CURRENT ALLOCATION</p><h2>{current.allocation}</h2>
-      <dl><div><dt>Signal date</dt><dd>{fmt.text(current.signal_date)}</dd></div><div><dt>Regime</dt><dd>{current.regime}</dd></div></dl>
-      <p>{current.instruction}</p>
+      <dl className="signal-compact-row">
+        <div className="allocation-field"><dt>{words.allocation}</dt><dd>{current.allocation}</dd></div>
+        <div><dt>{words.signal}</dt><dd>{fmt.text(current.signal_date)}</dd></div>
+        <div><dt>{words.regime}</dt><dd>{current.regime}</dd></div>
+        <div><dt>{words.action}</dt><dd>{current.instruction}</dd></div>
+      </dl>
     </section>}
     <div className="signal-tabs" role="tablist" aria-label="Signal detail views">
       {tabs.map(tab => <button className="btn btn-secondary" key={tab} role="tab" aria-selected={tab === selected} id={`signal-tab-${tab}`}
@@ -59,19 +63,28 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
     </div>
     <section role="tabpanel" id={`signal-panel-${selected}`} aria-labelledby={`signal-tab-${selected}`}>
       {selected === "Overview" && <>
-        <details><summary>Signal summary</summary><dl>
-          <dt>signal date</dt><dd>{fmt.text(current.signal_date)}</dd><dt>regime</dt><dd>{current.regime}</dd>
-          <dt>instruction</dt><dd>{current.instruction}</dd><dt>target allocation</dt><dd>{current.allocation}</dd>
-        </dl></details>
+        <h2>{words.summary}</h2><dl className="signal-compact-row">
+          <div><dt>{words.signal}</dt><dd>{fmt.text(current.signal_date)}</dd></div>
+          <div><dt>{words.regime}</dt><dd>{current.regime}</dd></div>
+          <div><dt>{words.instruction}</dt><dd>{current.instruction}</dd></div>
+          <div><dt>{words.target}</dt><dd>{current.allocation}</dd></div>
+        </dl>
         {current.effective_text && <div className={current.effective_start ? "signal-info" : "signal-warning"}><Markdown>{fmt.text(current.effective_text ?? "")}</Markdown></div>}
-        {value.preview && <details><summary>{value.preview.heading}</summary>
+        {value.preview && <div className="signal-preview"><h2>{words.preview}</h2>
           {value.preview.decision ? <>
-            <div className="signal-warning"><Markdown>{fmt.text(value.preview.warning ?? "")}</Markdown></div>
-            <dl><dt>price data through</dt><dd>{fmt.text(value.preview.price_as_of)}</dd><dt>projected regime</dt><dd>{value.preview.regime}</dd>
-              <dt>projected allocation</dt><dd>{value.preview.allocation}</dd><dt>change vs current signal</dt><dd>{value.preview.changed ? "Yes" : "No"}</dd></dl>
-            <p className="signal-caption">{fmt.text(value.preview.caption)}</p>
+            <dl className="signal-compact-row">
+              <div><dt>{words.pricesThrough}</dt><dd>{fmt.text(value.preview.price_as_of)}</dd></div>
+              <div><dt>{words.projectedRegime}</dt><dd>{value.preview.regime}</dd></div>
+              <div><dt>{words.projectedAllocation}</dt><dd>{value.preview.allocation}</dd></div>
+              <div><dt>{words.changed}</dt><dd>{value.preview.changed ? words.yes : words.no}</dd></div>
+            </dl>
+            <p className="signal-caption">{words.provisional}</p>
+            <details className="signal-more"><summary>{words.moreDetails}</summary>
+              <div className="signal-warning"><Markdown>{fmt.text(value.preview.warning ?? "")}</Markdown></div>
+              <p className="signal-caption">{fmt.text(value.preview.caption)}</p>
+            </details>
           </> : <p>{value.preview.unavailable_text}</p>}
-        </details>}
+        </div>}
       </>}
       {selected === "Rationale" && value.rationale && <>
         <h2>{value.rationale.heading}</h2>

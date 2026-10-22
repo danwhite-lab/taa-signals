@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/rebalance.json";
 const mock = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn() }));
@@ -127,4 +127,33 @@ it("empty order list does not expose the recording step", async () => {
   mock.request.mockResolvedValue({ state, plan: { ...plan, orders: [] } });
   fireEvent.click(screen.getByText(text.generate)); await screen.findByText(text.emptyPlan);
   expect(screen.queryByText(text.record)).toBeNull();
+});
+
+it("starts current rows collapsed, retains edits across price disclosure toggles, and sends the same fields", async () => {
+  await ready();
+  const holding = screen.getByRole("listitem", {name:item.label});
+  const details = within(holding).getByText("Edit price").closest("details")!;
+  expect(details.open).toBe(false);
+  fireEvent.change(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} ${item.id}`), {target:{value:"125"}});
+  fireEvent.click(within(holding).getByText("Edit price"));
+  fireEvent.change(screen.getByLabelText(`${text.columns["Manual price per unit"]} ${item.id}`), {target:{value:"11"}});
+  fireEvent.click(within(holding).getByText("Edit price"));
+  expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} ${item.id}`)).toHaveProperty("value","125");
+  expect(screen.getByLabelText(`${text.columns["Manual price per unit"]} ${item.id}`)).toHaveProperty("value","11");
+  fireEvent.click(screen.getByText(text.previewAction));
+  await waitFor(()=>expect(mock.request.mock.calls.some(([p])=>p==="/api/rebalance/editor")).toBe(true));
+  expect(mock.request.mock.calls.find(([p])=>p==="/api/rebalance/editor")![1].rows).toEqual([
+    {...row,"Value (₪ / $)":"125","Enter as":"Value","Manual price per unit":"11"}
+  ]);
+  expect(screen.getByRole("button",{name:text.save}).classList.contains("btn-primary")).toBe(true);
+});
+
+it.each(["stale","missing","manual"])("starts %s holding price controls expanded",async kind=>{
+  const modified = {...state, rows:[{...row,"Manual price per unit":kind==="manual"?"11":null}],
+    quotes:kind==="missing"?{}:{[item.id]:{...state.quotes[item.id],fresh:kind!=="stale"}}};
+  mock.request.mockResolvedValue(modified);
+  render(<Page/>);
+  const holding=await screen.findByRole("listitem",{name:item.label});
+  expect(within(holding).getByText("Edit price").closest("details")).toHaveProperty("open",true);
+  if(kind!=="missing")expect(within(holding).getByText("Mock raw")).toBeTruthy();
 });
