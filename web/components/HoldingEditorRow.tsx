@@ -46,10 +46,10 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur }: {
       <summary>{words.editPrice}</summary>
       <div className="holding-advanced">
         {field("Manual price per unit", label("Manual price per unit"))}
-        {field("Price date", label("Price date"))}
+        <div>{field("Price date", label("Price date"))}
+          <p className="holding-hint">{text.manualCaption}</p></div>
         {field("Minimum order (₪)", label("Minimum order (₪)"))}
       </div>
-      <p className="holding-hint">{text.manualCaption}</p>
       <details className="holding-source"><summary>{words.source}</summary><p>{String(quote?.source ?? text.unavailable)}</p></details>
     </details>
   </article>;

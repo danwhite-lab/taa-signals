@@ -9,6 +9,35 @@ from haa.portfolio import execution_security_label
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
+from haa.strategies import BuyAndHoldNasdaq3xMonthlyIsrael, BuyAndHoldTA125x3Israel
+from haa.model_catalog import definition_for_label
+
+
+@pytest.mark.parametrize("cls,asset", [
+    (BuyAndHoldNasdaq3xMonthlyIsrael, "NASDAQ_X3_MONTHLY_IL"),
+    (BuyAndHoldTA125x3Israel, "TA125_X3_IL"),
+])
+def test_leveraged_local_plain_holdings_drop_missing_months_and_never_time(cls, asset):
+    model=cls()
+    dates=pd.to_datetime(["2024-01-31","2024-02-29","2024-03-31","2024-04-30"])
+    decisions=model.decisions(pd.DataFrame({asset:[100.,None,80.,120.]},index=dates))
+    assert decisions.index.tolist()==[dates[0],dates[2],dates[3]]
+    assert decisions.selected_asset.tolist()==[asset,asset,asset]
+    assert decisions.trade.tolist()==[True,False,False]
+    assert decisions[f"{asset}_price"].tolist()==[100.,80.,120.]
+    assert model.data_assets==model.market_data_assets==(asset,)
+    assert model.benchmark_asset==asset and model.actual_history_only
+    assert model.validation_profile.data_confidence=="limited"
+    definition=definition_for_label(model.name)
+    assert definition.model_class is cls
+    assert definition.execution_currency=="ILS"
+    assert definition.strategy_mode=="buy_and_hold" and definition.signal_mode=="internal"
+    assert model.backtest_available and definition.suggested_max_weight is None
+    assert "most or all" in model.risk_warning
+    if asset=="TA125_X3_IL":
+        assert "0.4%" in model.risk_warning
+        assert "not reflected" in model.risk_warning
+        assert "reset" not in (model.risk_warning+model.__doc__+model.validation_profile.notes).lower()
 
 
 def test_gld_is_separate_usd_gold_implementation_with_actual_history():
