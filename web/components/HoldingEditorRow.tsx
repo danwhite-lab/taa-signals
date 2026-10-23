@@ -41,10 +41,8 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur }: {
       </div>
       {check("Outside the rebalance", words.outside)}
       <div className="holding-remove">
-        {row.Remove ? <><small>{words.removalPending}</small><button type="button" className="btn btn-secondary" disabled={busy}
-          aria-label={words.undo.replace("{fund}", String(row.Fund))} onClick={() => onEdit(security, "Remove", false)}>{words.undo.replace("{fund}", String(row.Fund))}</button></>
-          : <button type="button" className="btn btn-destructive" disabled={busy} aria-label={words.removeFund.replace("{fund}", String(row.Fund))}
-            onClick={() => onEdit(security, "Remove", true)}>-</button>}
+        <button type="button" className="btn btn-destructive" disabled={busy} aria-label={words.removeFund.replace("{fund}", String(row.Fund))}
+          onClick={() => onEdit(security, "Remove", true)}>-</button>
       </div>
     </div>
     <details className="holding-price-editor" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>

@@ -66,29 +66,63 @@ it("filters by fields, preserves a hidden selection and performs no requests whi
   expect(screen.getByRole("combobox",{name:text.currency})).toHaveProperty("value","");
 });
 
-it("stages minus and Undo without losing edits, cash, inclusion or picker state", async () => {
-  await ready(); fireEvent.click(screen.getByText(text.add));
-  fireEvent.change(screen.getByRole("combobox",{name:text.search}),{target:{value:"ief"}});
-  fireEvent.click(within(screen.getByRole("listbox")).getByText(other.label));
-  fireEvent.change(screen.getByLabelText(text.columns.Units+" "+item.id),{target:{value:"7"}});
+it("minus hides the whole row but preserves removal in requests and every other draft field", async () => {
+  await ready();const extra={...row,Security:other.id,Fund:other.label,Units:"8"};
+  const next={...state,rows:[row,extra]};
+  let savedRemoval=false;
+  mock.request.mockImplementation(async(path:string)=>path==="/api/rebalance/editor"?preview:savedRemoval
+    ?{...next,rows:[{...extra,Units:"9","Outside the rebalance":true}],account:{...state.account,cash_ils:"13"}}:next);
+  mock.save.mockImplementation(async()=>{savedRemoval=true;return {saved:{revision:2,payload:{holdings_account:candidate}},uncertain:false};});
+  fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.reload));
+  await screen.findByLabelText(text.columns.Units+" "+other.id);
+  fireEvent.click(screen.getByText(text.add));
+  fireEvent.change(screen.getByRole("combobox",{name:text.search}),{target:{value:"gld"}});
+  fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
+  fireEvent.click(within(screen.getByRole("group",{name:text.market})).getByRole("button",{name:"US"}));
+  fireEvent.change(screen.getByLabelText(text.columns.Units+" "+other.id),{target:{value:"9"}});
   fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"13"}});
-  fireEvent.click(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+item.id));
+  fireEvent.click(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+other.id));
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
-  expect(screen.queryByRole("checkbox",{name:"Remove "+item.id})).toBeNull();
+  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
+  for(const key of ["Units","Manual price per unit","Price date"] as const) expect(screen.queryByLabelText(text.columns[key]+" "+item.id)).toBeNull();
+  expect(screen.queryByText("Removed when you save")).toBeNull();expect(screen.queryByRole("button",{name:/Undo removal/})).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("heading",{name:text.holdings}));
   expect(screen.getByText(text.unsaved)).toBeTruthy(); expect(mock.save).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(text.columns.Units+" "+other.id)).toHaveProperty("value","9");
+  expect(screen.getByLabelText(text.cash)).toHaveProperty("value","13");
+  expect(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+other.id)).toHaveProperty("checked",true);
+  expect(screen.getByRole("combobox",{name:text.search})).toHaveProperty("value","gld");
+  expect(screen.getByText(text.selected+": "+item.label)).toBeTruthy();
   fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(()=>expect(mock.request.mock.calls.some(([p,b])=>p==="/api/rebalance/editor"&&b.rows[0].Remove)).toBe(true));
-  fireEvent.click(screen.getByRole("button",{name:"Undo removal: "+item.label}));
-  expect(screen.getByLabelText(text.columns.Units+" "+item.id)).toHaveProperty("value","7");
-  expect(screen.getByLabelText(text.cash)).toHaveProperty("value","13");
-  expect(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+item.id)).toHaveProperty("checked",true);
-  expect(screen.getByRole("combobox",{name:text.search})).toHaveProperty("value","ief");
-  expect(screen.getByText(text.selected+": "+other.label)).toBeTruthy();
-  fireEvent.click(screen.getByText(text.save));
-  await waitFor(()=>expect(mock.save).toHaveBeenCalled());
+  fireEvent.click(screen.getByText(text.save));await waitFor(()=>expect(mock.save).toHaveBeenCalled());
   const drafts=mock.request.mock.calls.filter(([p])=>p==="/api/rebalance/editor");
-  expect(drafts.at(-1)![1].rows[0]).toMatchObject({Remove:false,Units:"7","Outside the rebalance":true});
+  expect(drafts.at(-1)![1]).toMatchObject({cash:"13",rows:[{...row,Remove:true},{...extra,Units:"9","Units edited":true,"Outside the rebalance":true}]});
+  expect(mock.save).toHaveBeenCalledWith(state.workspace_revision,candidate);
+  await waitFor(()=>expect(screen.getByText(text.save)).toHaveProperty("disabled",false));
+  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
+  fireEvent.click(screen.getByText(text.reload));
+  await waitFor(()=>expect(screen.getByText(text.save)).toHaveProperty("disabled",false));
+  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
 });
+
+it("re-adding a hidden holding restores its exact draft without appending a duplicate",async()=>{
+  await ready();fireEvent.change(screen.getByLabelText(text.columns.Units+" "+item.id),{target:{value:"7"}});
+  fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
+  expect(screen.getAllByRole("list")).toHaveLength(1);
+  expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+  fireEvent.click(screen.getByText(text.add));fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
+  fireEvent.click(screen.getByText(text.addSelected));
+  await screen.findByLabelText(text.columns.Units+" "+item.id);
+  expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  expect(screen.getByLabelText(text.columns.Units+" "+item.id)).toHaveProperty("value","7");
+  fireEvent.click(screen.getByText(text.previewAction));
+  await waitFor(()=>expect(mock.request.mock.calls.some(([p])=>p==="/api/rebalance/editor")).toBe(true));
+  const body=mock.request.mock.calls.filter(([p])=>p==="/api/rebalance/editor").at(-1)![1];
+  expect(body.rows).toHaveLength(1);expect(body.rows[0]).toMatchObject({Remove:false,Units:"7"});
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
 async function ready() {
   mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/editor" ? preview : path === "/api/rebalance/plan" ? { state, plan } : state);
   mock.save.mockResolvedValue({ saved: { revision: 2, payload: { holdings_account: candidate } }, uncertain: false });
