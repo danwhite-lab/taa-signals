@@ -6,6 +6,14 @@
 .summary h2 { line-height: 1.5; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .badge { display: inline-block; padding: 4px 10px; border: 1px solid #92b7a8; border-radius: 12px; background: #e5f2ed; color: #1c5343; font-size: .85rem; }
 .metadata { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+.settings { display: flex; flex-wrap: wrap; gap: 16px 24px; border: 1px solid #dce2e8; border-radius: 8px; padding: 16px; margin: 18px 0; min-width: 0; }
+.settings > label { flex: 1 1 13rem; min-width: 0; }
+.settings input { display: block; width: 100%; }
+.modelSetting { flex: 2 1 24rem; min-width: 0; }
+.settings .metadata { flex: 2 1 26rem; min-width: 0; }
+.settings .transfer { flex: 1 1 100%; margin: 0; }
+.settings .addSleeve { flex-wrap: nowrap; margin-top: 0; }
+.modelSetting p { font-size: .85rem; color: #52606d; }
 .metadata label { flex: 1 1 13rem; min-width: 0; }
 .metadata dt { font-size: .85rem; color: #52606d; }
 .metadata dd { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
@@ -27,3 +35,11 @@
 .transfer select { display: block; width: 100%; max-width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; font: inherit; }
 .advanced { margin: 18px 0; }
 .advanced summary { cursor: pointer; font-weight: 600; }
+@media (max-width: 600px) {
+  .sleeves { table-layout: fixed; }
+  .sleeves th:first-child, .sleeves td:first-child { min-width: 0; }
+  .sleeves th, .sleeves td { padding: 10px 3px; }
+  .sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 0; width: 5.5rem; }
+  .sleeves th:last-child, .sleeves td:last-child { width: 4rem; }
+  .sleeves input { width: 100%; padding: 6px; }
+}

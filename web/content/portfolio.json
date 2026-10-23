@@ -1,0 +1,5 @@
+{
+  "settings": "Portfolio settings",
+  "transferCaption": "With a daily sleeve included, the quarterly cap resets the selected RVol sleeve; the annual reset restores all sleeve targets. Monthly-only portfolios keep their existing monthly resets.",
+  "retainedRule": "This setting is retained. Transfers apply to daily or mixed portfolios. Choose No transfers or restore the relevant sleeve."
+}

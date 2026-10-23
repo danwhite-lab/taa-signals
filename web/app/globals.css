@@ -208,6 +208,19 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-control-fields > label { flex: 1 1 200px; min-width: 0; }
 .rebalance-page .rebalance-control-fields input, .rebalance-page .rebalance-control-fields select { display: block; width: 100%; min-width: 0; max-width: none; margin-top: 7px; min-height: 38px; }
 .rebalance-control-actions { margin-top: 12px; }
+.rebalance-page .fund-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0; }
+.rebalance-page .fund-filters > span { flex-basis: 100%; font-size: .85rem; }
+.rebalance-page .fund-filters button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.rebalance-page .fund-results { max-height: 23rem; overflow-y: auto; border: 1px solid #dce2e8; border-radius: 6px; }
+.rebalance-page .fund-option { padding: 9px 12px; border-bottom: 1px solid #e3e8ed; cursor: pointer; }
+.rebalance-page .fund-option:hover, .rebalance-page .fund-option.active, .rebalance-page .fund-option[aria-selected="true"] { background: var(--accent-soft); }
+.rebalance-page .fund-option small, .rebalance-page .chosen-fund small { display: block; margin-top: 4px; color: #687482; }
+.rebalance-page td, .rebalance-page th { white-space: normal; }
+.rebalance-page table { width: 100%; table-layout: fixed; }
+.rebalance-page input, .rebalance-page select { box-sizing: border-box; width: 100%; min-width: 0; }
+.rebalance-page input[type="checkbox"] { width: auto; }
+.rebalance-page .holding-remove small { display: block; font-size: .8rem; }
+.rebalance-page label > input:not([type="checkbox"]) { display: block; margin-top: 7px; min-height: 38px; }
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .holdings-editor { margin-top: 20px; min-width: 0; }
 .holding-column-headings, .holding-main { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .65fr); gap: 14px; align-items: center; }
