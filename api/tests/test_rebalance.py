@@ -17,7 +17,7 @@ def book(monkeypatch, signed_in):
     instruments = {i["id"]: i for i in items}
     account = empty_account()
     account["positions"] = {i["id"]: {**i, "units": "0"} for i in items[:2]}
-    remote = {"revision": 1, "payload": {"holdings_account": account, "portfolio_name": "Fake"}}
+    remote = {"revision": 1, "payload": {"holdings_account": account, "portfolio_name": "Fake", "rebalance_allocation_mode": "biggest_gap_first"}}
     portfolios = [{"id": "fake-portfolio", "name": "Fake", "payload": {"sleeves": [{"model": "Fake", "weight": 100}]}}]
     targets = {items[0]["id"]: .6, items[1]["id"]: .4}
     quotes = {i["id"]: {"price": p, "fresh": True, "as_of": "2026-10-15", "source": "Mock raw", "field": "Unadjusted close", "fetched_at": "frozen"}
@@ -70,7 +70,7 @@ def test_plan_decimal_exact_against_direct_allocator(book, scenario):
     assert result.status_code == 200, result.text
     body = result.json(); state, actual = body["state"], body["plan"]
     expected_targets = {k: w for k, w in rebalance_targets(account, targets).items() if quotes[k].get("fresh")}
-    direct = make_buy_plan(account, instruments, expected_targets, quotes, state["rebalance_fx"]["price"], deposit, state["context"])
+    direct = make_buy_plan(account, instruments, expected_targets, quotes, state["rebalance_fx"]["price"], deposit, state["context"], allocation_mode="biggest_gap_first")
     for key in ("orders", "leftover_ils", "available_ils", "account_hash", "context_hash", "instruments"):
         assert actual[key] == direct[key]
     rows, _, total = compare_holdings(account, instruments, targets, quotes, state["rebalance_fx"]["price"])
@@ -92,7 +92,7 @@ def test_outside_removal_rescaling_and_missing_outside_fx(book):
     assert result["state"]["ready"]
     assert next(r for r in result["state"]["comparison"] if r["id"] == "US:GLD")["Status"] == "Outside the rebalance"
     removed = deepcopy(account); del removed["positions"]["US:GLD"]
-    direct = make_buy_plan(removed, instruments, rebalance_targets(account, targets), quotes, 1, "100", {})
+    direct = make_buy_plan(removed, instruments, rebalance_targets(account, targets), quotes, 1, "100", {}, allocation_mode="biggest_gap_first")
     assert result["plan"]["orders"] == direct["orders"]
     assert result["plan"]["leftover_ils"] == direct["leftover_ils"]
 
@@ -114,7 +114,7 @@ def test_all_outside_no_orders_and_zero_legacy_equivalence(book):
     for p in account["positions"].values(): p["outside_rebalance"] = True
     state = client.get("/api/rebalance", headers=HEADERS).json()
     assert not state["ready"] and not state["targets"]
-    assert make_buy_plan(account, instruments, targets, quotes, 1, "100", {})["orders"] == []
+    assert make_buy_plan(account, instruments, targets, quotes, 1, "100", {}, allocation_mode="biggest_gap_first")["orders"] == []
 
 
 def test_record_exact_actual_paid_idempotence_and_no_write(book, monkeypatch):
@@ -273,3 +273,52 @@ def test_workspace_source_settings_or_explicit_defaults_without_silent_fallback(
     workspace["payload"]["ticker_text"] = "bad"
     result = page.targets_for(workspace, portfolios, "fake", account)
     assert result[4] and not result[3] and len(calls) == 2
+
+
+def test_absent_allocation_mode_defaults_proportional(book):
+    remote,*_=book
+    del remote["payload"]["rebalance_allocation_mode"]
+    state=client.get("/api/rebalance",headers=HEADERS).json()
+    assert state["allocation_mode"]=="proportional"
+    assert state["context"]["allocation_mode"]=="proportional"
+    assert "rebalance_allocation_mode" not in remote["payload"]
+    result=post("plan",request(remote)).json()
+    assert result["plan"]["unspent_by_fund"]
+
+
+@pytest.mark.parametrize("invalid",["invalid",None,False,[],{}])
+def test_allocation_mode_rejected_on_save_and_load_with_identical_error(book,invalid):
+    from haa.allocation_mode import ALLOCATION_MODE_ERROR
+    remote,*_=book
+    saved=client.put("/api/workspace",headers=HEADERS,json={"revision":1,"payload":{"rebalance_allocation_mode":invalid}})
+    assert saved.status_code==422 and saved.json()["detail"]==ALLOCATION_MODE_ERROR
+    remote["payload"]["rebalance_allocation_mode"]=invalid
+    loaded=client.get("/api/rebalance",headers=HEADERS)
+    assert loaded.status_code==400 and loaded.json()["detail"]==ALLOCATION_MODE_ERROR
+    assert post("plan",request(remote)).json()["detail"]==ALLOCATION_MODE_ERROR
+
+
+def test_mode_preference_save_preserves_account_and_other_preferences(book,monkeypatch):
+    remote,*_=book
+    before=deepcopy(remote)
+    writes=[]
+    def save(*args):
+        writes.append(deepcopy(args[-2]));return 2
+    monkeypatch.setattr(private.sync,"save_workspace",save)
+    result=client.put("/api/workspace",headers=HEADERS,json={"revision":1,"payload":{"rebalance_allocation_mode":"proportional"}})
+    assert result.status_code==200
+    assert writes==[{**before["payload"],"rebalance_allocation_mode":"proportional"}]
+    assert remote==before
+    assert not any("unspent" in k for k in writes[0])
+
+
+def test_mode_change_invalidates_plan_context_and_recording(book):
+    remote,*_=book
+    original=post("plan",request(remote)).json()
+    remote["payload"]["rebalance_allocation_mode"]="proportional"
+    changed=post("plan",request(remote)).json()
+    assert original["plan"]["context_hash"]!=changed["plan"]["context_hash"]
+    with pytest.raises(ValueError,match="changed"):
+        apply_purchases(remote["payload"]["holdings_account"],original["plan"],[],changed["state"]["context"])
+    result=post("record",request(remote,plan=original["plan"],confirmations=[],acknowledge=True))
+    assert result.status_code==409

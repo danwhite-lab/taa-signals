@@ -24,3 +24,16 @@ def test_restore_rejects_unknown_fields_and_bad_dates():
 
 def test_snapshot_does_not_store_nonfinite_or_non_json_values():
     assert snapshot({"initial": float("nan"), "portfolio_sleeves": object()}) == {}
+
+
+def test_allocation_mode_is_a_validated_preference_not_a_reservation():
+    import pytest
+    from haa.allocation_mode import DEFAULT_ALLOCATION_MODE, ALLOCATION_MODE_ERROR
+    assert DEFAULT_ALLOCATION_MODE == "proportional"
+    for mode in ("proportional","biggest_gap_first"):
+        assert restore(snapshot({"rebalance_allocation_mode":mode,"unspent_by_fund":{"fake":"100"}})) == {"rebalance_allocation_mode":mode}
+    assert restore({}) == {}  # No artificial stored default.
+    for invalid in (None, "", False, [], "other"):
+        for function in (snapshot,restore):
+            with pytest.raises(ValueError,match=ALLOCATION_MODE_ERROR):
+                function({"rebalance_allocation_mode":invalid})

@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import text from "../content/rebalance.json";
 const mock = vi.hoisted(() => ({ response: vi.fn() }));
 vi.mock("../lib/api", () => ({ authorizedResponse: mock.response, ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
-import { saveHoldings, rebalanceRequest } from "../lib/rebalanceApi";
+import { saveHoldings, saveAllocationMode, rebalanceRequest } from "../lib/rebalanceApi";
 afterEach(() => mock.response.mockReset());
 const account = { revision: 1, positions: { "US:SPY": { units: "2" } }, cash_ils: "3", last_operation_id: "fake" };
 const saved = { revision: 2, payload: { holdings_account: account } };
@@ -36,4 +36,26 @@ it("masks raw gateway errors and uses supplied safe validation text", async () =
   await expect(rebalanceRequest("/api/rebalance")).rejects.toThrow(text.validation);
   mock.response.mockResolvedValueOnce(json({ detail: "Enter cash explicitly" }, 400));
   await expect(rebalanceRequest("/api/rebalance/editor", {})).rejects.toThrow("Enter cash explicitly");
+});
+
+it("saves only the allocation preference in a revision-checked workspace patch",async()=>{
+  const choice={revision:2,payload:{rebalance_allocation_mode:"proportional"}};
+  mock.response.mockResolvedValue(json(choice));
+  expect(await saveAllocationMode(1,"proportional")).toEqual(choice);
+  expect(mock.response).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(mock.response.mock.calls[0][1].body)).toEqual({revision:1,payload:{rebalance_allocation_mode:"proportional"}});
+  expect(mock.response.mock.calls[0][1].method).toBe("PUT");
+});
+
+it("never retries uncertain preference writes or silently accepts a different mode",async()=>{
+  mock.response.mockRejectedValueOnce(new Error("Lost response"));
+  await expect(saveAllocationMode(1,"proportional")).rejects.toThrow(text.allocationUncertain);
+  expect(mock.response).toHaveBeenCalledTimes(1);
+  mock.response.mockResolvedValue(json({revision:2,payload:{rebalance_allocation_mode:"biggest_gap_first"}}));
+  await expect(saveAllocationMode(1,"proportional")).rejects.toThrow(text.allocationUncertain);
+});
+
+it("shows the clear mode validation error from the save path",async()=>{
+  mock.response.mockResolvedValue(json({detail:"Choose allocation mode: proportional or biggest_gap_first."},422));
+  await expect(saveAllocationMode(1,"proportional")).rejects.toThrow("Choose allocation mode:");
 });

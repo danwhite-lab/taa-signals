@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .portfolio import execution_security_label
 from .tase_data import TASE_ISRAEL_ASSET_IDS
+from .allocation_mode import validate_allocation_mode
 
 
 def number(value, *, positive=False):
@@ -155,8 +156,9 @@ def compare_holdings(account, instruments, targets, quotes, fx):
     return rows, values, total
 
 
-def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context):
-    """Water-fill largest post-deposit shortfalls, then allocate feasible lots."""
+def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context, allocation_mode):
+    """Buy whole units within gaps; proportional shares are never redistributed."""
+    allocation_mode = validate_allocation_mode(allocation_mode)
     targets = rebalance_targets(account, targets)
     rows, values, total = compare_holdings(account, instruments, targets, quotes, fx)
     new_money = number(new_money)
@@ -176,37 +178,50 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context)
             continue
         if number(position["units"]) and not quotes[key].get("fresh"):
             raise ValueError(f"{key}: holding valuation is stale; refresh or enter a dated broker price.")
-    low, high = Decimal(0), max(gaps.values(), default=Decimal(0))
-    for _ in range(100):
-        level = (low + high) / 2
-        if sum(max(Decimal(0), gap-level) for gap in gaps.values()) > budget:
-            low = level
-        else:
-            high = level
-    quantities = {key: int((max(Decimal(0), gap-high) / costs[key]).to_integral_value(rounding=ROUND_FLOOR)) for key, gap in gaps.items()}
-    quantities = {key: qty if qty >= minimums[key] else 0 for key, qty in quantities.items()}
-    remaining = budget - sum(costs[k] * q for k, q in quantities.items())
-    while True:
-        eligible = []
-        for key in quantities:
-            gap = gaps[key] - quantities[key] * costs[key]
-            lot = minimums[key] if quantities[key] == 0 else 1
-            if lot * costs[key] <= min(gap, remaining):
-                eligible.append((gap, key, lot))
-        if not eligible:
-            break
-        eligible.sort(key=lambda item: (-item[0], item[1]))
-        gap, key, lot = eligible[0]
-        next_gap = eligible[1][0] if len(eligible) > 1 else Decimal(0)
-        batch = max(lot, int(((gap-next_gap) / costs[key]).to_integral_value(rounding=ROUND_CEILING)))
-        batch = min(batch, int((min(gap, remaining) / costs[key]).to_integral_value(rounding=ROUND_FLOOR)))
-        quantities[key] += batch
-        remaining -= batch * costs[key]
+    unspent = {}
+    if allocation_mode == "proportional":
+        gap_total = sum(gaps.values(), Decimal(0))
+        shares = {key: min(gap, budget * gap / gap_total) if gap_total else Decimal(0)
+                  for key, gap in gaps.items()}
+        quantities = {key: int((shares[key] / costs[key]).to_integral_value(rounding=ROUND_FLOOR))
+                      for key in gaps}
+        quantities = {key: qty if qty >= minimums[key] else 0 for key, qty in quantities.items()}
+        unspent = {key: str(shares[key] - costs[key] * quantities[key]) for key in gaps}
+        remaining = budget - sum((costs[k] * q for k, q in quantities.items()), Decimal(0))
+    else:
+        low, high = Decimal(0), max(gaps.values(), default=Decimal(0))
+        for _ in range(100):
+            level = (low + high) / 2
+            if sum(max(Decimal(0), gap-level) for gap in gaps.values()) > budget:
+                low = level
+            else:
+                high = level
+        quantities = {key: int((max(Decimal(0), gap-high) / costs[key]).to_integral_value(rounding=ROUND_FLOOR)) for key, gap in gaps.items()}
+        quantities = {key: qty if qty >= minimums[key] else 0 for key, qty in quantities.items()}
+        remaining = budget - sum(costs[k] * q for k, q in quantities.items())
+        while True:
+            eligible = []
+            for key in quantities:
+                gap = gaps[key] - quantities[key] * costs[key]
+                lot = minimums[key] if quantities[key] == 0 else 1
+                if lot * costs[key] <= min(gap, remaining):
+                    eligible.append((gap, key, lot))
+            if not eligible:
+                break
+            eligible.sort(key=lambda item: (-item[0], item[1]))
+            gap, key, lot = eligible[0]
+            next_gap = eligible[1][0] if len(eligible) > 1 else Decimal(0)
+            batch = max(lot, int(((gap-next_gap) / costs[key]).to_integral_value(rounding=ROUND_CEILING)))
+            batch = min(batch, int((min(gap, remaining) / costs[key]).to_integral_value(rounding=ROUND_FLOOR)))
+            quantities[key] += batch
+            remaining -= batch * costs[key]
     orders = [{"id": key, "units": qty, "price_native": str(number(quotes[key]["price"])),
                "estimated_ils": str(costs[key] * qty)} for key, qty in sorted(quantities.items()) if qty]
     return {"id": str(uuid4()), "account_hash": fingerprint(account), "context_hash": fingerprint(context),
             "new_money": str(new_money), "available_ils": str(budget), "orders": orders,
-            "leftover_ils": str(remaining), "instruments": {k: instruments[k] for k in quantities}}
+            "leftover_ils": str(remaining), "unspent_by_fund": unspent,
+            "unit_costs_ils": {k: str(costs[k]) for k in unspent},
+            "instruments": {k: instruments[k] for k in quantities}}
 
 
 def apply_purchases(account, plan, confirmations, context):

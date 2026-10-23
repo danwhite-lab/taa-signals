@@ -2,8 +2,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/rebalance.json";
-const mock = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn() }));
-vi.mock("../lib/rebalanceApi", () => ({ rebalanceRequest: mock.request, saveHoldings: mock.save,
+const mock = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn(), mode: vi.fn() }));
+vi.mock("../lib/rebalanceApi", () => ({ rebalanceRequest: mock.request, saveHoldings: mock.save, saveAllocationMode: mock.mode,
   RebalanceError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/rebalance-holdings/" }));
 vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
@@ -18,7 +18,7 @@ const item = { id: "US:GLD", identifier: "GLD", market: "US", currency: "USD", l
 const other = { id: "US:IEF", identifier: "IEF", market: "US", currency: "USD", label: "Fake bonds" };
 const row = { Security: item.id, Fund: item.label, Currency: "USD", Units: "2", "Value (₪ / $)": "20", "Enter as": "Units",
   "Outside the rebalance": false, "Manual price per unit": null, "Price date": null, "Minimum order (₪)": "0", Remove: false };
-const state = { workspace_revision: 1, account_hash: "fake-hash", account: { revision: 0, cash_ils: "5" }, portfolio_id: "fake-portfolio",
+const state = { workspace_revision: 1, allocation_mode: "proportional", account_hash: "fake-hash", account: { revision: 0, cash_ils: "5" }, portfolio_id: "fake-portfolio",
   portfolios: [{ id: "fake-portfolio", name: "Fake portfolio" }], rows: [row], instruments: { [item.id]: item, [other.id]: other },
   quotes: { [item.id]: { price: "10", as_of: "2026-10-15", source: "Mock raw", fresh: true } }, fx: { fresh: true },
   comparison: [{ id: item.id, Fund: item.label, target_display: "100.00%", actual_display: "100.00%", Status: "On target" }],
@@ -28,7 +28,7 @@ const candidate = { ...state.account, last_operation_id: "fake-operation", revis
 const preview = { account: candidate, preview: [{ Fund: item.label, "Units to save": "2.00" }], errors: [] };
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
 
-afterEach(() => { cleanup(); mock.request.mockReset(); mock.save.mockReset(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); mock.request.mockReset(); mock.save.mockReset(); mock.mode.mockReset(); vi.restoreAllMocks(); });
 async function ready() {
   mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/editor" ? preview : path === "/api/rebalance/plan" ? { state, plan } : state);
   mock.save.mockResolvedValue({ saved: { revision: 2, payload: { holdings_account: candidate } }, uncertain: false });
@@ -156,4 +156,52 @@ it.each(["stale","missing","manual"])("starts %s holding price controls expanded
   const holding=await screen.findByRole("listitem",{name:item.label});
   expect(within(holding).getByText("Edit price").closest("details")).toHaveProperty("open",true);
   if(kind!=="missing")expect(within(holding).getByText("Mock raw")).toBeTruthy();
+});
+
+it("shows the persisted proportional default and unspent pooled shares with server-priced unit costs",async()=>{
+  await ready();
+  expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("value","proportional");
+  mock.request.mockResolvedValue({state,plan:{...plan,unspent_by_fund:{[item.id]:"12.50"},unit_costs_ils:{[item.id]:"35"}}});
+  fireEvent.click(screen.getByText(text.generate));
+  await screen.findByText(text.unspentShare.replace("{fund}",item.label).replace("{unspent}","12.50").replace("{cost}","35.00"));
+  expect(screen.getByText(text.pooledCash)).toBeTruthy();
+  expect(screen.queryByText(text.singleOrder)).toBeNull();
+});
+
+it("saves a mode change through the workspace route and invalidates a pending list",async()=>{
+  await ready();
+  fireEvent.click(screen.getByText(text.generate)); await screen.findByText(text.leftover+": 5.00");
+  mock.mode.mockResolvedValue({revision:2,payload:{rebalance_allocation_mode:"biggest_gap_first"}});
+  mock.request.mockResolvedValue({...state,workspace_revision:2,allocation_mode:"biggest_gap_first"});
+  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
+  await waitFor(()=>expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("disabled",false));
+  expect(mock.mode).toHaveBeenCalledWith(1,"biggest_gap_first");
+  expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("value","biggest_gap_first");
+  expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
+it("mode changes preserve dirty holdings and failed preference writes pause safely",async()=>{
+  await ready();
+  const input=screen.getByLabelText(text.columns.Units+" "+item.id);
+  fireEvent.change(input,{target:{value:"7"}});
+  mock.mode.mockRejectedValue(new RebalanceError(409,text.uncertain));
+  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
+  await screen.findByText(text.uncertain);
+  expect(input).toHaveProperty("value","7");
+  expect(screen.getByText(text.save)).toHaveProperty("disabled",true);
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
+it("a successful mode save and display refresh preserve unsaved units and cash",async()=>{
+  await ready();
+  fireEvent.change(screen.getByLabelText(text.columns.Units+" "+item.id),{target:{value:"7"}});
+  fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"17"}});
+  mock.mode.mockResolvedValue({revision:2,payload:{rebalance_allocation_mode:"biggest_gap_first"}});
+  mock.request.mockResolvedValue({...state,workspace_revision:2,allocation_mode:"biggest_gap_first"});
+  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
+  await waitFor(()=>expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("disabled",false));
+  expect(screen.getByLabelText(text.columns.Units+" "+item.id)).toHaveProperty("value","7");
+  expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
+  expect(mock.save).not.toHaveBeenCalled();
 });

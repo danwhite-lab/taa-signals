@@ -185,16 +185,42 @@ including funds not present in the selected targets. New money is additional
 cash, not a replacement for account value. Existing unallocated cash is also
 included in the available purchase budget and shown explicitly.
 
-Target values use account value plus the new deposit. Continuous funding first
-narrows the largest positive ILS shortfalls; whole-unit allocation and feasible
-minimum order lots follow without overshooting a fund's target shortfall or
-the available budget. Unknown broker minimums are marked not configured. A
-minimum commission is never treated as a minimum purchase. Infeasible cash
-remains unallocated. Whole-unit costs retain their actual decimal precision;
-the UI does not round per-unit prices to whole shekels before sizing.
-A small deposit may all go to the largest shortfall while other funds remain
-underweight. This is not a fixed-weight split of every deposit. Single-order
-results have a short explanatory note; the allocation calculation is unchanged.
+Target values use account value plus the new deposit. The allocation-mode
+choice is saved as `rebalance_allocation_mode` in the existing revision-checked
+workspace preferences, alongside `rebalance_portfolio_id`. Only an absent key
+defaults to **Proportional to gaps** (`proportional`); unknown values, including
+null, fail closed with the same clear validation error on save and load.
+
+**Proportional to gaps** computes positive post-deposit gaps once. Each fund's
+share is `min(gap, budget × gap / sum(positive gaps))`. Divide that share by the
+actual whole-unit cost (including the existing dated FX for USD funds) and round
+down to whole units. An order must fit its own share, its own gap and the optional
+minimum order amount. There is no leftover redistribution loop. If the priced
+eligible gaps are fully funded and cash remains, that extra also stays cash.
+
+**Biggest gap first** (`biggest_gap_first`) preserves the existing water-fill
+and leftover-allocation calculation. It first narrows the largest positive ILS
+shortfalls, then allocates feasible whole-unit purchases without exceeding the
+gap or budget. In this mode, a small deposit may all go to the largest shortfall
+while other funds remain underweight: it is not a fixed-weight split of every
+deposit. Its single-order explanation is restricted to this mode.
+
+Both modes use the same minimum semantics: an optional user-entered minimum
+**order amount in ILS** (`minimum_ils`) is converted to
+`max(1, ceil(minimum_ils / unit_cost_ils))` units. This is not a lot-size
+multiple. A broker's minimum commission is never a minimum purchase. Unknown
+minimum order amounts remain not configured. Actual decimal per-unit precision,
+freshness checks, dated manual-price rules, buy-only behavior and outside-holding
+exclusion are unchanged.
+
+Proportional results show each fund's unspent share and its whole-unit cost.
+`unspent_by_fund` and `unit_costs_ils` are display-only plan data, never saved
+workspace/account fields. All unused money remains **pooled account cash**,
+not earmarked or reserved for any fund. Recording uses actual confirmed spend;
+the next budget is that remaining cash plus the next deposit, counted once.
+Shares are recalculated from the then-current holdings, gaps, prices and budget.
+There is no guarantee that any fund's unit will become affordable later. No
+per-fund reserves, new account fields, ledgers, tables or schema are introduced.
 
 Quoted costs exclude automatically modeled commissions/spreads. Users should
 allow a cash buffer. After trading, enter actual units purchased and actual ILS
@@ -206,7 +232,7 @@ cannot exceed available cash. Done records those confirmed units and remaining
 cash, not an assumed fill at the indicative quote. An empty order list does not
 show Record these buys; unallocated account cash remains editable in holdings.
 
-Holdings, target, quote, FX, portfolio or budget changes invalidate a pending
+Holdings, target, quote, FX, portfolio, allocation-mode or budget changes invalidate a pending
 plan. A unique operation ID and the updated book are saved in the same
 revision-checked workspace write. A lost response triggers readback of that
 exact book, not a repeated mutation. Another-device conflicts stop saves and

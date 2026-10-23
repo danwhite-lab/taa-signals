@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from .allocation_mode import validate_allocation_mode
 
 FIELDS = {
     'model_name', 'signals_model_name', 'research_model_name',
@@ -20,7 +21,7 @@ FIELDS = {
     'portfolio_compare_tax', 'portfolio_compare_tax_rate',
     'mixed_rebalance_cap', 'mixed_rebalance_rule', 'mixed_rebalance_sleeve', 'mixed_rebalance_target',
     'substitution_mode',
-    'holdings_account', 'rebalance_portfolio_id',
+    'holdings_account', 'rebalance_portfolio_id', 'rebalance_allocation_mode',
 }
 
 
@@ -31,6 +32,8 @@ def _encode(value):
 
 
 def snapshot(state):
+    if 'rebalance_allocation_mode' in state:
+        validate_allocation_mode(state['rebalance_allocation_mode'])
     result = {}
     for key in FIELDS:
         if key in state:
@@ -44,6 +47,8 @@ def snapshot(state):
 def restore(payload):
     if not isinstance(payload, dict):
         return {}
+    if 'rebalance_allocation_mode' in payload:
+        validate_allocation_mode(payload['rebalance_allocation_mode'])
     def decode(value):
         if isinstance(value, dict):
             if set(value) == {'__date__'}:

@@ -11,6 +11,14 @@ from haa.model_catalog import MODEL_CATALOG
 from haa.portfolio_config import backtest_portfolio_config, portfolio_transfer_config
 from haa.rebalance_holdings import validate_account
 from haa.workspace_sync import FIELDS
+from haa.allocation_mode import DEFAULT_ALLOCATION_MODE, validate_allocation_mode
+
+
+def checked_allocation_mode(payload, status=400):
+    try:
+        return validate_allocation_mode(payload.get("rebalance_allocation_mode", DEFAULT_ALLOCATION_MODE))
+    except ValueError as exc:
+        raise HTTPException(status, str(exc)) from None
 
 router = APIRouter()
 
@@ -69,9 +77,11 @@ def me(session=Depends(authenticated)):
 @router.get("/api/workspace")
 def workspace(session=Depends(authenticated)):
     try:
-        return sync.load_workspace(*public_config(), session) or {"revision": 0, "payload": {}}
+        result = sync.load_workspace(*public_config(), session) or {"revision": 0, "payload": {}}
     except Exception:
         raise failure() from None
+    checked_allocation_mode(result["payload"])
+    return result
 
 
 @router.put("/api/workspace")
@@ -86,6 +96,7 @@ def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
         raise failure() from None
     # Patch only supplied preferences. Preserve holdings and all unmigrated settings.
     payload = {**remote["payload"], **body.payload}
+    checked_allocation_mode(payload, status=422)
     holdings_changed = ("holdings_account" in body.payload and
                         body.payload["holdings_account"] != remote["payload"].get("holdings_account"))
     if "holdings_account" in body.payload:

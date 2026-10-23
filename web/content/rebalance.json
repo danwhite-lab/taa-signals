@@ -1,6 +1,11 @@
 {
   "title": "Rebalance Holdings",
   "newMoney": "New money (₪)",
+  "allocationMode": "Allocation mode",
+  "allocationUncertain": "Allocation mode save could not be confirmed. Reload before trying again; this request changes only the allocation preference.",
+  "allocationModes": {"proportional": "Proportional to gaps", "biggest_gap_first": "Biggest gap first"},
+  "pooledCash": "Unspent money stays in your cash balance, is not reserved for any fund, and is divided again by the gaps next time. Whole-unit and minimum-order limits apply in both modes.",
+  "unspentShare": "{fund}: ₪{unspent} of this plan's share was not spent (one unit costs ₪{cost})",
   "generate": "What to buy",
   "holdings": "Your shared holdings",
   "editorCaption": "Edit Value or Units; the last field edited sets the holding. Values are ₪ for ILS funds and $ for US funds; units are saved. TASE value entry rounds down to whole units; no difference is added to cash.",
