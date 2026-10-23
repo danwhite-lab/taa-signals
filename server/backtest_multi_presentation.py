@@ -54,6 +54,9 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     monthly_returns = pd.DataFrame({label: result.monthly[{"pre_tax_value": "pre_tax_monthly_return", "after_tax_value": "after_tax_monthly_return", "benchmark_value": "benchmark_monthly_return"}[column]] for label, column in mapping.items()})
     annual = pd.DataFrame({label: annual_returns(monthly_returns[label]) for label in monthly_returns})
     captions, warnings, downloads, extra_tables, extra_charts = [], ([base.MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []), {}, [], []
+    if not proxy:
+        warnings += [risk for sleeve in request.sleeves
+                     if (risk := getattr(base.definition(sleeve.model).model_class, "risk_warning", None))]
 
     def download(kind, frame, filename, label, index=True, raw=False):
         downloads[kind] = {"csv": frame if raw else frame.to_csv(index=index), "filename": filename, "label": label}

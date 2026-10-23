@@ -226,6 +226,46 @@ class BuyAndHoldHarelBondsIsrael(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldNasdaq3xMonthlyIsrael(BuyAndHoldSPY):
+    """Continuous holding of MTF Nasdaq-100 x3 Monthly, TASE ETF 1187079."""
+
+    name = "Buy and Hold Nasdaq-100 x3 Monthly Israel"
+    holding_asset = "NASDAQ_X3_MONTHLY_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    risk_warning = "3x leveraged fund with a monthly leverage reset: held continuously through all falls; it can lose most or all of its value."
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-nasdaq-x3-monthly-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold MTF Nasdaq-100 x3 Monthly 1187079 continuously in ILS; USD exposure from the underlying."),),
+        execution=ExecutionSpec("continuous", "MTF 1187079 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes="Actual TASE/Maya history of MTF 1187079 only. No QQQ, TQQQ, TA-125 index or any other proxy history is spliced in; no pre-fund extension or forward fill. Fund management expenses are embedded in prices and not deducted again. History starts at whatever the public endpoint actually returns.",
+    )
+
+
+class BuyAndHoldTA125x3Israel(BuyAndHoldSPY):
+    """Continuous holding of Ayalon Extreme TA-125 x3, Maya fund 5117684."""
+
+    name = "Buy and Hold TA-125 x3 Israel"
+    holding_asset = "TA125_X3_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    risk_warning = "3x leveraged fund: held continuously through all falls; it can lose most or all of its value. Its purchase entry fee (about 0.4% as of October 2026) is not reflected in the price series or modeled here, so real results with repeated purchases would be modestly worse than shown."
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-ta125-x3-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Ayalon Extreme TA-125 x3 fund 5117684 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "Ayalon 5117684 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes="Actual TASE/Maya redemption-price history of Ayalon 5117684 only. No QQQ, TQQQ, TA-125 index or any other proxy history is spliced in; no pre-fund extension or forward fill. Fund management expenses are embedded in prices and not deducted again. History starts at whatever the public endpoint actually returns. The purchase entry fee is not modeled; see the risk warning.",
+    )
+
+
 class BuyAndHoldACWI:
     """Continuous iShares MSCI ACWI ETF holding."""
 

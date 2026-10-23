@@ -205,3 +205,46 @@ it("a successful mode save and display refresh preserve unsaved units and cash",
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
   expect(mock.save).not.toHaveBeenCalled();
 });
+
+it("groups each main control once above the editor and keeps Advanced closed initially",async()=>{
+  await ready();
+  const controls=screen.getByRole("group",{name:text.controls});
+  const editor=screen.getByRole("list",{name:text.holdings});
+  expect(controls.compareDocumentPosition(editor)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for(const caption of [text.newMoney,text.cash,text.allocationMode]){
+    expect(screen.getAllByLabelText(caption)).toHaveLength(1);
+    expect(within(controls).getByLabelText(caption)).toBeTruthy();
+  }
+  for(const caption of [text.save,text.generate]){
+    expect(screen.getAllByRole("button",{name:caption})).toHaveLength(1);
+    expect(within(controls).getByRole("button",{name:caption}).classList.contains("btn-primary")).toBe(true);
+  }
+  const advanced=screen.getByText(text.advanced).closest("details")!;
+  expect(advanced.open).toBe(false);
+  for(const caption of [text.reload,text.previewAction]){
+    expect(screen.getAllByRole("button",{name:caption,hidden:true})).toHaveLength(1);
+    expect(within(advanced).getByText(caption)).toBeTruthy();
+  }
+  expect(within(advanced).getByText(text.fx)).toBeTruthy();
+  expect(within(advanced).getByText(text.automaticCaption)).toBeTruthy();
+  fireEvent.click(screen.getByText(text.advanced));
+  expect(advanced.open).toBe(true);
+  const holding=screen.getByRole("listitem",{name:item.label});
+  expect(within(holding).getByText(text.manualCaption).closest(".holding-price-editor")).toBeTruthy();
+  expect(screen.getAllByText(text.manualCaption)).toHaveLength(1);
+});
+
+it("Advanced retains the existing unsaved reload confirmation and preview flow",async()=>{
+  await ready(); fireEvent.click(screen.getByText(text.advanced));
+  fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"17"}});
+  const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
+  const before=mock.request.mock.calls.length;
+  fireEvent.click(screen.getByText(text.reload));
+  expect(confirm).toHaveBeenCalledWith(text.reloadConfirm);
+  expect(mock.request.mock.calls).toHaveLength(before);
+  expect(screen.getByText(text.generate)).toHaveProperty("disabled",true);
+  fireEvent.click(screen.getByText(text.previewAction));
+  await screen.findByText(text.preview);
+  expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
+  expect(mock.save).not.toHaveBeenCalled();
+});

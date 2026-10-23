@@ -1,5 +1,7 @@
 {
   "title": "Rebalance Holdings",
+  "advanced": "Advanced",
+  "controls": "Holdings controls",
   "newMoney": "New money (₪)",
   "allocationMode": "Allocation mode",
   "allocationUncertain": "Allocation mode save could not be confirmed. Reload before trying again; this request changes only the allocation preference.",

@@ -100,26 +100,52 @@ export default function RebalanceHoldings() {
     {busy && <p role="status">{state ? text.working : text.loading}</p>}
     {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
     {paused && <p role="alert">{text.paused}</p>}
-    <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
+
+    {!state && <details><summary>{text.advanced}</summary>
+      <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
+    </details>}
     {state && <>
-      <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
-      <label>{text.allocationMode}<select value={state.allocation_mode} disabled={busy || paused} onChange={event => {
-        const mode = event.target.value as AllocationMode;
-        invalidate();
-        void action(async () => {
-          const saved = await saveAllocationMode(state.workspace_revision, mode);
-          setState(previous => previous && ({ ...previous, workspace_revision: saved.revision, allocation_mode: mode }));
-          await refresh(portfolio, false);
-        });
-      }}>{Object.entries(text.allocationModes).map(([key, caption]) => <option key={key} value={key}>{caption}</option>)}</select></label>
-      <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
-        const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
-      })}>{text.generate}</button>
-      {dirty && <p>{text.unsaved}</p>}{changed && <p>{text.changed}</p>}
+
       {!!state.blocked.length && <p className="signal-warning">{text.missing} {state.blocked.map(key => state.instruments[key].label).join(", ")}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
       {!state.fx.fresh && <p>{text.fxMissing}</p>}
       <section><h2>{text.holdings}</h2><p>{text.editorCaption}</p><p>{text.addCaption}</p>
+        <div className="rebalance-controls" role="group" aria-label={text.controls}>
+          <div className="rebalance-control-fields">
+            <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
+            <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
+            <label>{text.allocationMode}<select value={state.allocation_mode} disabled={busy || paused} onChange={event => {
+              const mode = event.target.value as AllocationMode;
+              invalidate();
+              void action(async () => {
+                const saved = await saveAllocationMode(state.workspace_revision, mode);
+                setState(previous => previous && ({ ...previous, workspace_revision: saved.revision, allocation_mode: mode }));
+                await refresh(portfolio, false);
+              });
+            }}>{Object.entries(text.allocationModes).map(([key, caption]) => <option key={key} value={key}>{caption}</option>)}</select></label>
+
+          </div>
+      {dirty && <p>{text.unsaved}</p>}{changed && <p>{text.changed}</p>}
+          <div className="rebalance-control-actions">
+            <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+            <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
+              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
+            })}>{text.generate}</button>
+
+          </div>
+          <details><summary>{text.advanced}</summary>
+            <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
+            <p>{text.automaticCaption}</p>
+            <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
+            {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
+              <div className="signal-table-scroll"><table><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
+                <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></div></section>}
+
+            <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
+              <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
+
+          </details>
+        </div>
         <details><summary>{text.add}</summary>
           <label>{text.known}<select value={known} disabled={busy} onChange={event => setKnown(event.target.value)}><option value="">—</option>
             {Object.values(state.instruments).sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" })).map(item => <option key={item.id} value={item.id}>{item.label} · {item.currency} · {item.id}</option>)}</select></label>
@@ -134,15 +160,7 @@ export default function RebalanceHoldings() {
           {rows.map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
-        <p>{text.automaticCaption}</p><p>{text.manualCaption}</p>
-        <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
-        {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
-          <div className="signal-table-scroll"><table><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
-            <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></div></section>}
-        <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
-        <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
-          <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
-        <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+
       </section>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
