@@ -10,6 +10,37 @@ import Portfolio from "../app/portfolio/page";
 const payload = { version: 1, name: "Fake portfolio", sleeves: [{ model: "Buy and Hold SPY", weight: 100 }], total_ils: 100, ils_per_usd: 4 };
 const saved = { id: "fake-id", name: "Fake portfolio", payload, updated_at: "mock-timestamp", is_default: true };
 afterEach(() => { cleanup(); calls.api.mockReset(); vi.restoreAllMocks(); });
+it("groups settings above sleeves and derives visibility from the draft, not the add picker",async()=>{
+  mockLoad(); const original=calls.api.getMockImplementation()!;
+  const daily="A-RVol Shifter V3 Cash-Only Israel";
+  calls.api.mockImplementation(async(path,init)=>path==="/api/backtest/config?mode=portfolio"
+    ?{models:[{label:"Buy and Hold SPY",signal_mode:"internal"},{label:daily,signal_mode:"daily"}]}:original(path,init));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
+  await waitFor(()=>expect(screen.getByLabelText("Model to add")).toHaveProperty("disabled",false));
+  const settings=screen.getByRole("group",{name:"Portfolio settings"});
+  const table=screen.getByRole("table",{name:"Portfolio sleeves"});
+  expect(settings.compareDocumentPosition(table)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for(const label of ["Portfolio name","Model to add","Total capital (ILS)","ILS per USD rate"]) expect(within(settings).getByLabelText(label)).toBeTruthy();
+  expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+  const json=screen.getByLabelText("Portfolio JSON") as HTMLTextAreaElement;
+  expect(JSON.parse(json.value)).toEqual(payload);
+  fireEvent.change(screen.getByLabelText("Model to add"),{target:{value:daily}});
+  expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();expect(JSON.parse(json.value)).toEqual(payload);
+  fireEvent.click(screen.getByRole("button",{name:"Add sleeve"}));
+  expect(within(settings).getByLabelText("Sleeve transfer rule")).toHaveProperty("value","none");
+  expect(JSON.parse(json.value).transfer_rule).toBeUndefined();
+  fireEvent.click(screen.getByRole("button",{name:"Remove "+daily+" (row 2)"}));
+  expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+  for(const rule of [{mode:"none"},{mode:"annual_target",extra:1.23456789},{mode:"unknown"},{mode:"rvol_cap",sleeve_model:daily,cap_percent:22,target_percent:11},null]){
+    fireEvent.change(json,{target:{value:JSON.stringify({...payload,transfer_rule:rule})}});
+    if(rule?.mode==="none") expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+    else expect(within(settings).getByLabelText("Sleeve transfer rule")).toBeTruthy();
+    expect(JSON.parse(json.value).transfer_rule).toEqual(rule);
+  }
+  fireEvent.change(json,{target:{value:JSON.stringify({...payload,sleeves:[{model:"Unknown model",weight:100}]})}});
+  expect(screen.getByLabelText("Sleeve transfer rule")).toBeTruthy();
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
+});
 
 function mockLoad() {
   calls.api.mockImplementation(async (path: string, init?: RequestInit) => {
@@ -330,8 +361,11 @@ it('retries a failed model list without losing the editable draft',async()=>{
 });
 
 it('defaults legacy portfolios to no transfers and stores that rule on save',async()=>{
-  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
-  expect(screen.getByLabelText('Sleeve transfer rule')).toHaveProperty('value','none');
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  calls.api.mockImplementation(async(path,init)=>path==="/api/backtest/config?mode=portfolio"
+    ?{models:[{label:"Buy and Hold SPY",signal_mode:"internal"}]}:original(path,init));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  expect(screen.queryByLabelText('Sleeve transfer rule')).toBeNull();
   expect(JSON.parse((screen.getByLabelText('Portfolio JSON') as HTMLTextAreaElement).value).transfer_rule).toBeUndefined();
   fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
   const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;

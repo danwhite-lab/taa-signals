@@ -5,6 +5,7 @@ import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
+import words from "../../content/portfolio.json";
 import transferWords from "../../content/backtest-multi.json";
 import { byLabel, savedOrder } from "../../lib/ui-order";
 
@@ -63,8 +64,8 @@ function NumberField({ label, value, disabled, decimals, onChange }: { label: st
     }} />;
 }
 
-function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelsError, reloadModels, changeName, changePayload }:
-  { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelsError: string;
+function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelModes, modelsError, reloadModels, changeName, changePayload }:
+  { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelModes: Record<string, string | undefined>; modelsError: string;
     reloadModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
@@ -80,6 +81,10 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
   const ruleMode = typeof rule?.mode === 'string' ? rule.mode : '';
   const ruleError = payload ? transferError(payload) : null;
   const rvolModels = sleeves?.filter(row => row.name.includes('RVol')).map(row => row.name) ?? [];
+  const uncertainModels = !payload || !sleeves || models === null || !!modelsError
+    || sleeves.some(row => !models.includes(row.name) || !["daily", "internal", "external"].includes(modelModes[row.name] ?? ""));
+  const hasDaily = sleeves?.some(row => modelModes[row.name] === "daily");
+  const showTransfer = uncertainModels || hasDaily || !!ruleError || ruleMode !== "none";
   function editRule(patch: Record<string, unknown>) {
     if (payload) changePayload({ ...payload, transfer_rule: { ...(rule ?? {}), ...patch } });
   }
@@ -88,14 +93,27 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
     <h2>{name.trim() || "Name not entered"}</h2>
     {(isDefault || defaultOnSave) && <span className={styles.badge}>{isDefault ? "Default" : "Default on save"}</span>}
     {!payload && <p role="alert">Summary unavailable: enter valid Portfolio JSON below. Your draft has not been changed.</p>}
+    <div className={styles.settings} role="group" aria-label={words.settings}>
     <label>Portfolio name<input value={name} maxLength={80} disabled={disabled} onChange={event => changeName(event.target.value)} /></label>
+    <div className={styles.modelSetting}>    {modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
+    <div className={styles.addSleeve}>
+      <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
+        value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
+        <option value="">Choose a model</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
+      </select></label>
+      <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
+        editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
+      }}>+</button>
+    </div>
+    {available.includes(adding) && <p>{adding}</p>}
+    <p>New sleeves start at 0%. Enter a positive weight before saving; other weights are left unchanged.</p></div>
     <div className={styles.metadata}>
       <label>Total capital (ILS)<NumberField label="Total capital (ILS)" value={capital} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, total_ils: value })} /></label>
       <label>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, ils_per_usd: value })} /></label>
     </div>
-    <fieldset className={styles.transfer} disabled={disabled || !payload}>
+    {showTransfer && <fieldset className={styles.transfer} disabled={disabled || !payload}>
       <legend>{transferWords.rule}</legend>
       <label>{transferWords.rule}<select value={ruleMode} onChange={event => {
         if (event.target.value === 'rvol_cap') editRule({ mode:'rvol_cap', sleeve_model: rule?.sleeve_model ?? null,
@@ -112,14 +130,17 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
           {typeof rule?.sleeve_model === 'string' && !rvolModels.includes(rule.sleeve_model) && <option value={rule.sleeve_model}>Stored sleeve unavailable — choose another</option>}
           {[...new Set(rvolModels)].map(model => <option key={model} value={model}>{model}</option>)}
         </select></label>
+        {typeof rule?.sleeve_model === "string" && <p>{rule.sleeve_model}</p>}
         <label>{transferWords.cap}<NumberField label={transferWords.cap} value={numeric(rule?.cap_percent)} disabled={disabled || !payload}
           onChange={value => editRule({ cap_percent:value })}/></label>
         <label>{transferWords.target}<NumberField label={transferWords.target} value={numeric(rule?.target_percent)} disabled={disabled || !payload}
           onChange={value => editRule({ target_percent:value })}/></label>
       </>}
-      <p>{transferWords.mixedCaption}</p>
+      <p>{words.transferCaption}</p>
+      {!uncertainModels && !hasDaily && ["rvol_cap", "annual_target"].includes(ruleMode) && <p>{words.retainedRule}</p>}
       {ruleError && <p role="alert">{ruleError}</p>}
-    </fieldset>
+    </fieldset>}
+    </div>
     {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Remove</th></tr></thead>
       <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>
@@ -130,17 +151,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td><td /></tr></tfoot>
     </table></div> : <p>Sleeve summary unavailable: enter a sleeve list in Portfolio JSON.</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
-    {modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
-    <div className={styles.addSleeve}>
-      <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
-        value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
-        <option value="">Choose a model</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
-      </select></label>
-      <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
-        editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
-      }}>+</button>
-    </div>
-    <p>New sleeves start at 0%. Enter a positive weight before saving; other weights are left unchanged.</p>
+
   </section>;
 }
 
@@ -158,6 +169,7 @@ export default function Portfolio() {
   const [email, setEmail] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [models, setModels] = useState<string[] | null>(null);
+  const [modelModes, setModelModes] = useState<Record<string, string | undefined>>({});
   const [modelsError, setModelsError] = useState("");
   const inFlight = useRef(false);
   const dirty = name !== (selected?.name ?? "") || json !== (selected ? JSON.stringify(selected.payload, null, 2) : "")
@@ -174,8 +186,9 @@ export default function Portfolio() {
   async function loadModels() {
     setModelsError("");
     try {
-      const config = await api<{ models: { label: string }[] }>("/api/backtest/config?mode=portfolio");
+      const config = await api<{ models: { label: string; signal_mode?: string }[] }>("/api/backtest/config?mode=portfolio");
       setModels([...new Set(config.models.map(model => model.label))]);
+      setModelModes(Object.fromEntries(config.models.map(model => [model.label, model.signal_mode])));
     } catch { setModelsError("Available models could not be loaded. Existing drafts are unchanged."); }
   }
   useEffect(() => { void loadModels(); }, []);
@@ -264,7 +277,7 @@ export default function Portfolio() {
         <span className="row-name" title={item.name}>{item.name}</span>{item.is_default && <span className="list-tag">Default</span>}<small className="list-date">Updated {date(item.updated_at)}</small></button></li>)}</ul>
     </section>
     {(selected || json) && <PortfolioSummary key={selected?.id ?? 'new'} name={name} json={json} isDefault={selected?.is_default ?? false}
-      defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
+      defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelModes={modelModes} modelsError={modelsError} reloadModels={() => void loadModels()}
       changeName={changeName} changePayload={payload => setJson(JSON.stringify(payload, null, 2))}/>}
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>
       {selected && <p role="status">Loaded: {selected.name}</p>}
