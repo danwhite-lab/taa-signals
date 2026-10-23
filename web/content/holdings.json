@@ -6,8 +6,6 @@
   "outside": "Outside the rebalance",
   "remove": "Remove",
   "removeFund": "Remove {fund}",
-  "undo": "Undo removal: {fund}",
-  "removalPending": "Removed when you save",
   "editPrice": "Edit price",
   "source": "source",
   "stale": "Stale",

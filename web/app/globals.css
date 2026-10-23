@@ -219,7 +219,6 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-page table { width: 100%; table-layout: fixed; }
 .rebalance-page input, .rebalance-page select { box-sizing: border-box; width: 100%; min-width: 0; }
 .rebalance-page input[type="checkbox"] { width: auto; }
-.rebalance-page .holding-remove small { display: block; font-size: .8rem; }
 .rebalance-page label > input:not([type="checkbox"]) { display: block; margin-top: 7px; min-height: 38px; }
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .holdings-editor { margin-top: 20px; min-width: 0; }

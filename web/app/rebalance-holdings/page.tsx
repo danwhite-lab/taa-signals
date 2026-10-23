@@ -39,6 +39,7 @@ export default function RebalanceHoldings() {
     .sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" }));
   const identity = (item: Instrument) => [item.market, item.identifier, item.currency].join(" · ");
   const inFlight = useRef(false); const generation = useRef(0);
+  const holdingsHeading = useRef<HTMLHeadingElement>(null);
 
   function invalidate(edit = false) {
     generation.current++; if (plan) setChanged(true); setPlan(null); setRecording(false); setAck(false); setPreview(null); setError(""); setMessage("");
@@ -60,6 +61,7 @@ export default function RebalanceHoldings() {
   }
   useEffect(() => { void action(load); }, []);
   function edit(key: string, field: string, value: string | boolean) {
+    if (field === "Remove" && value === true) holdingsHeading.current?.focus({ preventScroll: true });
     invalidate(true); setRows(previous => previous.map(row => row.Security === key ? { ...row, [field]: value,
       ...(field === "Units" ? { "Enter as": "Units", "Units edited": true } : field === "Value (₪ / $)" ? { "Enter as": "Value" } : {}) } : row));
   }
@@ -89,7 +91,11 @@ export default function RebalanceHoldings() {
     }
   }
   async function add(item: Instrument) {
-    if (rows.some(row => row.Security === item.id) || rows.length >= 200) throw new Error(text.validation);
+    const existing = rows.find(row => row.Security === item.id);
+    if ((existing && !existing.Remove) || (!existing && rows.length >= 200)) throw new Error(text.validation);
+    if (existing) {
+      invalidate(true); setRows(previous => previous.map(row => row.Security === item.id ? { ...row, Remove: false } : row)); return;
+    }
     invalidate(true); setRows(previous => [...previous, { Security: item.id, Fund: item.label, Currency: item.currency, Units: "0", "Value (₪ / $)": "",
       "Outside the rebalance": false, "Enter as": "Units", "Manual price per unit": null, "Price date": null, "Minimum order (₪)": "0", Remove: false }]);
     setState(previous => previous && ({ ...previous, instruments: { ...previous.instruments, [item.id]: item } }));
@@ -116,10 +122,10 @@ export default function RebalanceHoldings() {
       {!!state.blocked.length && <p className="signal-warning">{text.missing} {state.blocked.map(key => state.instruments[key].label).join(", ")}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
       {!state.fx.fresh && <p>{text.fxMissing}</p>}
-      <section aria-label={text.holdings}><h2>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
+      <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
           <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.outside, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
-          {rows.map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit}
+          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
         <details><summary>{text.add}</summary>

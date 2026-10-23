@@ -69,6 +69,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
     reloadModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
+  const [ruleExpanded, setRuleExpanded] = useState(false);
   const sleeves = Array.isArray(payload?.sleeves) ? payload.sleeves.map(value => {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
     return { name: typeof row.model === "string" && row.model.trim() ? row.model : "Unavailable", weight: numeric(row.weight) };
@@ -84,7 +85,9 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
   const uncertainModels = !payload || !sleeves || models === null || !!modelsError
     || sleeves.some(row => !models.includes(row.name) || !["daily", "internal", "external"].includes(modelModes[row.name] ?? ""));
   const hasDaily = sleeves?.some(row => modelModes[row.name] === "daily");
-  const showTransfer = uncertainModels || hasDaily || !!ruleError || ruleMode !== "none";
+  const invalidRule = !payload || !!ruleError;
+  const panelOpen = ruleExpanded || invalidRule;
+  const ruleName = invalidRule ? words.invalidRule : words.ruleNames[ruleMode as keyof typeof words.ruleNames];
   function editRule(patch: Record<string, unknown>) {
     if (payload) changePayload({ ...payload, transfer_rule: { ...(rule ?? {}), ...patch } });
   }
@@ -105,15 +108,17 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
         editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
       }}>+</button>
     </div>
-    {available.includes(adding) && <p>{adding}</p>}
-    <p>New sleeves start at 0%. Enter a positive weight before saving; other weights are left unchanged.</p></div>
-    <div className={styles.metadata}>
+    </div>
       <label>Total capital (ILS)<NumberField label="Total capital (ILS)" value={capital} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, total_ils: value })} /></label>
-      <label>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
+      <label className={styles.fxSetting}>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, ils_per_usd: value })} /></label>
+      <button className={`btn btn-secondary ${styles.transferButton}`} type="button" disabled={disabled} aria-expanded={panelOpen}
+        aria-controls="portfolio-transfer-panel" onClick={() => { if (!invalidRule) setRuleExpanded(open => !open); }}>
+        {words.transferButton}: {ruleName}
+      </button>
     </div>
-    {showTransfer && <fieldset className={styles.transfer} disabled={disabled || !payload}>
+    {panelOpen && <fieldset id="portfolio-transfer-panel" className={styles.transfer} disabled={disabled || !payload}>
       <legend>{transferWords.rule}</legend>
       <label>{transferWords.rule}<select value={ruleMode} onChange={event => {
         if (event.target.value === 'rvol_cap') editRule({ mode:'rvol_cap', sleeve_model: rule?.sleeve_model ?? null,
@@ -130,17 +135,14 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
           {typeof rule?.sleeve_model === 'string' && !rvolModels.includes(rule.sleeve_model) && <option value={rule.sleeve_model}>Stored sleeve unavailable — choose another</option>}
           {[...new Set(rvolModels)].map(model => <option key={model} value={model}>{model}</option>)}
         </select></label>
-        {typeof rule?.sleeve_model === "string" && <p>{rule.sleeve_model}</p>}
         <label>{transferWords.cap}<NumberField label={transferWords.cap} value={numeric(rule?.cap_percent)} disabled={disabled || !payload}
           onChange={value => editRule({ cap_percent:value })}/></label>
         <label>{transferWords.target}<NumberField label={transferWords.target} value={numeric(rule?.target_percent)} disabled={disabled || !payload}
           onChange={value => editRule({ target_percent:value })}/></label>
       </>}
-      <p>{words.transferCaption}</p>
       {!uncertainModels && !hasDaily && ["rvol_cap", "annual_target"].includes(ruleMode) && <p>{words.retainedRule}</p>}
       {ruleError && <p role="alert">{ruleError}</p>}
     </fieldset>}
-    </div>
     {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Remove</th></tr></thead>
       <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>

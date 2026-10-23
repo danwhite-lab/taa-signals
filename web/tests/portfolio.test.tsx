@@ -10,36 +10,63 @@ import Portfolio from "../app/portfolio/page";
 const payload = { version: 1, name: "Fake portfolio", sleeves: [{ model: "Buy and Hold SPY", weight: 100 }], total_ils: 100, ils_per_usd: 4 };
 const saved = { id: "fake-id", name: "Fake portfolio", payload, updated_at: "mock-timestamp", is_default: true };
 afterEach(() => { cleanup(); calls.api.mockReset(); vi.restoreAllMocks(); });
-it("groups settings above sleeves and derives visibility from the draft, not the add picker",async()=>{
-  mockLoad(); const original=calls.api.getMockImplementation()!;
-  const daily="A-RVol Shifter V3 Cash-Only Israel";
-  calls.api.mockImplementation(async(path,init)=>path==="/api/backtest/config?mode=portfolio"
-    ?{models:[{label:"Buy and Hold SPY",signal_mode:"internal"},{label:daily,signal_mode:"daily"}]}:original(path,init));
-  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
-  await waitFor(()=>expect(screen.getByLabelText("Model to add")).toHaveProperty("disabled",false));
+it("keeps one transfer button, hides helper lines, and opens invalid JSON rules without changing the draft",async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
   const settings=screen.getByRole("group",{name:"Portfolio settings"});
   const table=screen.getByRole("table",{name:"Portfolio sleeves"});
   expect(settings.compareDocumentPosition(table)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   for(const label of ["Portfolio name","Model to add","Total capital (ILS)","ILS per USD rate"]) expect(within(settings).getByLabelText(label)).toBeTruthy();
+  const button=screen.getByRole("button",{name:"Transfer rule: None"});
+  expect(button.getAttribute("aria-expanded")).toBe("false");
   expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
   const json=screen.getByLabelText("Portfolio JSON") as HTMLTextAreaElement;
   expect(JSON.parse(json.value)).toEqual(payload);
-  fireEvent.change(screen.getByLabelText("Model to add"),{target:{value:daily}});
-  expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();expect(JSON.parse(json.value)).toEqual(payload);
-  fireEvent.click(screen.getByRole("button",{name:"Add sleeve"}));
-  expect(within(settings).getByLabelText("Sleeve transfer rule")).toHaveProperty("value","none");
-  expect(JSON.parse(json.value).transfer_rule).toBeUndefined();
-  fireEvent.click(screen.getByRole("button",{name:"Remove "+daily+" (row 2)"}));
-  expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
-  for(const rule of [{mode:"none"},{mode:"annual_target",extra:1.23456789},{mode:"unknown"},{mode:"rvol_cap",sleeve_model:daily,cap_percent:22,target_percent:11},null]){
+  fireEvent.click(button);expect(screen.getByLabelText("Sleeve transfer rule")).toHaveProperty("value","none");
+  fireEvent.click(button);expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Model to add"),{target:{value:"Buy and Hold IEF"}});
+  expect(JSON.parse(json.value)).toEqual(payload);
+  expect(within(settings).queryByText("Buy and Hold IEF",{selector:"p"})).toBeNull();
+  expect(screen.queryByText(/New sleeves start at/)).toBeNull();
+  for(const rule of [{mode:"unknown"},{mode:"rvol_cap",sleeve_model:"A-RVol missing",cap_percent:20,target_percent:10},null]){
     fireEvent.change(json,{target:{value:JSON.stringify({...payload,transfer_rule:rule})}});
-    if(rule?.mode==="none") expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
-    else expect(within(settings).getByLabelText("Sleeve transfer rule")).toBeTruthy();
+    const invalid=screen.getByRole("button",{name:"Transfer rule: invalid"});
+    expect(invalid.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByLabelText("Sleeve transfer rule")).toHaveProperty("value",rule?.mode??"");
+    const alerts=screen.getAllByRole("alert").map(n=>n.textContent);
+    fireEvent.click(invalid);
+    expect(screen.getAllByRole("alert").map(n=>n.textContent)).toEqual(alerts);
     expect(JSON.parse(json.value).transfer_rule).toEqual(rule);
   }
-  fireEvent.change(json,{target:{value:JSON.stringify({...payload,sleeves:[{model:"Unknown model",weight:100}]})}});
-  expect(screen.getByLabelText("Sleeve transfer rule")).toBeTruthy();
   expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
+});
+
+it.each(["rvol_cap","annual_target"])("loads a valid active %s rule closed without rewriting it",async mode=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  const model="A-RVol Shifter V3 Cash-Only Israel";
+  const rule={mode,sleeve_model:model,cap_percent:20.12345678,target_percent:10.12345678,extra:"kept"};
+  const next={...payload,sleeves:[{model,weight:100}],transfer_rule:rule};
+  calls.api.mockImplementation(async(path,init)=>path==="/api/portfolios"?[{...saved,payload:next}]:original(path,init));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
+  const button=screen.getByRole("button",{name:mode==="rvol_cap"?"Transfer rule: Quarterly RVol cap":"Transfer rule: Annual reset"});
+  expect(button.getAttribute("aria-expanded")).toBe("false");expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+  expect(JSON.parse((screen.getByLabelText("Portfolio JSON") as HTMLTextAreaElement).value)).toEqual(next);
+  fireEvent.click(button);expect(screen.getByLabelText("Sleeve transfer rule")).toHaveProperty("value",mode);
+  fireEvent.click(button);expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+});
+
+it("pins an invalid stored rule open from initial load until explicitly repaired",async()=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  const rule={mode:"rvol_cap",sleeve_model:"A-RVol missing",cap_percent:20,target_percent:10};
+  calls.api.mockImplementation(async(path,init)=>path==="/api/portfolios"?[{...saved,payload:{...payload,transfer_rule:rule}}]:original(path,init));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText("Fake portfolio"));
+  const button=screen.getByRole("button",{name:"Transfer rule: invalid"});
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  const warning=screen.getByText("Select an existing RVol sleeve to cap. The stored selection is not changed automatically.");
+  fireEvent.click(button);expect(warning.isConnected).toBe(true);
+  fireEvent.click(screen.getByText("Save portfolio"));
+  expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
+  fireEvent.change(screen.getByLabelText("Sleeve transfer rule"),{target:{value:"none"}});
+  expect(JSON.parse((screen.getByLabelText("Portfolio JSON") as HTMLTextAreaElement).value).transfer_rule).toEqual({...rule,mode:"none"});
 });
 
 function mockLoad() {
@@ -376,6 +403,7 @@ it('edits and saves the quarterly cap with its model identity and precise parame
   mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   const base={...payload,sleeves:[{id:991,model:'A-RVol Shifter V3 Cash-Only',weight:20},{model:'Buy and Hold SPY',weight:80}]};
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(base)}});
+  fireEvent.click(screen.getByRole('button',{name:'Transfer rule: None'}));
   fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'rvol_cap'}});
   fireEvent.change(screen.getByLabelText('RVol sleeve to cap'),{target:{value:'A-RVol Shifter V3 Cash-Only'}});
   fireEvent.change(screen.getByLabelText('RVol cap (%)'),{target:{value:'17.5'}});
@@ -392,6 +420,7 @@ it('keeps transfer controls in sync with JSON and warns instead of retargeting a
   const rule={mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:22,target_percent:11};
   const next={...payload,sleeves:[{model:rule.sleeve_model,weight:10},{model:'Buy and Hold SPY',weight:90}],transfer_rule:rule};
   fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(next)}});
+  fireEvent.click(screen.getByRole('button',{name:'Transfer rule: Quarterly RVol cap'}));
   expect(screen.getByLabelText('Sleeve transfer rule')).toHaveProperty('value','rvol_cap');
   expect(screen.getByLabelText('RVol cap (%)')).toHaveProperty('value','22');
   expect(screen.getByLabelText('RVol reset target (%)')).toHaveProperty('value','11');
@@ -408,6 +437,7 @@ it('keeps transfer controls in sync with JSON and warns instead of retargeting a
 it('treats transfer edits as unsaved and refuses invalid cap parameters',async()=>{
   mockLoad();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
   render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  fireEvent.click(screen.getByRole('button',{name:'Transfer rule: None'}));
   fireEvent.change(screen.getByLabelText('Sleeve transfer rule'),{target:{value:'annual_target'}});
   fireEvent.click(screen.getByText('New portfolio'));expect(confirm).toHaveBeenCalledWith('Discard unsaved portfolio edits?');
   const next={...payload,sleeves:[{model:'A-RVol Shifter V3 Cash-Only',weight:100}],transfer_rule:{mode:'rvol_cap',sleeve_model:'A-RVol Shifter V3 Cash-Only',cap_percent:10,target_percent:20}};
