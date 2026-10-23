@@ -66,6 +66,7 @@ def known_instruments():
 
 
 def targets_for(workspace, portfolios, portfolio_id, account):
+    private.checked_allocation_mode(workspace["payload"])
     instruments, yahoo = known_instruments()
     instruments.update({k: {f: row[f] for f in ("id", "identifier", "market", "currency", "label")} for k, row in account["positions"].items()})
     options = {p["id"]: p for p in portfolios}
@@ -105,6 +106,7 @@ def targets_for(workspace, portfolios, portfolio_id, account):
 
 def snapshot(workspace, account, portfolios, request):
     started = perf_counter()
+    mode = private.checked_allocation_mode(workspace["payload"])
     portfolio, instruments, sources, targets, errors, source = targets_for(workspace, portfolios, request.portfolio_id, account)
     excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
     targets = rebalance_targets(account, targets)
@@ -145,7 +147,7 @@ def snapshot(workspace, account, portfolios, request):
     eligible = {k: w for k, w in targets.items() if k not in blocked}
     ready = bool(portfolio and not errors and total is not None and not held_blocked and rebalance_fx.get("fresh") and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
-    context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx,
+    context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account)}
     editor_rows = []
     for key in sorted(visible):
@@ -157,7 +159,7 @@ def snapshot(workspace, account, portfolios, request):
             "Manual price per unit": p.get("manual_price"), "Price date": p.get("manual_price_date"),
             "Minimum order (₪)": p.get("minimum_ils", "0"), "Remove": False})
     return {"workspace_revision": workspace["revision"], "account": account, "account_hash": fingerprint(account),
-        "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None,
+        "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
         "instruments": instruments, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
         "signals": sources, "errors": errors, "targets": targets, "eligible": eligible, "comparison": comparison,
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
@@ -270,7 +272,7 @@ def planned(state, request):
     if not state["ready"]:
         raise HTTPException(400, "A current valuation is required. Check the price and FX details.")
     return make_buy_plan(state["account"], state["instruments"], state["eligible"], state["quotes"],
-                         state["rebalance_fx"]["price"], request.new_money, state["context"])
+                         state["rebalance_fx"]["price"], request.new_money, state["context"], state["allocation_mode"])
 
 
 @router.post("/api/rebalance/plan")

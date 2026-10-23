@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
+from .allocation_mode import DEFAULT_ALLOCATION_MODE, validate_allocation_mode
 
 from .rebalance_holdings import (apply_purchases, combined_targets, compare_holdings, empty_account,
                                  fingerprint, make_buy_plan, number, rebalance_targets, security, validate_account)
@@ -432,7 +433,8 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     # does not alter account value; keep remaining target weights unchanged.
     eligible = {k: w for k, w in targets.items() if k not in blocked}
     ready = bool(portfolio and not errors and total is not None and not held_blocked and rebalance_fx.get("fresh") and eligible and not unsaved)
-    context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx,
+    allocation_mode = validate_allocation_mode(st.session_state.get("rebalance_allocation_mode", DEFAULT_ALLOCATION_MODE))
+    context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx, "allocation_mode": allocation_mode,
                "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state}
     pending = st.session_state.get("rebalance_pending")
     if pending and (pending["account_hash"] != fingerprint(account) or pending["context_hash"] != fingerprint(context)):
@@ -443,7 +445,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         generate = st.button("What to buy", key="rebalance_generate", disabled=not ready)
     if generate:
         try:
-            pending = make_buy_plan(account, instruments, eligible, quotes, rebalance_fx["price"], new_money, context)
+            pending = make_buy_plan(account, instruments, eligible, quotes, rebalance_fx["price"], new_money, context, allocation_mode)
             st.session_state["rebalance_pending"] = pending
             st.session_state.pop("rebalance_inputs_changed", None)
         except (ValueError, KeyError, TypeError):
@@ -466,7 +468,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             rows = [{"Fund": instruments[r["id"]]["label"], "Whole units to buy": r["units"], "Estimated cost (₪)": float(r["estimated_ils"])} for r in pending["orders"]]
             if rows:
                 st.dataframe(pd.DataFrame(rows).style.format({"Estimated cost (₪)": "{:,.2f}"}), hide_index=True, use_container_width=True)
-                if len(rows) == 1:
+                if len(rows) == 1 and allocation_mode == "biggest_gap_first":
                     st.caption("Buy-only funding prioritises the largest ₪ shortfalls, subject to whole units and minimum orders—not a fixed split of each deposit.")
             else:
                 st.caption("No whole-unit order fits the budget, targets and configured minimums.")

@@ -4,19 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import text from "../../content/rebalance.json";
 import holdings from "../../content/holdings.json";
 import HoldingEditorRow from "../../components/HoldingEditorRow";
-import { rebalanceRequest as request, saveHoldings, RebalanceError } from "../../lib/rebalanceApi";
+import { rebalanceRequest as request, saveHoldings, saveAllocationMode, type AllocationMode, RebalanceError } from "../../lib/rebalanceApi";
 import * as fmt from "../../lib/format";
 
 type Row = Record<string, string | boolean | null>;
 type Instrument = { id: string; identifier: string; market: string; currency: string; label: string };
 type Account = { revision: number; cash_ils: string; manual_fx?: string | null; manual_fx_date?: string | null; [key: string]: unknown };
 type Quote = Record<string, unknown>;
-type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null;
+type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
   portfolios: { id: string; name: string }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string }[];
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
   held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
-type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string };
+type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
 
@@ -103,6 +103,15 @@ export default function RebalanceHoldings() {
     <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
     {state && <>
       <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
+      <label>{text.allocationMode}<select value={state.allocation_mode} disabled={busy || paused} onChange={event => {
+        const mode = event.target.value as AllocationMode;
+        invalidate();
+        void action(async () => {
+          const saved = await saveAllocationMode(state.workspace_revision, mode);
+          setState(previous => previous && ({ ...previous, workspace_revision: saved.revision, allocation_mode: mode }));
+          await refresh(portfolio, false);
+        });
+      }}>{Object.entries(text.allocationModes).map(([key, caption]) => <option key={key} value={key}>{caption}</option>)}</select></label>
       <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
         const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
       })}>{text.generate}</button>
@@ -140,7 +149,13 @@ export default function RebalanceHoldings() {
         {state.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
       {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
         {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
-        {plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
+        {state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
+        {state.allocation_mode === "proportional" && <>
+          {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
+            <p key={key}>{text.unspentShare.replace("{fund}", state.instruments[key].label).replace("{unspent}", fmt.cell(value, "cash"))
+              .replace("{cost}", fmt.cell(plan.unit_costs_ils?.[key], "price"))}</p>)}
+          <p>{text.pooledCash}</p>
+        </>}
         {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
         {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>

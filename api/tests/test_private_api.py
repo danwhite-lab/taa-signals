@@ -59,6 +59,18 @@ def test_cas_race_returns_conflict(signed_in, monkeypatch):
     assert client.put("/api/workspace", headers=HEADERS, json={"revision": 1, "payload": {"portfolio_name": "Fake"}}).status_code == 409
 
 
+def test_allocation_preference_patch_uses_existing_cas_without_reservations(signed_in,monkeypatch):
+    remote={"revision":3,"payload":{"rebalance_portfolio_id":"fake","holdings_account":empty_account()}}
+    monkeypatch.setattr(private.sync,"load_workspace",lambda *a:deepcopy(remote))
+    save=MagicMock(return_value=4)
+    monkeypatch.setattr(private.sync,"save_workspace",save)
+    response=client.put("/api/workspace",headers=HEADERS,json={"revision":3,"payload":{"rebalance_allocation_mode":"proportional"}})
+    assert response.status_code==200
+    assert save.call_args.args[-2]=={**remote["payload"],"rebalance_allocation_mode":"proportional"}
+    assert client.put("/api/workspace",headers=HEADERS,json={"revision":3,"payload":{"unspent_by_fund":{"fake":"10"}}}).status_code==422
+    assert save.call_count==1
+
+
 def test_holdings_lost_response_and_retry_do_not_apply_twice(signed_in, monkeypatch):
     remote = {"revision": 1, "payload": {"portfolio_name": "Fake"}}
     account = empty_account()

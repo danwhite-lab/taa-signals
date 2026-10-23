@@ -15,7 +15,7 @@ def rebalance_account(account, monkeypatch):
     instrument = security('GLD', 'US')
     book = empty_account()
     book['positions'][instrument['id']] = {**instrument, 'units': '5'}
-    remote = {'revision': 1, 'payload': {'holdings_account': book}}
+    remote = {'revision': 1, 'payload': {'holdings_account': book, 'rebalance_allocation_mode': 'biggest_gap_first'}}
     monkeypatch.setattr(sync, 'load_workspace', lambda *a: deepcopy(remote))
     def save(url, key, session, payload, revision):
         if revision != remote['revision']:
@@ -697,3 +697,14 @@ def test_single_order_explanation_does_not_appear_before_a_buy_list(rebalance_ac
     button(app, 'What to buy').click().run()
     assert len(app.session_state['rebalance_pending']['orders']) == 1
     assert any('largest ₪ shortfalls' in c.value for c in app.caption)
+
+
+def test_legacy_ui_passes_persisted_proportional_choice_to_shared_allocator(rebalance_account):
+    rebalance_account["payload"]["rebalance_allocation_mode"]="proportional"
+    app=visit()
+    app.number_input(key="rebalance_new_money").set_value(100.).run()
+    button(app,"What to buy").click().run()
+    assert not app.exception
+    pending=app.session_state["rebalance_pending"]
+    assert pending["unspent_by_fund"]
+    assert not any("largest ₪ shortfalls" in c.value for c in app.caption)
