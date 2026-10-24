@@ -55,6 +55,12 @@ DEEP_HISTORY_MODEL_MAP = {
 
 
 def deep_history_portfolio_config(payload, models, specs):
+    # Reject before backtest_portfolio_config can divide ILS capital by saved FX.
+    if isinstance(payload, dict) and isinstance(payload.get("sleeves"), list):
+        if any(isinstance(row, dict) and row.get("model") in specs
+               and specs[row["model"]].currency != "USD" for row in payload["sleeves"]):
+            from .deep_history import ILS_RESEARCH_FX_ERROR
+            raise ValueError(ILS_RESEARCH_FX_ERROR)
     sleeves, capital = backtest_portfolio_config(payload, {**models, **specs})
     for sleeve in sleeves:
         original = sleeve["model"]
