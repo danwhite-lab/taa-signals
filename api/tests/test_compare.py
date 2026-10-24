@@ -205,12 +205,47 @@ def test_selection_gates_no_prices(signed_in,monkeypatch,mode):
 
 
 @pytest.mark.parametrize("labels,expected",[
-    (["HAA-Simple","Buy and Hold Gold Israel"],"Compare only models with the same buy-and-hold benchmark. The selected models use different benchmark assets or currencies."),
+    (["HAA-Simple","Buy and Hold Gold Israel"],"Compared models must use the same execution currency. No currency conversion is assumed."),
     (["HAA-Simple",RVOL],"Daily-execution models currently support single-strategy Backtest only; monthly Compare periods are not equivalent.")])
 def test_model_refusals(signed_in,monkeypatch,labels,expected):
     install(monkeypatch,labels)
     response=client.post("/api/compare",headers=HEADERS,json={"models":labels})
     assert response.status_code==400 and response.json()["detail"]==expected and not page.RESULTS.warm
+
+
+@pytest.mark.parametrize("taxed", [False, True])
+def test_same_currency_models_keep_each_distinct_benchmark(signed_in, monkeypatch, taxed):
+    labels = ["Buy and Hold Gold Israel", "Buy and Hold Harel Government Bonds Israel"]
+    prices, _, _ = install(monkeypatch, labels)
+    inputs = model_inputs(sorted(labels, key=str.casefold), prices)
+    lower = max(page.base.data.common_monthly_period(m.monthly_prices)[0] for m in inputs.values())
+    upper = min(page.base.data.common_monthly_period(m.monthly_prices)[1] for m in inputs.values())
+    direct = compare_models(inputs, 10000., tax_enabled=taxed, start=lower, end=upper)
+    value = post({"models": labels, "initial": 10000., "tax_enabled": taxed})
+    assert value["gate"] == "available"
+    benchmarks = {page.WORDS["benchmark"].format(asset=model.benchmark_asset): direct.results[name]
+                  for name, model in inputs.items()}
+    assert len(benchmarks) == 2
+    assert value["benchmark"] == ", ".join(benchmarks)
+    expected_returns = pd.DataFrame({name: result.monthly.pre_tax_monthly_return for name, result in direct.results.items()})
+    expected_curves = pd.DataFrame({name: result.monthly.pre_tax_value for name, result in direct.results.items()})
+    for name, result in benchmarks.items():
+        assert name in value["tables"]["summary_pre"]["columns"]
+        expected_returns[name] = result.monthly.benchmark_monthly_return
+        expected_curves[name] = result.monthly.benchmark_value
+        metrics = performance_metrics(result.monthly.benchmark_value, 10000.)
+        for metric, expected in metrics.items():
+            actual = next(row[name] for row in value["tables"]["summary_pre"]["rows"] if row["metric"] == metric)
+            if pd.notna(expected): assert actual == pytest.approx(expected)
+            else: assert actual is None
+    assert get_csv(value, "monthly-returns") == expected_returns.to_csv().encode()
+    assert value["tables"]["monthly_pre"] == clean(view.preview(expected_returns, percentages=True))
+    assert value["tables"]["annual_pre"] == clean(view.preview(pd.DataFrame({name: annual_returns(expected_returns[name]) for name in expected_returns}), percentages=True))
+    assert value["charts"]["value_pre"] == view.plot(expected_curves)
+    assert value["charts"]["drawdown"] == view.plot(expected_curves.div(expected_curves.cummax()).sub(1))
+    if taxed:
+        # Keep today's after-tax presentation: benchmarks remain pre-tax only.
+        assert not set(benchmarks).intersection(value["tables"]["summary_after"]["columns"])
 
 
 @pytest.mark.parametrize("flag,expected",[("single_strategy_only","Daily supplied proxies are single-strategy only; use their built-in benchmark comparison."),("execution_frequency","Daily-execution models currently support single-strategy Backtest only; monthly Compare periods are not equivalent.")])
@@ -279,7 +314,7 @@ def test_out_of_range_missing_download_and_auth_methods(signed_in,monkeypatch):
 
 def test_original_captions_and_no_runtime_reader_or_fee_notice():
     literals={node.value for node in ast.walk(ast.parse((ROOT/"app.py").read_text())) if isinstance(node,ast.Constant) and isinstance(node.value,str)}
-    for key in ("modelsCaption","savedCaption","methodCaption","modelsGate","portfoliosGate","closing","mismatch","dateOrder","portfolioDateOrder"):
+    for key in ("modelsCaption","savedCaption","methodCaption","modelsGate","portfoliosGate","closing","dateOrder","portfolioDateOrder"):
         assert page.WORDS[key] in literals,key
     source=(ROOT/"server/compare.py").read_text()+(ROOT/"server/compare_presentation.py").read_text()
     assert "app.py" not in source and "MINIMUM_NOTE" not in source

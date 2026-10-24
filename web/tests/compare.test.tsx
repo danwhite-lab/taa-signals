@@ -9,7 +9,7 @@ vi.mock("../lib/supabaseBrowser",()=>({supabaseBrowser:()=>({auth:{getSession:as
 import Page from "../app/compare/page";
 import AuthGate from "../components/AuthGate";
 const table={columns:["metric","SPY buy-and-hold"],rows:[{metric:"Mock metric","SPY buy-and-hold":.1}],total_rows:1,shown_rows:1};
-const options={models:[{label:"HAA-Simple",benchmark:"SPY",execution_currency:"USD"},{label:"Inflation Compass Standard",benchmark:"SPY",execution_currency:"USD"},{label:"Mock ILS model",benchmark:"Local SPY",execution_currency:"ILS"}],
+const options={models:[{label:"HAA-Simple",benchmark:"SPY",execution_currency:"USD"},{label:"Inflation Compass Standard",benchmark:"SPY",execution_currency:"USD"},{label:"Mock ILS model",benchmark:"Local SPY",execution_currency:"ILS"},{label:"Mock ILS other",benchmark:"Local gold",execution_currency:"ILS"}],
   portfolios:[{id:"fake-a",name:"Fake portfolio A"},{id:"fake-b",name:"Fake portfolio B"}],defaults:{mode:"models",models:["HAA-Simple","Inflation Compass Standard"],portfolio_ids:[],method:"monthly",initial:100000,fee_pct:0,tax_enabled:false,tax_rate:25,start:null,end:null}};
 const report={gate:"available",mode:"models",tax_enabled:true,success:"All results below use **2020-01-01 through 2024-01-01** (48 complete monthly holding periods).",source_caption:"Mock shared data window",window:{start:"2020-01-01",end:"2024-01-01",periods:48},coverage:table,
   tables:Object.fromEntries(["summary_pre","summary_after","annual_pre","annual_after","monthly_pre","monthly_after","allocation"].map(key=>[key,table])),charts:{},warnings:[],cache:{key:"fake-key",hit:null},timing:{},data_validation:table,
@@ -49,10 +49,19 @@ it("shows both exact insufficient-selection gates without controls",async()=>{
   fireEvent.change(screen.getByLabelText(text.mode),{target:{value:"portfolios"}});expect(screen.getByText(text.portfoliosGate)).toBeTruthy();
   expect(screen.queryByLabelText(text.portfolioInitial)).toBeNull();
 });
-it("shows the engine refusal without pre-blocking mixed benchmarks",async()=>{
+it("shows the engine refusal without pre-blocking mixed currencies",async()=>{
   await ready();select(text.models,["HAA-Simple","Mock ILS model"]);expect(screen.getByText(text.hint)).toBeTruthy();
   mock.request.mockRejectedValue(new Error(text.mismatch));fireEvent.click(screen.getByRole("button",{name:text.run}));
   await screen.findByText(text.mismatch);expect(screen.queryByText(text.completed)).toBeNull();
+});
+it("does not warn for same-currency selections with different benchmarks",async()=>{
+  await ready();select(text.models,["Mock ILS model","Mock ILS other"]);
+  expect(screen.queryByText(text.hint)).toBeNull();
+  const run=screen.getByRole("button",{name:text.run});
+  expect(run).toHaveProperty("disabled",false);
+  fireEvent.click(run);await screen.findByText(text.completed);
+  const call=mock.request.mock.calls.find(([path])=>path==="/api/compare")!;
+  expect(JSON.parse(call[1].body).models).toEqual(["Mock ILS model","Mock ILS other"]);
 });
 it("renders collapsed results, benchmark labels and Python CSV manifest",async()=>{
   fireEvent.click(await ready());await screen.findByText(text.completed);
