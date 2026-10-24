@@ -168,6 +168,24 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .amount-date-grid, .dca-row, .costs-panel .assumption-row { grid-template-columns: minmax(0, 1fr); }
 }
 .rules-heading { margin-bottom: 30px; }
+.compare-model-group { border: 0; padding: 0; margin: 20px 0; background: transparent; }
+.compare-model-group h3 { font-size: .85rem; font-weight: 600; color: #52606d; margin: 0 0 8px; }
+.compare-model-group > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
+.compare-model-group label { display: flex; align-items: start; gap: 8px; margin: 0; white-space: normal; }
+.compare-model-group input[type=checkbox] { flex-shrink: 0; margin-top: 3px; }
+.compare-selection-count { font-size: .8rem; color: #687482; }
+.compare-settings .amount-date-grid > label, .compare-settings .date-field label { margin: 0; }
+.compare-settings .amount-date-grid input { min-height: 40px; }
+.compare-model-settings .amount-date-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.compare-settings .costs-panel .assumption-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.compare-settings .costs-panel .toggle-label { min-height: 40px; align-self: end; }
+@media (max-width: 760px) {
+  .compare-model-settings .amount-date-grid, .compare-settings .costs-panel .assumption-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .compare-model-group > div { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 460px) {
+  .compare-model-settings .amount-date-grid, .compare-settings .costs-panel .assumption-row { grid-template-columns: minmax(0, 1fr); }
+}
 .rules-heading .eyebrow { margin: 0; color: #326454; font-weight: 600; }
 .lede { font-size: 1rem; max-width: 660px; }
 .rule-picker { max-width: 600px; margin-bottom: 24px; }

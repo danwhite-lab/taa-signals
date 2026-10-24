@@ -38,6 +38,7 @@ def compare_models(
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
     completed_through: pd.Timestamp | None = None,
+    monthly_contribution: float = 0.0,
 ) -> ComparisonResult:
     """Backtest models independently, then restart each over their exact overlap.
 
@@ -68,6 +69,7 @@ def compare_models(
             requested_end,
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
+            monthly_contribution=monthly_contribution,
         )
         preliminary[name] = result
         availability.append({
@@ -96,6 +98,7 @@ def compare_models(
             common.max(),
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
+            monthly_contribution=monthly_contribution,
         )
     final_common = None
     for result in rebased.values():

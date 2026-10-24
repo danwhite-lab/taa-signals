@@ -32,6 +32,7 @@ class Inputs(BaseModel):
     portfolio_ids: list[str] = Field(default_factory=list, max_length=100)
     method: Literal["monthly", "daily"] = "monthly"
     initial: float = Field(default=100000., ge=1)
+    monthly_contribution: float = Field(default=0., ge=0)
     fee_pct: float = Field(default=0., ge=0, le=10)
     tax_enabled: bool = False
     tax_rate: float = Field(default=25., ge=0, le=100)
@@ -130,7 +131,8 @@ def calculate(request, loaded):
         if lower > upper: raise ValueError("The selected models have no common executable holding periods.")
         start, end = request.start or lower, request.end or upper
         if not lower <= start <= end <= upper: error("dateRange")
-        return compare_models(*args, pd.Timestamp(start), pd.Timestamp(end)), (lower, upper)
+        return compare_models(*args, pd.Timestamp(start), pd.Timestamp(end),
+                              monthly_contribution=request.monthly_contribution), (lower, upper)
     preliminary = compare_portfolios(*args, drift=request.method == "daily")
     lower, upper = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
     start, end = request.start or lower, request.end or upper

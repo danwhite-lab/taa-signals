@@ -13,11 +13,11 @@ export function Toggle({ checked, onChange, disabled, children }: { checked: boo
   return <label className="toggle-label"><input className="toggle-switch" type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />{children}</label>;
 }
 
-export function AmountAndDates({ initial, start, end, dca }: {
-  initial: ReactNode; start: ReactNode; end: ReactNode; dca?: ReactNode;
+export function AmountAndDates({ initial, start, end, dca, contribution }: {
+  initial: ReactNode; start: ReactNode; end: ReactNode; dca?: ReactNode; contribution?: ReactNode;
 }) {
   return <section className="amount-dates"><h3>Amount and dates</h3>
-    <div className="amount-date-grid">{initial}{start}{end}</div>
+    <div className="amount-date-grid">{initial}{contribution}{start}{end}</div>
     {dca && <div className="dca-row">{dca}</div>}
   </section>;
 }
@@ -30,10 +30,11 @@ export function CostsAndTax({ children }: { children: ReactNode }) {
   return <section className="costs-tax"><h3>Costs and tax</h3><div className="costs-panel">{children}</div></section>;
 }
 
-export function TaxControls({ enabled, rate, onEnabled, onRate, label = text.taxEnabled, rateLabel = text.taxRate, disabled = false, hideRate = false, step }:
+export function TaxControls({ enabled, rate, onEnabled, onRate, label = text.taxEnabled, rateLabel = text.taxRate, disabled = false, hideRate = false, step, leading }:
   { enabled: boolean; rate: number; onEnabled: (value: boolean) => void; onRate: (value: number) => void;
-    label?: string; rateLabel?: string; disabled?: boolean; hideRate?: boolean; step?: number }) {
+    label?: string; rateLabel?: string; disabled?: boolean; hideRate?: boolean; step?: number; leading?: ReactNode }) {
   return <AssumptionRow>
+    {leading}
     <Toggle checked={enabled} disabled={disabled} onChange={onEnabled}>{label}</Toggle>
     {!hideRate && <label>{rateLabel}<input type="number" min="0" max="100" step={step} disabled={!enabled || disabled} value={rate} onChange={e => onRate(e.target.valueAsNumber)} /></label>}
   </AssumptionRow>;
