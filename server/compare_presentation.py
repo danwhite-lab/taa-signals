@@ -45,10 +45,10 @@ def present(request, comparison, loaded, bounds):
         column = "after_tax_value" if taxed else "pre_tax_value"
         retcolumn = "after_tax_monthly_return" if taxed else "pre_tax_monthly_return"
         suffix = "after" if taxed else "pre"
-        summary = pd.DataFrame({name: (performance_metrics(r.monthly[column], initial) if models else result_metrics(r, column, initial)) for name,r in comparison.results.items()})
+        summary = pd.DataFrame({name: (performance_metrics(r.monthly[column], initial) if models and request.monthly_contribution == 0 else result_metrics(r, column, initial)) for name,r in comparison.results.items()})
         if not models or not taxed:
             for label, result in benchmarks.items():
-                summary[label] = performance_metrics(result.monthly.benchmark_value, initial) if models else result_metrics(result, "benchmark_value", initial)
+                summary[label] = performance_metrics(result.monthly.benchmark_value, initial) if models and request.monthly_contribution == 0 else result_metrics(result, "benchmark_value", initial)
         if models and not taxed:
             years = len(comparison.common_index)/12
             for name,r in comparison.results.items():

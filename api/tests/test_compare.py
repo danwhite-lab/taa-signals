@@ -379,3 +379,80 @@ def test_portfolio_cache_order_is_not_silently_sorted(signed_in,monkeypatch):
     assert post(body)["cache"]["key"]==one["cache"]["key"]
     records[0]["payload"]["sleeves"].reverse()
     assert post(body)["cache"]["key"]!=one["cache"]["key"]
+
+
+@pytest.mark.parametrize("taxed", [False, True])
+def test_model_deposits_metrics_benchmarks_and_cache_isolation(signed_in, monkeypatch, taxed):
+    labels = MONTHLY[:2]
+    prices, _, _ = install(monkeypatch, labels)
+    body = {"models": labels, "initial": 10000., "fee_pct": .05, "tax_enabled": taxed,
+            "start": "2018-01-31", "end": "2020-12-31"}
+    lump = post(body)
+    funded = post({**body, "monthly_contribution": 100.})
+    assert funded["cache"]["key"] != lump["cache"]["key"]
+    assert post(body)["cache"]["key"] == lump["cache"]["key"]
+    assert post({**body, "monthly_contribution": 100.})["cache"]["hit"] == "memory"
+    assert not any(row["metric"] == "Total contributed" for row in lump["tables"]["summary_pre"]["rows"])
+    direct = compare_models(model_inputs(sorted(labels, key=str.casefold), prices), 10000., .0005,
+                            taxed, .25, pd.Timestamp(body["start"]), pd.Timestamp(body["end"]),
+                            monthly_contribution=100.)
+    expected_paid = 10000. + (funded["window"]["periods"] - 1) * 100.
+    for name, result in direct.results.items():
+        assert result.monthly.contribution.sum() == expected_paid - 10000.
+        for suffix, column in [("pre", "pre_tax_value"), *([("after", "after_tax_value")] if taxed else [])]:
+            rows = funded["tables"]["summary_" + suffix]["rows"]
+            for metric, expected in result_metrics(result, column, 10000.).items():
+                actual = next(row[name] for row in rows if row["metric"] == metric)
+                assert actual == pytest.approx(expected, nan_ok=True) if pd.notna(expected) else actual is None
+        benchmark = page.WORDS["benchmark"].format(asset="SPY")
+        for metric, expected in result_metrics(result, "benchmark_value", 10000.).items():
+            actual = next(row[benchmark] for row in funded["tables"]["summary_pre"]["rows"] if row["metric"] == metric)
+            assert actual == pytest.approx(expected, nan_ok=True) if pd.notna(expected) else actual is None
+    for name in funded["tables"]["summary_pre"]["columns"][1:]:
+        def metric(value, key):
+            return next(row[name] for row in value["tables"]["summary_pre"]["rows"] if row["metric"] == key)
+        assert metric(funded, "Total contributed") == expected_paid
+        assert metric(funded, "Final value") > metric(lump, "Final value")
+
+
+def test_deposit_backtest_path_parity_with_equivalent_percentage_fee(signed_in, monkeypatch):
+    labels = ["Buy and Hold SPY", "Buy and Hold QQQ"]
+    prices, metadata, _ = install(monkeypatch, labels)
+    monkeypatch.setattr(page.base, "RESULTS", cache.ResultCache())
+    monkeypatch.setattr(page.base, "load_data", lambda _: (prices, metadata, [], None))
+    common = {"initial": 10000., "monthly_contribution": 100., "tax_enabled": True,
+              "tax_rate": 25., "start": "2018-01-31", "end": "2020-12-31"}
+    compared = post({**common, "models": labels, "fee_pct": .05})
+    response = client.post("/api/backtest", headers=HEADERS,
+                           json={**common, "label": labels[0], "fee_type": "percentage", "fee_value": .05})
+    assert response.status_code == 200, response.text
+    single = response.json()
+    for suffix, key in [("pre", "pre_tax"), ("after", "after_tax")]:
+        rows = compared["tables"]["summary_" + suffix]["rows"]
+        for metric in ("CAGR", "Final value", "Total contributed"):
+            value = next(row[labels[0]] for row in rows if row["metric"] == metric)
+            assert value == pytest.approx(single["metrics"][key][metric], rel=1e-12, abs=1e-9)
+
+
+def test_deposit_defaults_validation_and_both_engine_passes(signed_in, monkeypatch):
+    assert client.get("/api/compare/options", headers=HEADERS).json()["defaults"]["monthly_contribution"] == 0.
+    response = client.post("/api/compare", headers=HEADERS, json={"monthly_contribution": -1})
+    assert response.status_code == 400
+    from haa import comparison as engine
+    real = engine.run_backtest
+    spy = Mock(wraps=real)
+    monkeypatch.setattr(engine, "run_backtest", spy)
+    frames = {"A": simple_model("2020-01-31"), "B": simple_model("2020-03-31")}
+    result = compare_models(frames, 10000., monthly_contribution=100.)
+    assert spy.call_count == 4
+    assert all(call.kwargs["monthly_contribution"] == 100. for call in spy.call_args_list)
+    assert all(r.monthly.contribution.sum() == (len(result.common_index)-1)*100. for r in result.results.values())
+
+
+def test_portfolio_calculation_does_not_forward_deposit_setting(monkeypatch):
+    from types import SimpleNamespace
+    expected = SimpleNamespace(common_index=pd.date_range("2020-01-31", periods=3, freq="ME"))
+    spy = Mock(return_value=expected)
+    monkeypatch.setattr(page, "compare_portfolios", spy)
+    page.calculate(page.Inputs(mode="portfolios", monthly_contribution=500.), {"inputs": {}})
+    assert spy.call_args.kwargs == {"drift": False}
