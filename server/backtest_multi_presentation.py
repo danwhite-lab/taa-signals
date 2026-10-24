@@ -96,6 +96,8 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     else:
         warnings.append(W["proxyCaption"])
         warnings += [s.caveat for s in specs if s.caveat]
+        if any(s.currency == "ILS" for s in specs):
+            warnings.append("RESEARCH ONLY")
         if any(s.daily_signal_history for s in specs) and request.fee_value: warnings.append(W["unsupportedFees"])
         if any(s.key == "rvol_synthetic" for s in specs): warnings.append(W["syntheticTax"])
         captions.append(W["commonProxy" if blend else "availableProxy"].format(lower=bounds[0], upper=bounds[1]))

@@ -28,6 +28,10 @@ def test_actual_etf_months_reconcile_without_pre_history(key, ticker, first, cou
     assert len(returns) == count
     assert key in deep.deep_history_options(2)
     for benchmark in deep.DEEP_HISTORY_BENCHMARKS.values():
+        if benchmark.currency != spec.currency:
+            with pytest.raises(ValueError, match="currencies"):
+                deep.deep_history_model_input(spec, benchmark)
+            continue
         model = deep.deep_history_model_input(spec, benchmark)
         assert model.decisions.attrs["actual_etf_ticker"] == ticker
         assert model.decisions.attrs["pre_etf_extension"] is False
@@ -100,6 +104,10 @@ def test_extended_history_joins_returns_without_price_jump(key, last_early, dige
     frame = pd.read_csv(deep.DEEP_HISTORY_DIR / spec.pre_etf_returns_file)
     assert early.iloc[0] == pytest.approx(frame.adjustedClose.iloc[0] / frame.previousAdjustedClose.iloc[0] - 1)
     for benchmark in deep.DEEP_HISTORY_BENCHMARKS.values():
+        if benchmark.currency != spec.currency:
+            with pytest.raises(ValueError, match="currencies"):
+                deep.deep_history_model_input(spec, benchmark)
+            continue
         model = deep.deep_history_model_input(spec, benchmark)
         assert model.decisions.attrs["pre_etf_extension"] is True
         assert model.decisions.attrs["pre_etf_source"] == spec.pre_etf_source

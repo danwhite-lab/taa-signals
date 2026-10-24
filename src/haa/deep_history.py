@@ -37,6 +37,8 @@ class DeepHistorySpec:
     actual_etf_ticker: str | None = None
     pre_etf_returns_file: str | None = None
     pre_etf_source: str | None = None
+    currency: str = "USD"
+    benchmark_key: str = "sp500"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,7 @@ class DeepHistoryBenchmarkSpec:
     label: str
     returns_file: str
     caveat: str
+    currency: str = "USD"
 
 
 DEEP_HISTORY_SPECS = {
@@ -76,12 +79,41 @@ GLOBAL_TOTAL_RETURN_BENCHMARK = DeepHistoryBenchmarkSpec(
 DEEP_HISTORY_BENCHMARKS = {
     "sp500": SP500_TOTAL_RETURN_BENCHMARK,
     "global": GLOBAL_TOTAL_RETURN_BENCHMARK,
+    "ta125_ils": DeepHistoryBenchmarkSpec("TA125_TR_ILS_RESEARCH", "TA-125 TR (ILS, research source)",
+        "bench_ta125_tr_ils_monthly_returns.csv", "Supplied TA-125 gross total-return history in ILS; linked TA-100 predecessor before February 2017. No USD conversion.", currency="ILS"),
+    "nasdaq100_ils": DeepHistoryBenchmarkSpec("NASDAQ100_NTR_ILS_RESEARCH", "Nasdaq-100 NTR (ILS, research source)",
+        "bench_nasdaq100_ntr_ils_monthly_returns.csv", "Supplied Nasdaq-100 NTR converted to ILS with BoI USD/ILS. Before October 2011 NTR is derived, not official. US closes strictly precede TASE dates; same-day BoI fixing timing is unverified.", currency="ILS"),
 }
+
+ILS_RESEARCH_BANNER = "Research-only modelled scenario in ILS. NOT the history of Ayalon 5117684 or MTF 1187079 and not a reliable DCA result. Reset rules are assumed; the MTF emergency-reset rule is unknown (none modelled, so Oct 2008 loses 64% in one month); Nasdaq-100 NTR before Oct 2011 is derived, not official; swap spreads and similar costs are not modelled; TA-125 modelled returns run about 2pp/yr above the real fund over 2014-2026. Entry/redemption fees and tax are not included and come from the trade ledger, not a flat haircut."
+ILS_RESEARCH_FX_ERROR = "RESEARCH ONLY ILS scenarios do not support FX conversion, saved-FX conversion or inflation adjustment. Enter standalone nominal ILS capital directly."
+
+
+def validate_deep_history_context(specs, benchmark=None, *, fx_conversion=False, inflation_adjustment=False, saved_fx_conversion=False):
+    """Reject unsupported context before any conversion, alignment or engine call."""
+    if any(spec.currency not in {"USD", "ILS"} for spec in specs):
+        raise ValueError("Unsupported Deep History currency.")
+    if any(spec.currency == "ILS" for spec in specs):
+        if fx_conversion or saved_fx_conversion or inflation_adjustment:
+            raise ValueError(ILS_RESEARCH_FX_ERROR)
+        if len(specs) != 1:
+            raise ValueError("RESEARCH ONLY ILS scenarios are standalone only: no blending, comparison or DCA-mixing with other sleeves.")
+        expected = DEEP_HISTORY_BENCHMARKS[specs[0].benchmark_key]
+        if benchmark is not None and benchmark != expected:
+            raise ValueError("RESEARCH ONLY ILS scenario requires its matching ILS benchmark; USD or other benchmarks are not allowed.")
+    elif benchmark is not None and benchmark.currency != "USD":
+        raise ValueError("USD Deep History sleeves require a USD benchmark; currencies cannot be mixed.")
 
 # Daily imports need explicit handling: synthetic NAV can be blended through
 # its monthly adapter and frozen inputs now support modeled trade-level tax;
 # the older monthly-return/daily-signal import remains tax unsupported.
 DEEP_HISTORY_SINGLE_SPECS = {
+    "research_ta125_x3_ils": DeepHistorySpec("research_ta125_x3_ils", "RESEARCH ONLY - TA-125 x3 modelled (ILS, 2004+)",
+        "", "synthetic_ta125x3_ils_monthly_returns.csv", True, "TA125_X3_ILS_RESEARCH_NAV",
+        completed_only=True, usable_through="2026-09-30", caveat=ILS_RESEARCH_BANNER, currency="ILS", benchmark_key="ta125_ils"),
+    "research_nasdaq100_x3_ils": DeepHistorySpec("research_nasdaq100_x3_ils", "RESEARCH ONLY - Nasdaq-100 x3 monthly modelled (ILS, 2004+)",
+        "", "synthetic_nasdaq100x3_ils_monthly_returns.csv", True, "NASDAQ100_X3_ILS_RESEARCH_NAV",
+        completed_only=True, usable_through="2026-09-30", caveat=ILS_RESEARCH_BANNER, currency="ILS", benchmark_key="nasdaq100_ils"),
     "rvol_synthetic": DeepHistorySpec("rvol_synthetic", "A-RVol Shifter (long synthetic history)",
         "", "arvol_synthetic_v5/daily.csv", holding_asset="ARVOL_SYNTHETIC_NAV_PROXY",
         completed_only=True, usable_through="2026-09-30", daily_signal_history=True, daily_nav_history=True,
@@ -256,6 +288,14 @@ def _read_etf_history(spec: DeepHistorySpec) -> pd.Series:
 
 
 def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
+    if spec.buy_and_hold and spec.currency == "ILS":
+        returns = _read_long_monthly_returns(DEEP_HISTORY_DIR / spec.returns_file)
+        expected = pd.date_range("2004-01-31", spec.usable_through, freq="ME")
+        if not returns.index.equals(expected) or not all(math.isfinite(v) and v > -1 for v in returns):
+            raise ValueError(f"{spec.label}: expected complete decimal monthly returns, January 2004–September 2026, without gaps or invalid values.")
+        cutoff = (pd.Timestamp.now(tz="UTC").tz_localize(None).to_period("M") - 1).to_timestamp("M")
+        returns = returns.loc[:min(cutoff, pd.Timestamp(spec.usable_through))]
+        return pd.DataFrame(index=returns.index - pd.offsets.MonthEnd(1)), returns
     if spec.actual_etf_ticker:
         returns = _read_etf_history(spec)
         return pd.DataFrame(index=returns.index - pd.offsets.MonthEnd(1)), returns
@@ -289,7 +329,8 @@ def load_deep_history(spec: DeepHistorySpec) -> tuple[pd.DataFrame, pd.Series]:
 
 def deep_history_model_input(
     spec: DeepHistorySpec,
-    benchmark: DeepHistoryBenchmarkSpec = SP500_TOTAL_RETURN_BENCHMARK,
+    benchmark: DeepHistoryBenchmarkSpec | None = None,
+    *, fx_conversion=False, inflation_adjustment=False,
 ) -> ModelInput:
     """Create synthetic monthly prices from the supplied strategy NAV returns.
 
@@ -299,6 +340,8 @@ def deep_history_model_input(
     security tax lots. The result is restricted to the independently supplied
     benchmark's usable months; no benchmark pre-history is invented.
     """
+    benchmark = benchmark or DEEP_HISTORY_BENCHMARKS[spec.benchmark_key]
+    validate_deep_history_context([spec], benchmark, fx_conversion=fx_conversion, inflation_adjustment=inflation_adjustment)
     if spec.daily_nav_history:
         from .synthetic_history import synthetic_model_input
         return synthetic_model_input(spec.label, DEEP_HISTORY_DIR / spec.returns_file,
@@ -306,9 +349,11 @@ def deep_history_model_input(
     if spec.buy_and_hold or spec.daily_signal_history:
         path = DEEP_HISTORY_DIR / spec.returns_file
         returns = (_read_etf_history(spec) if spec.actual_etf_ticker else
-                   load_deep_history(spec)[1] if spec.daily_signal_history else
+                   load_deep_history(spec)[1] if spec.daily_signal_history or spec.currency == "ILS" else
                    _read_monthly_returns(path) if spec.key == "buy_and_hold_global" else _read_long_monthly_returns(path))
         benchmark_returns = _read_benchmark_returns(benchmark)
+        if spec.currency == "ILS" and not returns.index.equals(benchmark_returns.index):
+            raise ValueError("RESEARCH ONLY ILS benchmark months must match the scenario exactly; no trimming, filling or extension.")
         common_months = returns.index.intersection(benchmark_returns.index)
         returns = returns.loc[common_months]
         if len(returns) < 2:
@@ -342,7 +387,9 @@ def deep_history_model_input(
                                    source="Yahoo Finance adjusted close", source_file=spec.returns_file,
                                    pre_etf_extension=bool(spec.pre_etf_returns_file),
                                    pre_etf_source=spec.pre_etf_source, pre_etf_source_file=spec.pre_etf_returns_file)
-        return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id)
+        if spec.currency == "ILS":
+            decisions.attrs.update(single_strategy_only=True, research_only=True, research_banner=spec.caveat, source_currency=spec.currency)
+        return ModelInput(spec.label, decisions, prices, None, benchmark.asset_id, execution_currency=spec.currency)
     signals, returns = load_deep_history(spec)
     rows: list[tuple[pd.Timestamp, dict[str, float], float]] = []
     for signal_date, signal in signals.iterrows():

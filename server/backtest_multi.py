@@ -39,7 +39,7 @@ class Inputs(base.Inputs):
     label: Literal["HAA-Simple"] = "HAA-Simple"  # Inherited field is unused here, never private free text.
     mode: Literal["portfolio", "deep"]
     sleeves: list[Sleeve] = Field(min_length=1, max_length=100)
-    benchmark: Literal["sp500", "global"] = "sp500"
+    benchmark: Literal["sp500", "global", "ta125_ils", "nasdaq100_ils"] = "sp500"
     sleeve_rebalance_mode: Literal["none", "rvol_cap", "annual_target"] = "none"
     rebalance_sleeve: int | None = None
     rebalance_cap: float = Field(default=15., ge=1, le=99)
@@ -70,6 +70,11 @@ def validated(request):
     if request.mode == "deep":
         if any(s.model not in deep.ALL_DEEP_HISTORY_SPECS for s in request.sleeves):
             error("unknownProxy")
+        try:
+            deep.validate_deep_history_context([deep.ALL_DEEP_HISTORY_SPECS[s.model] for s in request.sleeves],
+                                              deep.DEEP_HISTORY_BENCHMARKS[request.benchmark])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
         if len({s.model for s in request.sleeves}) != len(request.sleeves):
             error("duplicateProxy")
         if len(request.sleeves) > len(deep.deep_history_options(len(request.sleeves))):
@@ -125,7 +130,7 @@ def load_saved(body, portfolios):
         return {"sleeves": sleeves, "initial": initial, "warnings": warnings, **transfer}
     except (ValueError, TypeError, OverflowError) as exc:
         # Do not echo untrusted portfolio contents or numeric inputs.
-        if str(exc) == TRANSFER_ERROR or str(exc) in WORDS["savedErrors"] or str(exc).startswith("No compatible bundled Deep History for "):
+        if str(exc) in {TRANSFER_ERROR, deep.ILS_RESEARCH_FX_ERROR} or str(exc) in WORDS["savedErrors"] or str(exc).startswith("No compatible bundled Deep History for "):
             raise HTTPException(400, str(exc)) from None
         error("invalidSavedDeep" if body.mode == "deep" else "invalidSaved")
 
@@ -163,6 +168,7 @@ def live_inputs(request):
 
 def proxy_inputs(request):
     benchmark = deep.DEEP_HISTORY_BENCHMARKS[request.benchmark]
+    deep.validate_deep_history_context([deep.ALL_DEEP_HISTORY_SPECS[s.model] for s in request.sleeves], benchmark)
     models = {}
     for sleeve in request.sleeves:
         spec = deep.ALL_DEEP_HISTORY_SPECS[sleeve.model]
