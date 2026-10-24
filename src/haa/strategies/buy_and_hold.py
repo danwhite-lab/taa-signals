@@ -266,6 +266,46 @@ class BuyAndHoldTA125x3Israel(BuyAndHoldSPY):
     )
 
 
+class BuyAndHoldSP500x3Israel(BuyAndHoldSPY):
+    """Continuous holding of ILS-hedged Ayalon Extreme S&P 500 x3, Maya fund 5117759."""
+
+    name = "Buy and Hold S&P 500 x3 Israel"
+    holding_asset = "SP500_X3_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    risk_warning = "3x leveraged fund: held continuously through all falls; it can lose most or all of its value. Its purchase entry fee (about 0.4% as of October 2026) is not reflected in the price series or modeled here, so real results with repeated purchases would be modestly worse than shown."
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-sp500-x3-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Ayalon Extreme S&P 500 x3 fund 5117759 continuously in ILS; dollar/shekel exposure is hedged."),),
+        execution=ExecutionSpec("continuous", "Ayalon 5117759 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes="Actual Maya redemption-price history of Ayalon 5117759 only. ILS-hedged: S&P 500 moves x3, largely without USD/ILS moves. No SPY, SSO, UPRO or any other proxy, pre-fund extension or forward fill. Management fees of 1.85% and trustee fees of 0.04% are embedded in redemption prices and not deducted again. History starts at whatever the public endpoint actually returns within the existing five-year request window, not necessarily the fund's 2013 launch. The purchase entry fee is not modeled; see the risk warning.",
+    )
+
+
+class BuyAndHoldDAX3xMonthlyIsrael(BuyAndHoldSPY):
+    """Continuous holding of KSM DAX x3 Monthly, unhedged TASE ETF 1146984."""
+
+    name = "Buy and Hold DAX x3 Monthly Israel"
+    holding_asset = "DAX_X3_MONTHLY_IL"
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    actual_history_only = True
+    risk_warning = "3x leveraged fund with a monthly leverage reset: held continuously through all falls; it can lose most or all of its value."
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-dax-x3-monthly-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold KSM DAX x3 Monthly ETF 1146984 continuously in ILS; EUR exposure from the underlying. Leverage resets monthly."),),
+        execution=ExecutionSpec("continuous", "KSM 1146984 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes="Actual TASE history of KSM 1146984 only. Unhedged, with EUR exposure from the underlying. Leverage resets monthly. No DAX-index or any other proxy, pre-fund extension or forward fill. Management fees of 2.75% and trustee fees of 0.03% are embedded in prices and not deducted again. Exchange-traded: no purchase addition; ordinary broker commission applies. History starts at whatever the public endpoint actually returns within the existing five-year request window.",
+    )
+
+
 class BuyAndHoldACWI:
     """Continuous iShares MSCI ACWI ETF holding."""
 

@@ -10,12 +10,15 @@ from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
 from haa.strategies import BuyAndHoldNasdaq3xMonthlyIsrael, BuyAndHoldTA125x3Israel
+from haa.strategies import BuyAndHoldSP500x3Israel, BuyAndHoldDAX3xMonthlyIsrael
 from haa.model_catalog import definition_for_label
 
 
 @pytest.mark.parametrize("cls,asset", [
     (BuyAndHoldNasdaq3xMonthlyIsrael, "NASDAQ_X3_MONTHLY_IL"),
     (BuyAndHoldTA125x3Israel, "TA125_X3_IL"),
+    (BuyAndHoldSP500x3Israel, "SP500_X3_IL"),
+    (BuyAndHoldDAX3xMonthlyIsrael, "DAX_X3_MONTHLY_IL"),
 ])
 def test_leveraged_local_plain_holdings_drop_missing_months_and_never_time(cls, asset):
     model=cls()
@@ -34,10 +37,17 @@ def test_leveraged_local_plain_holdings_drop_missing_months_and_never_time(cls, 
     assert definition.strategy_mode=="buy_and_hold" and definition.signal_mode=="internal"
     assert model.backtest_available and definition.suggested_max_weight is None
     assert "most or all" in model.risk_warning
-    if asset=="TA125_X3_IL":
+    if asset in {"TA125_X3_IL", "SP500_X3_IL"}:
         assert "0.4%" in model.risk_warning
         assert "not reflected" in model.risk_warning
         assert "reset" not in (model.risk_warning+model.__doc__+model.validation_profile.notes).lower()
+    if asset=="SP500_X3_IL":
+        assert "ILS-hedged" in definition.description
+        assert "1.85%" in model.validation_profile.notes and "0.04%" in model.validation_profile.notes
+    if asset=="DAX_X3_MONTHLY_IL":
+        assert "EUR exposure" in definition.description and "Leverage resets monthly" in definition.description
+        assert "purchase entry fee" not in model.risk_warning
+        assert "2.75%" in model.validation_profile.notes and "0.03%" in model.validation_profile.notes
 
 
 def test_gld_is_separate_usd_gold_implementation_with_actual_history():

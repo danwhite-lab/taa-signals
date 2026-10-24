@@ -22,6 +22,8 @@ def factory_for(responses, calls):
 
 def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
     assert TASE_ISRAEL_ASSET_IDS == {
+        "SP500_X3_IL": "5117759",
+        "DAX_X3_MONTHLY_IL": "1146984",
         "NASDAQ_X3_MONTHLY_IL": "1187079",
         "TA125_X3_IL": "5117684",
         "RVOL_3X_IL": "1187079",
@@ -53,24 +55,28 @@ def test_etf_prefers_adjusted_close_then_nav_then_close():
     assert select_etf_price_field(pd.DataFrame({"Close": [3]}), "CSPX_IL") == ("Close", "End-of-day close")
 
 
-def test_leveraged_plain_assets_use_etf_and_maya_paths_without_proxies():
+@pytest.mark.parametrize("etf,fund,etf_id,fund_id", [
+    ("NASDAQ_X3_MONTHLY_IL","TA125_X3_IL","1187079","5117684"),
+    ("DAX_X3_MONTHLY_IL","SP500_X3_IL","1146984","5117759"),
+])
+def test_leveraged_plain_assets_use_etf_and_maya_paths_without_proxies(etf,fund,etf_id,fund_id):
     from haa.tase_data import TASE_ETF_ASSETS, plain_holding_provenance
     calls=[]
     dates=pd.to_datetime(["2024-01-02","2024-01-03"])
     frame=pd.DataFrame({"Adj Close":[100.,110.],"Close":[90.,95.]},index=dates)
-    source=TasePriceSource(factory_for({"1187079":frame,"5117684":frame},calls))
-    prices,metadata=source.fetch_all(("NASDAQ_X3_MONTHLY_IL","TA125_X3_IL"))
-    assert "NASDAQ_X3_MONTHLY_IL" in TASE_ETF_ASSETS
-    assert "TA125_X3_IL" not in TASE_ETF_ASSETS
-    assert prices.NASDAQ_X3_MONTHLY_IL.tolist()==[100.,110.]
-    assert prices.TA125_X3_IL.tolist()==[90.,95.]
-    assert metadata.loc["NASDAQ_X3_MONTHLY_IL","price_field"]=="Adjusted close"
-    assert metadata.loc["TA125_X3_IL","price_field"]=="Maya published redemption price"
-    assert metadata.loc["NASDAQ_X3_MONTHLY_IL","identifier"]=="1187079"
-    assert metadata.loc["TA125_X3_IL","identifier"]=="5117684"
+    source=TasePriceSource(factory_for({etf_id:frame,fund_id:frame},calls))
+    prices,metadata=source.fetch_all((etf,fund))
+    assert etf in TASE_ETF_ASSETS
+    assert fund not in TASE_ETF_ASSETS
+    assert prices[etf].tolist()==[100.,110.]
+    assert prices[fund].tolist()==[90.,95.]
+    assert metadata.loc[etf,"price_field"]=="Adjusted close"
+    assert metadata.loc[fund,"price_field"]=="Maya published redemption price"
+    assert metadata.loc[etf,"identifier"]==etf_id
+    assert metadata.loc[fund,"identifier"]==fund_id
     assert metadata.source.str.contains("proxy",case=False).sum()==0
     assert plain_holding_provenance(metadata,prices.columns).history_kind.eq("Actual fund history").all()
-    assert calls==[("1187079","history"),("5117684","history")]
+    assert calls==[(etf_id,"history"),(fund_id,"history")]
 
 
 def test_etf_normalisation_uses_selected_field_and_real_dates_only():

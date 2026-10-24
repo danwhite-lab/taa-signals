@@ -8,7 +8,8 @@ from server import backtest as single, backtest_multi as multi, cache
 from haa.model_catalog import definition_for_label
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 
-LABELS=("Buy and Hold TA-125 x3 Israel","Buy and Hold Nasdaq-100 x3 Monthly Israel")
+LABELS=("Buy and Hold TA-125 x3 Israel","Buy and Hold Nasdaq-100 x3 Monthly Israel",
+        "Buy and Hold S&P 500 x3 Israel","Buy and Hold DAX x3 Monthly Israel")
 
 
 @pytest.fixture
@@ -16,10 +17,12 @@ def prices(monkeypatch):
     days=pd.bdate_range("2024-01-02","2024-06-28")
     frame=pd.DataFrame({"TA125_X3_IL":[100.+i/10 for i in range(len(days))],
                         "NASDAQ_X3_MONTHLY_IL":[200.+i/5 for i in range(len(days))],
+                        "SP500_X3_IL":[150.+i/8 for i in range(len(days))],
+                        "DAX_X3_MONTHLY_IL":[250.+i/6 for i in range(len(days))],
                         "SPY":[400.+i/4 for i in range(len(days))]},index=days)
     metadata=pd.DataFrame([
         {"asset":a,"source":"Synthetic test prices","identifier":TASE_ISRAEL_ASSET_IDS.get(a,a),
-         "price_field":"Maya published redemption price" if a=="TA125_X3_IL" else "Adjusted close"}
+         "price_field":"Maya published redemption price" if a in {"TA125_X3_IL","SP500_X3_IL"} else "Adjusted close"}
         for a in frame],).set_index("asset")
     monkeypatch.setattr(single,"load_data",lambda selected:(frame,metadata,[],None))
     monkeypatch.setattr(multi.signals,"load_inputs",lambda *a,**kw:(frame,metadata,[]))
@@ -64,22 +67,24 @@ def test_single_request_before_fund_history_fails_visibly(signed_in,prices,label
     assert "outside the available data range" in response.json()["detail"]
 
 
-def test_two_new_sleeves_and_dca_run_with_entry_fee_warning_visible(signed_in,prices):
+@pytest.mark.parametrize("labels",[LABELS[:2],LABELS[2:]])
+def test_two_new_sleeves_and_dca_run_with_entry_fee_warning_visible(signed_in,prices,labels):
     response=client.post("/api/backtest",headers=HEADERS,json={
         "mode":"portfolio","initial":10000.,"monthly_contribution":100.,"tax_enabled":True,
-        "sleeves":[{"id":1,"model":LABELS[0],"weight":50.},{"id":2,"model":LABELS[1],"weight":50.}]})
+        "sleeves":[{"id":1,"model":labels[0],"weight":50.},{"id":2,"model":labels[1],"weight":50.}]})
     assert response.status_code==200,response.text
     result=response.json()
     assert result["metrics"]["pre_tax"]["Final value"]>10000.
-    for label in LABELS:
+    for label in labels:
         assert definition_for_label(label).model_class.risk_warning in result["warnings"]
 
 
-def test_saved_portfolio_accepts_new_models_alongside_an_existing_model(signed_in,monkeypatch):
+@pytest.mark.parametrize("labels",[LABELS[:2],LABELS[2:]])
+def test_saved_portfolio_accepts_new_models_alongside_an_existing_model(signed_in,monkeypatch,labels):
     from server import private_api
     payload={"version":1,"name":"Synthetic mixed library portfolio","total_ils":10000.,"ils_per_usd":3.5,
              "sleeves":[{"id":i,"model":label,"weight":weight} for i,(label,weight) in enumerate(
-                 [(LABELS[0],40.),(LABELS[1],40.),("Buy and Hold Gold Israel",20.)],1)]}
+                 [(labels[0],40.),(labels[1],40.),("Buy and Hold Gold Israel",20.)],1)]}
     saved=[]
     def save(*args,**kwargs):
         saved.append(args[-1])
