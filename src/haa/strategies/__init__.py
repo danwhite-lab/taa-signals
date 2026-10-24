@@ -22,6 +22,7 @@ from .buy_and_hold import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from .buy_and_hold import BuyAndHoldGLD
 from .buy_and_hold import BuyAndHoldIEF
 from .buy_and_hold import BuyAndHoldNasdaq3xMonthlyIsrael, BuyAndHoldTA125x3Israel
+from .buy_and_hold import BuyAndHoldSP500x3Israel, BuyAndHoldDAX3xMonthlyIsrael
 from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 
