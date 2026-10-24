@@ -115,7 +115,7 @@ def load(request, chosen):
         if first is None or last is None: raise ValueError(WORDS["noMonthly"].format(name=d.label))
         bounds.append((first.date(), last.date()))
         if hasattr(strategy, "completed_cutoff"): cutoffs[d.label] = str(strategy.completed_cutoff())
-    if len({(m.benchmark_asset, m.execution_currency) for m in inputs.values()}) != 1: error("mismatch")
+    if len({m.execution_currency for m in inputs.values()}) != 1: error("mismatch")
     observations = {str(a): [{"date": day.isoformat(), "value": clean(v)} for day, v in prices[a].items()] for a in prices}
     return {"inputs": inputs, "version": data_version(observations), "metadata": table(metadata), "warnings": warnings,
             "cutoff": cutoffs, "bounds": (max(a for a, _ in bounds), min(b for _, b in bounds))}

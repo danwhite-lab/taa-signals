@@ -31,8 +31,13 @@ def present(request, comparison, loaded, bounds):
     models = request.mode == "models"
     initial = request.initial
     first = next(iter(comparison.results.values()))
-    asset = next(iter(loaded["inputs"].values())).benchmark_asset if models else "SPY"
-    benchmark = W["benchmark"].format(asset=asset)
+    benchmarks = {}
+    if models:
+        for name, model in loaded["inputs"].items():
+            benchmarks.setdefault(W["benchmark"].format(asset=model.benchmark_asset), comparison.results[name])
+    else:
+        benchmarks[W["benchmark"].format(asset="SPY")] = first
+    benchmark = ", ".join(benchmarks)
     tables, charts, downloads = {}, {}, {}
     def export(kind, frame, filename, label):
         downloads[kind] = {"csv": frame.to_csv(), "filename": filename, "label": label}
@@ -42,7 +47,8 @@ def present(request, comparison, loaded, bounds):
         suffix = "after" if taxed else "pre"
         summary = pd.DataFrame({name: (performance_metrics(r.monthly[column], initial) if models else result_metrics(r, column, initial)) for name,r in comparison.results.items()})
         if not models or not taxed:
-            summary[benchmark] = performance_metrics(first.monthly.benchmark_value, initial) if models else result_metrics(first, "benchmark_value", initial)
+            for label, result in benchmarks.items():
+                summary[label] = performance_metrics(result.monthly.benchmark_value, initial) if models else result_metrics(result, "benchmark_value", initial)
         if models and not taxed:
             years = len(comparison.common_index)/12
             for name,r in comparison.results.items():
@@ -59,13 +65,16 @@ def present(request, comparison, loaded, bounds):
         if models or taxed == request.tax_enabled:
             curves = pd.DataFrame({name: (r.daily if not models and request.method == "daily" else r.monthly)[column] for name,r in comparison.results.items()})
             if not models or not taxed:
-                curves[benchmark] = (first.daily if not models and request.method == "daily" else first.monthly).benchmark_value
+                for label, result in benchmarks.items():
+                    curves[label] = (result.daily if not models and request.method == "daily" else result.monthly).benchmark_value
             charts["value_"+suffix] = plot(curves)
             if not taxed or not models:
                 peaks = curves.cummax() if models else curves.cummax().clip(lower=initial)
                 charts["drawdown"] = plot(curves.div(peaks).sub(1))
             returns = pd.DataFrame({name: r.monthly[retcolumn] for name,r in comparison.results.items()})
-            if not models or not taxed: returns[benchmark] = first.monthly.benchmark_monthly_return
+            if not models or not taxed:
+                for label, result in benchmarks.items():
+                    returns[label] = result.monthly.benchmark_monthly_return
             annual = pd.DataFrame({name: annual_returns(returns[name]) for name in returns})
             tables["monthly_"+suffix] = preview(returns, percentages=True)
             if models:

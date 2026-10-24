@@ -57,7 +57,7 @@ export default function ComparePage() {
   }
   const models=settings?.mode!=="portfolios";
   const selected=options?.models.filter(m=>settings?.models.includes(m.label)) ?? [];
-  const mismatch=new Set(selected.map(m=>`${m.benchmark}:${m.execution_currency}`)).size>1;
+  const mismatch=new Set(selected.map(m=>m.execution_currency)).size>1;
   const enough=(models ? settings?.models.length ?? 0 : settings?.portfolio_ids.length ?? 0)>=2;
   const suffix=result?.tax_enabled ? "after" : "pre";
   return <main className="backtest-page"><h1>{models ? text.title : text.portfolioTitle}</h1>
