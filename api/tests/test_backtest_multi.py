@@ -208,6 +208,17 @@ def test_saved_and_file_loading_use_saved_fx_without_writes(signed_in, monkeypat
     assert not base.RESULTS.warm
 
 
+@pytest.mark.parametrize('null_fields',[False,True])
+def test_weights_only_saved_backtest_still_requires_capital_fx(signed_in,monkeypatch,null_fields):
+    payload={'version':1,'name':'Fake weights only','sleeves':[{'model':'Buy and Hold SPY','weight':100}]}
+    if null_fields:payload.update(total_ils=None,ils_per_usd=None)
+    monkeypatch.setattr(private_api.sync,'list_portfolios',lambda *a:[{'id':'FAKE-ID','payload':payload}])
+    for source in ({'portfolio_id':'FAKE-ID'},{'payload':payload}):
+        response=client.post('/api/backtest/load',headers=HEADERS,json={'mode':'portfolio',**source})
+        assert response.status_code==400
+        assert response.json()['detail']=='Saved capital and FX rate must be positive and finite.'
+
+
 @pytest.mark.parametrize('mode',['none','annual_target','rvol_cap'])
 def test_saved_transfer_rule_roundtrip_save_to_load_and_engine_parameters(signed_in,monkeypatch,mode):
     from copy import deepcopy

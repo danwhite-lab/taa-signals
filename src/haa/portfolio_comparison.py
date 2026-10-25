@@ -7,7 +7,7 @@ from .mixed_portfolio import run_mixed_portfolio
 
 
 def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25,
-                       start=None, end=None, drift=False):
+                       start=None, end=None, drift=False, monthly_contribution: float = 0.):
     if len(portfolios) < 2:
         raise ValueError("Select at least two portfolios.")
     inputs = [m for sleeves in portfolios.values() for _, m in sleeves.values()]
@@ -18,7 +18,7 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25,
     if not drift and any(m.decisions.attrs.get("execution_frequency") == "daily" for m in inputs):
         raise ValueError("A-RVol comparisons require initial weights / daily valuation, not monthly resets.")
     engine = run_mixed_portfolio if drift else run_portfolio_backtest
-    preliminary = {name: engine(sleeves, initial, fee, taxed, tax_rate, start, end)
+    preliminary = {name: engine(sleeves, initial, fee, taxed, tax_rate, start, end, monthly_contribution=monthly_contribution)
                    for name, sleeves in portfolios.items()}
     common = None
     for result in preliminary.values():
@@ -34,7 +34,7 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25,
         months = common.to_period("M")
         if months.has_duplicates or not months.equals(pd.period_range(months[0], months[-1], freq="M")):
             raise ValueError("Shared monthly comparison history contains missing or duplicate holding periods.")
-    results = {name: engine(sleeves, initial, fee, taxed, tax_rate, common[0], common[-1])
+    results = {name: engine(sleeves, initial, fee, taxed, tax_rate, common[0], common[-1], monthly_contribution=monthly_contribution)
                for name, sleeves in portfolios.items()}
     for result in results.values():
         if not result.common_index.equals(expected):

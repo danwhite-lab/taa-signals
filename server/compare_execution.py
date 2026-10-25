@@ -7,11 +7,11 @@ from haa.mixed_portfolio import run_mixed_portfolio
 from .performance import span
 
 
-def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, drift=False):
+def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, start=None, end=None, drift=False, monthly_contribution: float = 0.):
     if not drift:
         from haa.portfolio_comparison import compare_portfolios as original
         with span("backtest_seconds"):
-            return original(portfolios,initial,fee,taxed,tax_rate,start,end,drift=False)
+            return original(portfolios,initial,fee,taxed,tax_rate,start,end,drift=False,monthly_contribution=monthly_contribution)
     if len(portfolios)<2: raise ValueError("Select at least two portfolios.")
     inputs=[m for sleeves in portfolios.values() for _,m in sleeves.values()]
     if not inputs or any(m.execution_currency!="USD" for m in inputs):
@@ -21,7 +21,7 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, s
         raise ValueError("A-RVol comparisons require initial weights / daily valuation, not monthly resets.")
     engine=run_mixed_portfolio if drift else run_portfolio_backtest
     with span("backtest_seconds"):
-        preliminary={name:engine(sleeves,initial,fee,taxed,tax_rate,start,end) for name,sleeves in portfolios.items()}
+        preliminary={name:engine(sleeves,initial,fee,taxed,tax_rate,start,end,monthly_contribution=monthly_contribution) for name,sleeves in portfolios.items()}
     common=None
     for result in preliminary.values():common=result.common_index if common is None else common.intersection(result.common_index)
     common=pd.DatetimeIndex(common).sort_values()
@@ -39,7 +39,7 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, s
         prior=preliminary[name]
         if prior.common_index.equals(expected):results[name]=prior
         else:
-            with span("backtest_seconds"):results[name]=engine(sleeves,initial,fee,taxed,tax_rate,common[0],common[-1])
+            with span("backtest_seconds"):results[name]=engine(sleeves,initial,fee,taxed,tax_rate,common[0],common[-1],monthly_contribution=monthly_contribution)
     for result in results.values():
         if not result.common_index.equals(expected):raise ValueError("Portfolio histories contain gaps or unequal execution periods; comparison refused.")
         first=next(iter(results.values()))

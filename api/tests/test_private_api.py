@@ -126,7 +126,7 @@ def test_portfolio_confirmed_non_100_draft_uses_same_private_save_unchanged(sign
     assert client.post('/api/portfolios',headers=HEADERS,json={**body,'allow_non_100_weights':True}).status_code==409
 
 
-@pytest.mark.parametrize('patch',[{'payload':{**portfolio(),'total_ils':0}}, {'payload':{**portfolio(),'sleeves':[]}}, {'expected_updated_at':None}])
+@pytest.mark.parametrize('patch',[{'payload':{**portfolio(),'sleeves':[{'model':'Buy and Hold SPY','weight':0}]}}, {'payload':{**portfolio(),'sleeves':[]}}, {'expected_updated_at':None}])
 def test_portfolio_draft_confirmation_keeps_other_save_checks(signed_in,monkeypatch,patch):
     save=MagicMock();monkeypatch.setattr(private.sync,'save_portfolio',save)
     body={'id':ID,'expected_updated_at':'mock-date','payload':portfolio(),'allow_non_100_weights':True,**patch}
@@ -174,3 +174,21 @@ def test_actual_auth_helper_uses_get_user_and_user_token_not_metadata(monkeypatc
     assert response.json()["user_id"] == "verified-mock-id"
     create.assert_called_once_with("https://mock.invalid", "mock-public")
     sdk.auth.get_user.assert_called_once_with("mock-token")
+
+
+@pytest.mark.parametrize('null_fields',[False,True])
+def test_portfolio_weights_only_save_preserves_optional_defaults_and_rpc(signed_in,monkeypatch,null_fields):
+    value=portfolio()
+    for field in ('total_ils','ils_per_usd'):
+        if null_fields:value[field]=None
+        else:value.pop(field)
+    save=MagicMock(return_value={'id':ID,'payload':value})
+    monkeypatch.setattr(private.sync,'save_portfolio',save)
+    response=client.post('/api/portfolios',headers=HEADERS,json={'payload':value})
+    assert response.status_code==200,response.text
+    assert save.call_args.args[3]==value
+    assert response.json()['payload']==value
+    save.reset_mock();value['sleeves'][0]['weight']=0
+    response=client.post('/api/portfolios',headers=HEADERS,json={'payload':value})
+    assert response.status_code==422 and 'capital' not in response.json()['detail']
+    save.assert_not_called()

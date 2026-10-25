@@ -21,6 +21,7 @@
   "initial": "Initial investment",
   "contribution": "Monthly deposit (optional)",
   "contributionCaption": "Added to every selected model each month, on top of the initial investment. 0 keeps a one-time lump sum.",
+  "portfolioContributionCaption": "Added to every selected portfolio each month in USD, on top of the initial investment. 0 keeps a one-time lump sum.",
   "startLabel": "Start",
   "endLabel": "End",
   "search": "Search models",

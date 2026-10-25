@@ -73,8 +73,8 @@ def deep_history_portfolio_config(payload, models, specs):
     return sleeves, capital
 
 
-def backtest_portfolio_config(payload, models, *, require_total=True):
-    """Strict for all consumers; only confirmed draft saves may relax the total."""
+def backtest_portfolio_config(payload, models, *, require_total=True, require_capital_fx: bool = True):
+    """Validate sleeves, with optional capital/FX for save and Compare consumers."""
     if not isinstance(payload, dict) or payload.get("version") != 1:
         raise ValueError("Choose a version-1 saved portfolio JSON file.")
     sleeves = payload.get("sleeves")
@@ -90,7 +90,12 @@ def backtest_portfolio_config(payload, models, *, require_total=True):
         cleaned.append({"id": index, "weight": weight, "model": sleeve["model"]})
     if require_total and abs(sum(s["weight"] for s in cleaned)-100) > 1e-9:
         raise ValueError("Saved sleeve weights must total 100%.")
-    capital, fx = float(payload.get("total_ils", 0)), float(payload.get("ils_per_usd", 0))
+    if not require_capital_fx:
+        return cleaned, None
+    try:
+        capital, fx = float(payload.get("total_ils", 0)), float(payload.get("ils_per_usd", 0))
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("Saved capital and FX rate must be positive and finite.") from None
     if not math.isfinite(capital) or not math.isfinite(fx) or capital <= 0 or fx <= 0:
         raise ValueError("Saved capital and FX rate must be positive and finite.")
     return cleaned, capital/fx
