@@ -232,9 +232,11 @@ export default function Portfolio() {
     } catch { setError("Enter a name and valid portfolio JSON. No save was attempted."); return; }
     const total = totalWeight(payload);
     const rows = payload.sleeves;
-    if (!Array.isArray(rows) || !rows.length || rows.some(row => numeric(row?.weight) === null || numeric(row.weight)! <= 0)
-      || numeric(payload.total_ils) === null || numeric(payload.total_ils)! <= 0 || numeric(payload.ils_per_usd) === null || numeric(payload.ils_per_usd)! <= 0) {
-      setError("Enter positive sleeve weights, total capital and ILS per USD rate. No save was attempted."); return;
+    if (!Array.isArray(rows) || !rows.length || rows.some(row => numeric(row?.weight) === null || numeric(row.weight)! <= 0)) {
+      setError(words.invalidWeights); return;
+    }
+    if ([payload.total_ils, payload.ils_per_usd].some(value => value != null && (numeric(value) === null || numeric(value)! <= 0))) {
+      setError(words.invalidOptionalDefaults); return;
     }
     if (new Set(rows.map(row => row.model)).size !== rows.length) { setError("Each model may appear only once. No save was attempted."); return; }
     const ruleError = transferError(payload);

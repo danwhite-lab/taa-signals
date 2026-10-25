@@ -449,10 +449,43 @@ def test_deposit_defaults_validation_and_both_engine_passes(signed_in, monkeypat
     assert all(r.monthly.contribution.sum() == (len(result.common_index)-1)*100. for r in result.results.values())
 
 
-def test_portfolio_calculation_does_not_forward_deposit_setting(monkeypatch):
+def test_portfolio_calculation_forwards_deposit_setting(monkeypatch):
     from types import SimpleNamespace
     expected = SimpleNamespace(common_index=pd.date_range("2020-01-31", periods=3, freq="ME"))
     spy = Mock(return_value=expected)
     monkeypatch.setattr(page, "compare_portfolios", spy)
     page.calculate(page.Inputs(mode="portfolios", monthly_contribution=500.), {"inputs": {}})
-    assert spy.call_args.kwargs == {"drift": False}
+    assert spy.call_args.kwargs == {"drift": False, "monthly_contribution": 500.}
+
+
+@pytest.mark.parametrize('method',['monthly','daily'])
+def test_weights_only_portfolio_deposits_use_existing_engines_and_separate_cache(signed_in,monkeypatch,method):
+    labels=['Buy and Hold SPY','Buy and Hold QQQ']
+    records=[saved('FAKE-A',labels,[60,40]),saved('FAKE-B',labels,[30,70])]
+    for record in records:
+        record['payload']['total_ils']=None
+        record['payload'].pop('ils_per_usd')
+    monkeypatch.setattr(module.private_api.sync,'list_portfolios',lambda *a:deepcopy(records))
+    prices,metadata=prices_for(labels,start='2022-01-03',end='2024-06-28')
+    templates=model_inputs(labels,prices,portfolio=True)
+    portfolios={f'Portfolio {i}':{f'{label} ({j})':(s['weight']/100,replace(templates[label],name=f'{label} ({j})'))
+        for j,s in enumerate(record['payload']['sleeves'],1) for label in [s['model']]}
+        for i,record in enumerate(records,1)}
+    loaded={'inputs':portfolios,'version':'mock-public-version','metadata':{},'warnings':[], 'cutoff':None,'bounds':None}
+    monkeypatch.setattr(page,'load',lambda *a:loaded)
+    body={'mode':'portfolios','portfolio_ids':['FAKE-A','FAKE-B'],'method':method,'initial':10000.,
+          'tax_enabled':True,'fee_pct':.05,'start':'2023-03-31','end':'2024-05-31'}
+    lump=post(body)
+    funded=post({**body,'monthly_contribution':100.})
+    assert lump['cache']['key']!=funded['cache']['key']
+    assert post(body)['cache']['key']==lump['cache']['key']
+    assert post({**body,'monthly_contribution':100.})['cache']['hit']=='memory'
+    direct=compare_portfolios(portfolios,10000.,.0005,True,.25,body['start'],body['end'],
+                              drift=method=='daily',monthly_contribution=100.)
+    rows=funded['tables']['summary_after']['rows']
+    for name,result in direct.results.items():
+        metrics=result_metrics(result,'after_tax_value',10000.)
+        for metric in ('CAGR','Final value','Total contributed','Investment gain'):
+            assert next(row[name] for row in rows if row['metric']==metric)==pytest.approx(metrics[metric])
+        assert metrics['Total contributed']>10000.
+        assert metrics['Final value']>next(row[name] for row in lump['tables']['summary_after']['rows'] if row['metric']=='Final value')

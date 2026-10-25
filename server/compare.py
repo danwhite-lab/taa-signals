@@ -70,7 +70,7 @@ def selection(request, records):
     for identifier in request.portfolio_ids:
         row = next((r for r in records if str(r.get("id")) == identifier), None)
         if row is None: error("unknownPortfolio")
-        try: sleeves, _ = backtest_portfolio_config(row.get("payload"), multi.MODELS)
+        try: sleeves, _ = backtest_portfolio_config(row.get("payload"), multi.MODELS, require_capital_fx=False)
         except (ValueError, TypeError, OverflowError, KeyError): error("invalidSaved")
         for sleeve in sleeves:
             selected = definition(sleeve["model"])
@@ -133,13 +133,14 @@ def calculate(request, loaded):
         if not lower <= start <= end <= upper: error("dateRange")
         return compare_models(*args, pd.Timestamp(start), pd.Timestamp(end),
                               monthly_contribution=request.monthly_contribution), (lower, upper)
-    preliminary = compare_portfolios(*args, drift=request.method == "daily")
+    preliminary = compare_portfolios(*args, drift=request.method == "daily", monthly_contribution=request.monthly_contribution)
     lower, upper = preliminary.common_index[0].date(), preliminary.common_index[-1].date()
     start, end = request.start or lower, request.end or upper
     if not lower <= start <= end <= upper: error("dateRange")
     if start == lower and end == upper:
         return preliminary, (lower, upper)
-    return compare_portfolios(*args, pd.Timestamp(start), pd.Timestamp(end), drift=request.method == "daily"), (lower, upper)
+    return compare_portfolios(*args, pd.Timestamp(start), pd.Timestamp(end), drift=request.method == "daily",
+                              monthly_contribution=request.monthly_contribution), (lower, upper)
 
 
 def manifest(bundle):

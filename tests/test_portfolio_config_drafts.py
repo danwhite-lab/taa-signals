@@ -25,3 +25,17 @@ def test_save_only_validation_preserves_non_100_numbers_and_strict_readers():
 def test_draft_save_does_not_relax_other_validation(patch):
     with pytest.raises(ValueError):
         backtest_portfolio_config({**payload(),**patch},{'Buy and Hold SPY':object()},require_total=False)
+
+
+@pytest.mark.parametrize('fields',[{}, {'total_ils':None,'ils_per_usd':None}, {'total_ils':100.,'ils_per_usd':4.}])
+def test_optional_capital_fx_only_for_explicit_consumers(fields):
+    value={'version':1,'sleeves':[{'model':'Buy and Hold SPY','weight':100.}],**fields}
+    original=deepcopy(value);models={'Buy and Hold SPY':object()}
+    rows,capital=backtest_portfolio_config(value,models,require_capital_fx=False)
+    assert capital is None and rows[0]['weight']==100.
+    assert value==original
+    if fields.get('total_ils'):
+        assert backtest_portfolio_config(value,models)[1]==25.
+    else:
+        with pytest.raises(ValueError,match='Saved capital and FX rate must be positive and finite.'):
+            backtest_portfolio_config(value,models)

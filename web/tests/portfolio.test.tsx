@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
+import words from "../content/portfolio.json";
 
 const calls = vi.hoisted(() => ({ api: vi.fn(), signOut: vi.fn() }));
 vi.mock("../lib/api", () => ({ api: calls.api }));
@@ -370,9 +371,9 @@ it('does not overwrite malformed JSON through the builder or save empty/invalid 
   expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('disabled',true);
   expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',true);
   expect(screen.getByLabelText('Portfolio JSON')).toHaveProperty('value','{');
-  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify({...payload,ils_per_usd:null})}});
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify({...payload,sleeves:[{model:'Buy and Hold SPY',weight:0}]})}});
   fireEvent.click(screen.getByText('Save portfolio'));
-  expect(screen.getByText('Enter positive sleeve weights, total capital and ILS per USD rate. No save was attempted.')).toBeTruthy();
+  expect(screen.getByText(words.invalidWeights)).toBeTruthy();
   expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
 });
 
@@ -445,4 +446,43 @@ it('treats transfer edits as unsaved and refuses invalid cap parameters',async()
   fireEvent.click(screen.getByText('Save portfolio'));
   expect(screen.getByText('Enter an RVol cap from 1–99% and a reset target from 1–98%, below the cap. No save was attempted.')).toBeTruthy();
   expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+});
+
+it.each([false,true])('saves weights without capital/FX for a new or selected portfolio (selected=%s)',async selected=>{
+  mockLoad();const original=calls.api.getMockImplementation()!;
+  calls.api.mockImplementation(async(path,init)=>init?.method==='POST'
+    ?{...saved,payload:JSON.parse(init.body).payload}:original(path,init));
+  render(<Portfolio/>);const loaded=await screen.findByText('Fake portfolio');
+  fireEvent.click(selected?loaded:screen.getByText('New portfolio'));
+  const draft={...payload,total_ils:null,ils_per_usd:null};
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(draft)}});
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body)).toEqual({payload:{...draft,transfer_rule:{mode:'none'}},
+    id:selected?saved.id:null,expected_updated_at:selected?saved.updated_at:null,is_default:selected});
+  expect(screen.getByLabelText('Total capital (ILS)')).toHaveProperty('value','');
+  expect(screen.getByLabelText('ILS per USD rate')).toHaveProperty('value','');
+});
+
+it('saves omitted capital/FX without auto-filling or adding fields',async()=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  const {total_ils:capital,ils_per_usd:fx,...draft}=payload;
+  fireEvent.change(screen.getByLabelText('Portfolio JSON'),{target:{value:JSON.stringify(draft)}});
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
+  expect(JSON.parse(init.body).payload).toEqual({...draft,transfer_rule:{mode:'none'}});
+});
+
+it.each(['total_ils','ils_per_usd'])('rejects a typed non-positive %s and accepts clearing it',async field=>{
+  mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  const label=field==='total_ils'?'Total capital (ILS)':'ILS per USD rate';
+  for(const value of ['0','-1']){
+    fireEvent.change(screen.getByLabelText(label),{target:{value}});
+    fireEvent.click(screen.getByText('Save portfolio'));
+    expect(screen.getByText(words.invalidOptionalDefaults)).toBeTruthy();
+    expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+  }
+  fireEvent.change(screen.getByLabelText(label),{target:{value:''}});
+  fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
+  expect(JSON.parse(calls.api.mock.calls.find(([,init])=>init?.method==='POST')![1].body).payload[field]).toBeNull();
 });

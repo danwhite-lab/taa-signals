@@ -1,5 +1,7 @@
 {
   "settings": "Portfolio settings",
+  "invalidWeights": "Enter at least one sleeve with positive weights. No save was attempted.",
+  "invalidOptionalDefaults": "Enter a positive total capital and ILS per USD rate, or leave those boxes empty. No save was attempted.",
   "transferButton": "Transfer rule",
   "invalidRule": "invalid",
   "ruleNames": {"none": "None", "rvol_cap": "Quarterly RVol cap", "annual_target": "Annual reset"},

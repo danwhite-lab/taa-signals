@@ -104,19 +104,21 @@ it("keeps words in data and contains no financial calculations, local storage or
   expect(source).not.toMatch(/method:\s*["'](?:PUT|DELETE)["']/);
 });
 
-it("shows and sends model deposits, hides them in Portfolio mode, and preserves the model draft",async()=>{
+it("shows and sends deposits in both modes without changing the entered amount",async()=>{
   await ready();
   expect(screen.getByLabelText(text.contribution)).toHaveProperty("value","0");
   fireEvent.change(screen.getByLabelText(text.contribution),{target:{value:"250"}});
   fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);
   expect(JSON.parse(mock.request.mock.calls.find(([path])=>path==="/api/compare")![1].body).monthly_contribution).toBe(250);
   fireEvent.click(screen.getByRole("radio",{name:text.modes.portfolios}));
-  expect(screen.queryByLabelText(text.contribution)).toBeNull();
   select(text.saved,["fake-a","fake-b"]);
-  fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);
-  expect(JSON.parse(mock.request.mock.calls.filter(([path])=>path==="/api/compare").at(-1)![1].body).monthly_contribution).toBe(0);
-  fireEvent.click(screen.getByRole("radio",{name:text.modes.models}));
   expect(screen.getByLabelText(text.contribution)).toHaveProperty("value","250");
+  expect(screen.getByText(text.portfolioContributionCaption)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText(text.contribution),{target:{value:"350"}});
+  fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);
+  expect(JSON.parse(mock.request.mock.calls.filter(([path])=>path==="/api/compare").at(-1)![1].body).monthly_contribution).toBe(350);
+  fireEvent.click(screen.getByRole("radio",{name:text.modes.models}));
+  expect(screen.getByLabelText(text.contribution)).toHaveProperty("value","350");
 });
 
 it("keeps fee, tax toggle and rate in one costs row, with the rate disabled until enabled",async()=>{
