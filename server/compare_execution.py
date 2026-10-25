@@ -14,8 +14,9 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, s
             return original(portfolios,initial,fee,taxed,tax_rate,start,end,drift=False,monthly_contribution=monthly_contribution)
     if len(portfolios)<2: raise ValueError("Select at least two portfolios.")
     inputs=[m for sleeves in portfolios.values() for _,m in sleeves.values()]
-    if not inputs or any(m.execution_currency!="USD" for m in inputs):
-        raise ValueError("Portfolio comparisons currently require USD sleeves; no FX conversion is assumed.")
+    currencies={m.execution_currency for m in inputs}
+    if len(currencies)!=1 or not currencies.issubset({"USD","ILS"}):
+        raise ValueError("Portfolio comparisons require one shared execution currency (USD or ILS); mixed currencies need historical FX conversion, which is not supported.")
     if len({m.benchmark_asset for m in inputs})!=1: raise ValueError("All compared portfolios must share the same benchmark.")
     if not drift and any(m.decisions.attrs.get("execution_frequency")=="daily" for m in inputs):
         raise ValueError("A-RVol comparisons require initial weights / daily valuation, not monthly resets.")
@@ -27,8 +28,9 @@ def compare_portfolios(portfolios, initial, fee=0., taxed=False, tax_rate=.25, s
     common=pd.DatetimeIndex(common).sort_values()
     if common.empty:raise ValueError("The selected portfolios have no shared executable history.")
     if drift:
-        from haa.market_sessions import us_equity_sessions
-        expected=us_equity_sessions(str(common[0].date()),str(common[-1].date()))
+        from haa.market_sessions import us_equity_sessions, tase_equity_sessions
+        sessions=tase_equity_sessions if currencies=={"ILS"} else us_equity_sessions
+        expected=sessions(str(common[0].date()),str(common[-1].date()))
     else:
         expected=common
         months=common.to_period("M")

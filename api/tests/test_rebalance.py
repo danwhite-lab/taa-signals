@@ -11,6 +11,100 @@ from haa.rebalance_holdings import (empty_account, security, make_buy_plan,
     compare_holdings, apply_purchases, fingerprint, rebalance_targets)
 
 
+@pytest.mark.parametrize('mode',['proportional','biggest_gap_first'])
+def test_companion_value_folds_into_anchor_and_only_anchor_is_bought(book,mode):
+    remote,instruments,targets,quotes,fx=book
+    account=remote['payload']['holdings_account'];anchor=next(iter(targets));legacy='US:GLD'
+    targets.clear();targets[anchor]=1.
+    account['positions'][legacy]={**instruments[legacy],'units':'20','companion_of':anchor,'minimum_ils':'999999'}
+    remote['payload']['rebalance_allocation_mode']=mode
+    state=client.get('/api/rebalance',headers=HEADERS).json()
+    anchor_row=next(r for r in state['comparison'] if r['id']==anchor)
+    legacy_row=next(r for r in state['comparison'] if r['id']==legacy)
+    assert anchor_row['Actual %']==1.
+    assert legacy_row['Value (₪)']==350 and legacy_row['Target %'] is None
+    assert legacy_row['Status']=='Companion' and legacy_row['companion_of']==anchor
+    assert state['total_ils']==state['full_total_ils']=='350.0'
+    value=post('plan',request(remote,new_money='100')).json()
+    assert [(r['id'],r['units']) for r in value['plan']['orders']]==[(anchor,10)]
+    quotes[legacy]['fresh']=False
+    assert post('plan',request(remote)).status_code==400
+    quotes[legacy]={'error':'Missing','fresh':False}
+    assert post('plan',request(remote)).status_code==400
+
+
+@pytest.mark.parametrize('change',['outside','self','chain','target','invalid'])
+def test_invalid_companion_configurations_are_rejected(book,change):
+    remote,instruments,targets,_,_=book
+    account=remote['payload']['holdings_account'];anchor=next(iter(targets));legacy='US:GLD'
+    account['positions'][legacy]={**instruments[legacy],'units':'1','companion_of':anchor}
+    if change=='outside':account['positions'][legacy]['outside_rebalance']=True
+    if change=='self':account['positions'][legacy]['companion_of']=legacy
+    if change=='chain':account['positions'][anchor]['companion_of']=next(k for k in targets if k!=anchor)
+    if change=='target':targets[legacy]=.1
+    if change=='invalid':account['positions'][legacy]['companion_of']='not-a-security'
+    assert post('plan',request(remote)).status_code==400
+
+
+def test_companion_editor_round_trip_uses_existing_workspace_save(book,monkeypatch):
+    remote,instruments,targets,_,_=book
+    anchor=next(iter(targets));legacy='US:GLD'
+    remote['payload']['holdings_account']['positions'][legacy]={**instruments[legacy],'units':'2'}
+    state=client.get('/api/rebalance',headers=HEADERS).json()
+    next(row for row in state['rows'] if row['Security']==legacy)['Companion of']=anchor
+    response=post('editor',request(remote,rows=state['rows'],cash='0',manual_fx=''))
+    assert response.status_code==200,response.text
+    candidate=response.json()['account']
+    assert candidate['positions'][legacy]['companion_of']==anchor
+    writes=[]
+    monkeypatch.setattr(private.sync,'save_workspace',lambda *args:(writes.append(deepcopy(args[-2])) or 2))
+    result=client.put('/api/workspace',headers=HEADERS,json={'revision':1,'payload':{'holdings_account':candidate}})
+    assert result.status_code==200,result.text
+    assert writes[0]['holdings_account']['positions'][legacy]['companion_of']==anchor
+
+
+@pytest.mark.parametrize('mode',['proportional','biggest_gap_first'])
+@pytest.mark.parametrize('quote_state',['current','stale','missing'])
+def test_unmatched_companion_is_exactly_outside_and_reactivates(book,mode,quote_state):
+    remote,instruments,targets,quotes,fx=book
+    account=remote['payload']['holdings_account'];legacy='US:GLD';anchor=next(iter(targets))
+    account['positions'][legacy]={**instruments[legacy],'units':'20','companion_of':anchor}
+    remote['payload']['rebalance_allocation_mode']=mode
+    targets.pop(anchor) # Simulate selecting a portfolio without its anchor.
+    if quote_state=='stale':quotes[legacy]['fresh']=False
+    if quote_state=='missing':quotes[legacy]={'error':'Missing','fresh':False}
+    response=post('plan',request(remote,new_money='100'))
+    assert response.status_code==200,response.text
+    value=response.json();state=value['state']
+    row=next(r for r in state['comparison'] if r['id']==legacy)
+    assert row['Status']=='Outside the rebalance' and row['Target %'] is row['Actual %'] is None
+    assert legacy not in state['held_blocked'] and state['total_ils']=='0'
+    removed=deepcopy(account);removed['positions'].pop(legacy)
+    expected=make_buy_plan(removed,instruments,targets,quotes,1,'100',{},allocation_mode=mode)
+    for field in ('orders','leftover_ils','available_ils','instruments'):
+        assert value['plan'][field]==expected[field]
+    if quote_state!='missing':assert Decimal(state['full_total_ils'])==350
+    else:assert state['full_total_ils'] is None
+    assert account['positions'][legacy]['companion_of']==anchor
+    targets[anchor]=.6
+    active=client.get('/api/rebalance',headers=HEADERS).json()
+    assert next(r for r in active['comparison'] if r['id']==legacy)['Status']=='Companion'
+    if quote_state!='current':assert legacy in active['held_blocked']
+
+
+def test_unpriced_unheld_anchor_does_not_exclude_its_active_companion_from_partial_plan(book):
+    remote,instruments,targets,quotes,fx=book
+    account=remote['payload']['holdings_account'];anchor,other=list(targets);legacy='US:GLD'
+    account['positions'][legacy]={**instruments[legacy],'units':'20','companion_of':anchor}
+    quotes[anchor]={'error':'Missing','fresh':False}
+    response=post('plan',request(remote,new_money='100'))
+    assert response.status_code==200,response.text
+    value=response.json()
+    assert Decimal(value['state']['total_ils'])==350
+    assert next(r for r in value['state']['comparison'] if r['id']==legacy)['Status']=='Companion'
+    assert [(r['id'],r['units']) for r in value['plan']['orders']]==[(other,5)]
+
+
 @pytest.fixture
 def book(monkeypatch, signed_in):
     items = [security("1149038", "TASE"), security("1187079", "TASE"), security("GLD", "US")]

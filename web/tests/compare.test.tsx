@@ -155,3 +155,11 @@ it("groups catalogue families and models A-Z, searches case-insensitively and re
   expect(screen.getByText(text.hint)).toBeTruthy();
   expect(screen.queryByRole("combobox",{name:text.mode})).toBeNull();
 });
+
+it.each([text.initial,text.contribution,text.fee])('sends zero rather than null when %s is cleared',async label=>{
+  await ready();fireEvent.change(screen.getByLabelText(label),{target:{value:''}});
+  fireEvent.click(screen.getByRole('button',{name:text.run}));await screen.findByText(text.completed);
+  const body=JSON.parse(mock.request.mock.calls.find(([path])=>path==='/api/compare')![1].body);
+  const field=label===text.initial?'initial':label===text.contribution?'monthly_contribution':'fee_pct';
+  expect(body[field]).toBe(0);
+});

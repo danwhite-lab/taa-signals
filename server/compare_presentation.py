@@ -36,7 +36,8 @@ def present(request, comparison, loaded, bounds):
         for name, model in loaded["inputs"].items():
             benchmarks.setdefault(W["benchmark"].format(asset=model.benchmark_asset), comparison.results[name])
     else:
-        benchmarks[W["benchmark"].format(asset="SPY")] = first
+        benchmark_asset = next(iter(next(iter(loaded["inputs"].values())).values()))[1].benchmark_asset
+        benchmarks[W["benchmark"].format(asset=benchmark_asset)] = first
     benchmark = ", ".join(benchmarks)
     tables, charts, downloads = {}, {}, {}
     def export(kind, frame, filename, label):
@@ -97,6 +98,6 @@ def present(request, comparison, loaded, bounds):
     public = {"gate":"available", "mode":request.mode, "method":request.method, "tax_enabled":request.tax_enabled,
         "window":window, "bounds":{"start":str(bounds[0]), "end":str(bounds[1])}, "benchmark":benchmark,
         "success":W["success"].format(start=window["start"],end=window["end"],n=len(common)) if models else None,
-        "source_caption":W["sharedSource"].format(start=bounds[0],end=bounds[1]) if models else None,
+        "source_caption":W["sharedSource"].format(start=bounds[0],end=bounds[1]) if models else W["portfolioCurrencyCaption"].format(currency=next(iter(next(iter(loaded["inputs"].values())).values()))[1].execution_currency),
         "coverage":preview(comparison.available_periods), "tables":tables, "charts":charts, "data_validation":loaded["metadata"]}
     return clean({"kind":f"compare-{request.mode}-v1", "public":public, "downloads":downloads})

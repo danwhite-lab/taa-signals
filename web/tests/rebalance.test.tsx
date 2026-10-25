@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/rebalance.json";
+import holdings from "../content/holdings.json";
 const mock = vi.hoisted(() => ({ request: vi.fn(), save: vi.fn(), mode: vi.fn() }));
 vi.mock("../lib/rebalanceApi", () => ({ rebalanceRequest: mock.request, saveHoldings: mock.save, saveAllocationMode: mock.mode,
   RebalanceError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
@@ -27,6 +28,45 @@ const state = { workspace_revision: 1, allocation_mode: "proportional", account_
 const candidate = { ...state.account, last_operation_id: "fake-operation", revision: 1 };
 const preview = { account: candidate, preview: [{ Fund: item.label, "Units to save": "2.00" }], errors: [] };
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
+
+it('shows an unmatched companion as outside, with no target and the exclusion explanation',async()=>{
+  const next={...state,targets:{[other.id]:1},comparison:[
+    {id:item.id,Fund:item.label,target_display:'—',actual_display:'—',Status:'Outside the rebalance',companion_of:'US:OTHER'},
+    {id:other.id,Fund:other.label,target_display:'100.00%',actual_display:'0.00%',Status:'Underweight'},
+  ]};
+  mock.request.mockResolvedValue(next);render(<Page/>);
+  await screen.findByText(text.unmatchedCompanionNote);
+  const table=screen.getByText(text.comparison).parentElement!.querySelector('table')!;
+  const row=within(table).getByText(item.label).closest('tr')!;
+  expect(within(row).getByText('Outside the rebalance')).toBeTruthy();
+  expect(within(row).getAllByText('—')).toHaveLength(2);
+  expect(within(row).queryByText(text.companionStatus)).toBeNull();
+});
+
+it('selects a companion generically, clears exclusion, and groups its comparison row once under its anchor',async()=>{
+  const companion={...row,'Outside the rebalance':true};
+  const next={...state,targets:{[other.id]:1},rows:[companion,{...row,Security:other.id,Fund:other.label}],comparison:[
+    {id:item.id,Fund:item.label,target_display:'—',actual_display:'—',Status:'Companion',companion_of:other.id},
+    {id:other.id,Fund:other.label,target_display:'100.00%',actual_display:'100.00%',Status:'On target'},
+  ]};
+  mock.request.mockImplementation(async(path:string)=>path==='/api/rebalance/editor'?preview:next);
+  render(<Page/>);const select=await screen.findByRole('combobox',{name:holdings.companion+' '+item.id});
+  expect(within(select).getByRole('option',{name:other.label})).toBeTruthy();
+  expect(within(select).queryByRole('option',{name:item.label})).toBeNull();
+  fireEvent.change(select,{target:{value:other.id}});
+  expect(screen.getByLabelText(text.columns['Outside the rebalance']+' '+item.id)).toHaveProperty('checked',false);
+  fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.previewAction));
+  await waitFor(()=>expect(mock.request.mock.calls.some(([path])=>path==='/api/rebalance/editor')).toBe(true));
+  const body=mock.request.mock.calls.find(([path])=>path==='/api/rebalance/editor')![1];
+  expect(body.rows.find((r:Record<string,unknown>)=>r.Security===item.id)['Companion of']).toBe(other.id);
+  const table=screen.getByText(text.comparison).parentElement!.querySelector('table')!;
+  const rows=within(table).getAllByRole('row');
+  expect(rows[1].textContent).toContain(other.label);expect(rows[2].textContent).toContain(item.label);
+  expect(within(table).getAllByText(item.label)).toHaveLength(1);
+  expect(within(rows[2]).getByText(text.companionNote)).toBeTruthy();
+  fireEvent.click(screen.getByLabelText(text.columns['Outside the rebalance']+' '+item.id));
+  expect(select).toHaveProperty('value','');
+});
 
 afterEach(() => { cleanup(); mock.request.mockReset(); mock.save.mockReset(); mock.mode.mockReset(); vi.restoreAllMocks(); });
 it("filters by fields, preserves a hidden selection and performs no requests while browsing", async () => {

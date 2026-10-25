@@ -13,7 +13,8 @@ type Account = { revision: number; cash_ils: string; manual_fx?: string | null; 
 type Quote = Record<string, unknown>;
 type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
   portfolios: { id: string; name: string }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
-  comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string }[];
+  comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string; companion_of?: string }[];
+  targets?: Record<string,number>;
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
   held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
@@ -63,6 +64,7 @@ export default function RebalanceHoldings() {
   function edit(key: string, field: string, value: string | boolean) {
     if (field === "Remove" && value === true) holdingsHeading.current?.focus({ preventScroll: true });
     invalidate(true); setRows(previous => previous.map(row => row.Security === key ? { ...row, [field]: value,
+      ...(field === "Companion of" && value ? {"Outside the rebalance":false} : field === "Outside the rebalance" && value ? {"Companion of":""} : {}),
       ...(field === "Units" ? { "Enter as": "Units", "Units edited": true } : field === "Value (₪ / $)" ? { "Enter as": "Value" } : {}) } : row));
   }
   function args() { return { portfolio_id: portfolio, account_hash: state?.account_hash, new_money: money }; }
@@ -109,6 +111,10 @@ export default function RebalanceHoldings() {
     if (!dirty) setRows(value.rows);
     else setRows(previous => [...previous, ...value.rows.filter(row => !previous.some(old => old.Security === row.Security))]);
   }
+  const targetFunds=Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id].label})).sort((a,b)=>a.label.localeCompare(b.label));
+  const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
+    row,...state.comparison.filter(child=>child.companion_of===row.id),
+  ]).concat(state.comparison.filter(row=>row.companion_of&&!state.comparison.some(anchor=>anchor.id===row.companion_of))) : [];
   return <main className="rebalance-page"><h1>{text.title}</h1>
     {busy && <p role="status">{state ? text.working : text.loading}</p>}
     {!state && <>{message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}</>}
@@ -125,7 +131,7 @@ export default function RebalanceHoldings() {
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
           <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.outside, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
-          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit}
+          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
         <details><summary>{text.add}</summary>
@@ -190,7 +196,7 @@ export default function RebalanceHoldings() {
         </div>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
-        {state.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
+        {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status === "Companion" ? text.companionStatus : row.Status}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
       {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
         {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
         {state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}

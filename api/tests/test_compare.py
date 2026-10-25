@@ -3,6 +3,7 @@ import ast
 from copy import deepcopy
 from dataclasses import replace
 import json
+import re
 from unittest.mock import Mock
 
 import numpy as np
@@ -257,12 +258,12 @@ def test_original_engine_refusal_attributes_are_not_hidden(signed_in,monkeypatch
     with pytest.raises(ValueError,match=expected.replace(".",r"\.")):page.calculate(page.Inputs(models=MONTHLY[:2]),loaded)
 
 
-@pytest.mark.parametrize("change,expected",[("currency","Portfolio comparisons currently require USD sleeves; no FX conversion is assumed."),("benchmark","All compared portfolios must share the same benchmark."),("rvol","A-RVol comparisons require initial weights / daily valuation, not monthly resets.")])
+@pytest.mark.parametrize("change,expected",[("currency","Portfolio comparisons require one shared execution currency (USD or ILS); mixed currencies need historical FX conversion, which is not supported."),("benchmark","All compared portfolios must share the same benchmark."),("rvol","A-RVol comparisons require initial weights / daily valuation, not monthly resets.")])
 def test_portfolio_engine_refusals(change,expected):
     prices,_=prices_for(["HAA-Simple"]);model=model_inputs(["HAA-Simple"],prices,True)["HAA-Simple"]
     other=replace(model,execution_currency="ILS") if change=="currency" else replace(model,benchmark_asset="ACWI") if change=="benchmark" else replace(model,decisions=model.decisions.copy())
     if change=="rvol":other.decisions.attrs["execution_frequency"]="daily"
-    with pytest.raises(ValueError,match=expected.replace(".",r"\.")):
+    with pytest.raises(ValueError,match=re.escape(expected)):
         page.calculate(page.Inputs(mode="portfolios"),{"inputs":{"Portfolio 1":{"A":(1,model)},"Portfolio 2":{"B":(1,other)}}})
 
 
@@ -314,7 +315,7 @@ def test_out_of_range_missing_download_and_auth_methods(signed_in,monkeypatch):
 
 def test_original_captions_and_no_runtime_reader_or_fee_notice():
     literals={node.value for node in ast.walk(ast.parse((ROOT/"app.py").read_text())) if isinstance(node,ast.Constant) and isinstance(node.value,str)}
-    for key in ("modelsCaption","savedCaption","methodCaption","modelsGate","portfoliosGate","closing","dateOrder","portfolioDateOrder"):
+    for key in ("modelsCaption","savedCaption","modelsGate","portfoliosGate","closing","dateOrder","portfolioDateOrder"):
         assert page.WORDS[key] in literals,key
     source=(ROOT/"server/compare.py").read_text()+(ROOT/"server/compare_presentation.py").read_text()
     assert "app.py" not in source and "MINIMUM_NOTE" not in source
@@ -354,13 +355,13 @@ def test_portfolio_gaps_and_inconsistent_benchmark_refused(change,expected):
     assert str(exc.value)==expected
 
 
-def test_usd_only_page_guard_and_invalid_private_payload_never_echoed(signed_in,monkeypatch):
+def test_mixed_currency_page_guard_and_invalid_private_payload_never_echoed(signed_in,monkeypatch):
     records=[saved("FAKE-ID-A",["HAA-Simple"],[100]),saved("FAKE-ID-B",["Buy and Hold Gold Israel"],[100])]
     monkeypatch.setattr(module.private_api.sync,"list_portfolios",lambda *a:records)
     monkeypatch.setattr(page,"load",Mock(side_effect=AssertionError("Invalid selection must not load prices")))
     body={"mode":"portfolios","portfolio_ids":[r["id"] for r in records]}
     response=client.post("/api/compare",headers=HEADERS,json=body)
-    assert response.status_code==400 and response.json()["detail"]=="Buy and Hold Gold Israel: portfolio comparison requires USD sleeves."
+    assert response.status_code==400 and response.json()["detail"]==page.WORDS['portfolioCurrency']
     records[1]["payload"]["sleeves"][0]["weight"]="FAKE-PRIVATE-INVALID"
     response=client.post("/api/compare",headers=HEADERS,json=body)
     assert response.status_code==400 and "FAKE-PRIVATE" not in response.text
@@ -489,3 +490,31 @@ def test_weights_only_portfolio_deposits_use_existing_engines_and_separate_cache
             assert next(row[name] for row in rows if row['metric']==metric)==pytest.approx(metrics[metric])
         assert metrics['Total contributed']>10000.
         assert metrics['Final value']>next(row[name] for row in lump['tables']['summary_after']['rows'] if row['metric']=='Final value')
+
+
+@pytest.mark.parametrize('method',['monthly','daily'])
+def test_ils_portfolios_use_single_portfolio_loader_and_engines(signed_in,monkeypatch,method):
+    from haa.market_sessions import tase_equity_sessions
+    from haa.tase_data import TASE_ISRAEL_ASSET_IDS
+    labels=['Buy and Hold Gold Israel','Buy and Hold Harel Government Bonds Israel']
+    records=[saved('FAKE-A',labels,[60,40]),saved('FAKE-B',labels,[30,70])]
+    monkeypatch.setattr(module.private_api.sync,'list_portfolios',lambda *a:deepcopy(records))
+    def loader(descriptor,*,daily_bars=False):
+        assert not daily_bars # ILS uses actual TASE closes, not invented opens.
+        columns={}
+        for i,asset in enumerate(descriptor.model_class().data_assets):
+            dates=(tase_equity_sessions if asset in TASE_ISRAEL_ASSET_IDS else us_equity_sessions)('2022-01-03','2024-06-28')
+            columns[asset]=pd.Series(100*np.exp(.0001*np.arange(len(dates))+.02*np.sin(np.arange(len(dates))/(30+i))),index=dates)
+        prices=pd.DataFrame(columns)
+        return prices,pd.DataFrame({'source':'Mock actual observations','identifier':list(columns)},index=list(columns)),[]
+    monkeypatch.setattr(page.signals,'load_inputs',loader)
+    request=page.Inputs(mode='portfolios',portfolio_ids=['FAKE-A','FAKE-B'],method=method,initial=10000.,
+                        monthly_contribution=100.,tax_enabled=True,fee_pct=.05)
+    loaded=page.load(request,page.selection(request,records))
+    direct=compare_portfolios(loaded['inputs'],10000.,.0005,True,.25,drift=method=='daily',monthly_contribution=100.)
+    value=post(request.model_dump(mode='json'))
+    assert value['gate']=='available' and 'ILS' in value['source_caption']
+    for name,result in direct.results.items():
+        for metric,expected in result_metrics(result,'after_tax_value',10000.).items():
+            actual=next(row[name] for row in value['tables']['summary_after']['rows'] if row['metric']==metric)
+            assert actual==pytest.approx(expected,rel=1e-12,abs=1e-9,nan_ok=True) if pd.notna(expected) else actual is None

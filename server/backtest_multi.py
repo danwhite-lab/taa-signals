@@ -137,7 +137,7 @@ def load_saved(body, portfolios):
 
 def live_inputs(request):
     definitions = [base.definition(s.model) for s in request.sleeves]
-    mixed = any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
+    mixed = getattr(request, "daily_valuation", False) or any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
     local = all(d.execution_currency == "ILS" for d in definitions)
     benchmark = "RVOL_SPY_IL" if mixed and local else "SPY"
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"), benchmark)))

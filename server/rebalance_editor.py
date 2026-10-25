@@ -37,6 +37,8 @@ def _preview_positions(account, instruments, rows):
                         "minimum_ils": str(number(row["Minimum order (₪)"])),
                         "manual_price": str(number(price, positive=True)) if has_price else None,
                         "manual_price_date": price_date if has_price else None}
+            if row.get("Companion of"):
+                position["companion_of"] = row["Companion of"]
             same = position["manual_price"] == old.get("manual_price") and position["manual_price_date"] == old.get("manual_price_date")
             position["manual_entered_at"] = old.get("manual_entered_at") if same else utc_now()
             quote = market_data.unit_quote(instruments[key], position)

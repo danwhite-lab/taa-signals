@@ -88,11 +88,11 @@ export default function ComparePage() {
       {!models && <p>{text.neutral}</p>}
       <fieldset className="compare-settings compare-model-settings" disabled={running}>
         {!models && <><label>{text.method}<select value={settings.method} onChange={e=>change({method:e.target.value as Settings["method"]})}>{Object.entries(text.methods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><p>{text.methodCaption}</p></>}
-        <AmountAndDates initial={<label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.valueAsNumber})}/></label>}
-          contribution={<label>{text.contribution}<input type="number" min="0" step="100" value={settings.monthly_contribution} onChange={e=>change({monthly_contribution:e.target.valueAsNumber})}/></label>}
+        <AmountAndDates initial={<label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
+          contribution={<label>{text.contribution}<input type="number" min="0" step="100" value={settings.monthly_contribution} onChange={e=>change({monthly_contribution:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
           start={<DateField label={text.startLabel} hint={models ? text.start : text.portfolioStart}><input aria-label={models ? text.start : text.portfolioStart} type="date" value={settings.start} onChange={e=>change({start:e.target.value})}/></DateField>} end={<DateField label={text.endLabel} hint={models ? text.end : text.portfolioEnd}><input aria-label={models ? text.end : text.portfolioEnd} type="date" value={settings.end} onChange={e=>change({end:e.target.value})}/></DateField>} />
         <p className="assumption-hint">{models ? text.contributionCaption : text.portfolioContributionCaption}</p>
-        <CostsAndTax><TaxControls leading={<label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.valueAsNumber})}/></label>}
+        <CostsAndTax><TaxControls leading={<label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
           enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/></CostsAndTax>
         <p>{text.dateHelp}</p>{models && mismatch && <p className="signal-warning">{text.hint}</p>}
       </fieldset><button className="btn btn-primary" disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
