@@ -14,7 +14,7 @@ from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from haa.model_catalog import MODEL_CATALOG
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
     execution_security, combined_targets, rebalance_targets, compare_holdings,
-    make_buy_plan, apply_purchases, fingerprint)
+    make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from . import private_api as private, rebalance_quotes as market
 from .rebalance_editor import _preview_positions
@@ -108,8 +108,8 @@ def snapshot(workspace, account, portfolios, request):
     started = perf_counter()
     mode = private.checked_allocation_mode(workspace["payload"])
     portfolio, instruments, sources, targets, errors, source = targets_for(workspace, portfolios, request.portfolio_id, account)
-    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
     targets = rebalance_targets(account, targets)
+    excluded = excluded_holdings(account, targets)
     visible = set(targets) | set(account["positions"])
     quotes = {k: market.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(visible)}
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
@@ -130,6 +130,7 @@ def snapshot(workspace, account, portfolios, request):
         full = deepcopy(account)
         for row in full["positions"].values():
             row["outside_rebalance"] = False
+            row.pop("companion_of", None)
         if not fx.get("error"):
             _, _, full_total = compare_holdings(full, instruments, {}, quotes, fx["price"])
     except (ValueError, KeyError, TypeError):
@@ -142,6 +143,10 @@ def snapshot(workspace, account, portfolios, request):
             row.update({"Target %": None, "Status": "Target unavailable"})
         if row["id"] in excluded:
             row.update({"Target %": None, "Actual %": None, "Status": "Outside the rebalance"})
+        anchor = account["positions"].get(row["id"], {}).get("companion_of")
+        if anchor:
+            row.update(companion_of=anchor, **{"Target %": None, "Actual %": None,
+                "Status": "Outside the rebalance" if row["id"] in excluded else "Companion"})
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
     eligible = {k: w for k, w in targets.items() if k not in blocked}
@@ -158,6 +163,8 @@ def snapshot(workspace, account, portfolios, request):
             "Value (₪ / $)": f'{number(p.get("units", 0)) * number(q["price"], positive=True):.2f}' if current else "",
             "Manual price per unit": p.get("manual_price"), "Price date": p.get("manual_price_date"),
             "Minimum order (₪)": p.get("minimum_ils", "0"), "Remove": False})
+        if p.get("companion_of"):
+            editor_rows[-1]["Companion of"] = p["companion_of"]
     return {"workspace_revision": workspace["revision"], "account": account, "account_hash": fingerprint(account),
         "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
         "instruments": instruments, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
@@ -176,6 +183,8 @@ def safe(operation):
         return operation()
     except HTTPException:
         raise
+    except CompanionError as exc:
+        raise HTTPException(400, str(exc)) from None
     except Exception:
         raise HTTPException(400, "Check the entered units, security details and dated manual prices. No data was saved.") from None
 
@@ -206,6 +215,8 @@ def semantic(account):
         result.pop(key, None)
     for p in result["positions"].values():
         p.pop("manual_entered_at", None)
+        if not p.get("companion_of"):
+            p.pop("companion_of", None)
         for key, default in (("outside_rebalance", False), ("minimum_ils", "0"), ("manual_price", None), ("manual_price_date", None)):
             p.setdefault(key, default)
         for key in ("units", "minimum_ils"):
@@ -225,7 +236,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
         checked(account, body.account_hash)
         if not body.cash.strip():
             raise HTTPException(400, "Enter unallocated account cash, or enter 0 if there is none.")
-        _, instruments, _, _, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
+        _, instruments, _, targets, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
         seen = set()
         for row in body.rows:
             key = row["Security"]
@@ -240,6 +251,8 @@ def editor(body: Editor, session=Depends(private.authenticated)):
                 instruments[key] = item
             if row.get("Enter as") not in {"Units", "Value"} or type(row.get("Outside the rebalance", False)) is not bool:
                 raise ValueError()
+            if row.get("Companion of") is not None and not isinstance(row["Companion of"], str):
+                raise CompanionError("Companion of must be a valid security ID, or empty.")
             # A two-decimal display must not round stored fractional US units.
             # The browser marks an explicit units edit; unchanged cells retain
             # their exact confirmed decimal string. Value conversion stays in
@@ -254,6 +267,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
                          manual_fx=str(number(body.manual_fx, positive=True)) if body.manual_fx and number(body.manual_fx) else None,
                          manual_fx_date=body.manual_fx_date if body.manual_fx and number(body.manual_fx) else None)
         validate_account(candidate)
+        rebalance_targets(candidate, targets)
         if account.get("last_operation_id") and semantic(candidate) == semantic(account):
             candidate = account
         else:

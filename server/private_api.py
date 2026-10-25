@@ -114,7 +114,7 @@ def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
             if account["revision"] != old_revision + 1:
                 raise HTTPException(409, "Holdings changed. Reload before saving.")
         allowed = {"version", "revision", "positions", "cash_ils", "last_operation_id", "manual_fx", "manual_fx_date", "updated_at"}
-        position_fields = {"id", "identifier", "market", "currency", "label", "units", "outside_rebalance", "minimum_ils", "manual_price", "manual_price_date", "manual_entered_at"}
+        position_fields = {"id", "identifier", "market", "currency", "label", "units", "outside_rebalance", "companion_of", "minimum_ils", "manual_price", "manual_price_date", "manual_entered_at"}
         if set(account) - allowed or any(set(p) - position_fields for p in account["positions"].values()):
             raise HTTPException(422, "Holdings contain unsupported fields; prices and pending plans must not be saved.")
     # An identical operation retry needs no write, even if the response was lost.

@@ -72,11 +72,10 @@ def selection(request, records):
         if row is None: error("unknownPortfolio")
         try: sleeves, _ = backtest_portfolio_config(row.get("payload"), multi.MODELS, require_capital_fx=False)
         except (ValueError, TypeError, OverflowError, KeyError): error("invalidSaved")
-        for sleeve in sleeves:
-            selected = definition(sleeve["model"])
-            if selected.execution_currency != "USD":
-                raise HTTPException(400, WORDS["usdOnly"].format(label=selected.label))
         result.append(sleeves)
+    currencies = {definition(s["model"]).execution_currency for sleeves in result for s in sleeves}
+    if len(currencies) > 1 or not currencies.issubset({"USD", "ILS"}):
+        error("portfolioCurrency")
     return result
 
 
@@ -85,7 +84,8 @@ def load(request, chosen):
         # The Step 7 union loader supplies shared SPY and adjusted opens whenever
         # a daily sleeve needs them. Canonical IDs, never saved identifiers.
         labels = list(dict.fromkeys(s["model"] for sleeves in chosen for s in sleeves))
-        descriptor = SimpleNamespace(sleeves=[multi.Sleeve(id=i, model=label, weight=100/len(labels)) for i, label in enumerate(labels, 1)])
+        descriptor = SimpleNamespace(sleeves=[multi.Sleeve(id=i, model=label, weight=100/len(labels)) for i, label in enumerate(labels, 1)],
+                                     daily_valuation=request.method == "daily")
         templates, version, metadata, warnings, _, cutoff = multi.live_inputs(descriptor)
         templates = {label: templates[f"{label} ({i})"][1] for i, label in enumerate(labels, 1)}
         portfolios = {}

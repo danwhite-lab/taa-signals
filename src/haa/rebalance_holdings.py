@@ -14,6 +14,10 @@ from .tase_data import TASE_ISRAEL_ASSET_IDS
 from .allocation_mode import validate_allocation_mode
 
 
+class CompanionError(ValueError):
+    """Safe companion configuration errors, with no account amounts."""
+
+
 def number(value, *, positive=False):
     try:
         result = Decimal(str(value))
@@ -100,6 +104,21 @@ def validate_account(account):
         units = number(row["units"])
         if not isinstance(row.get("outside_rebalance", False), bool):
             raise ValueError("Outside the rebalance must be on or off.")
+        anchor = row.get("companion_of")
+        if anchor is not None:
+            try:
+                market, identifier = anchor.split(":", 1)
+                valid = isinstance(anchor, str) and security(identifier, market)["id"] == anchor
+            except (ValueError, AttributeError):
+                valid = False
+            if not valid:
+                raise CompanionError("Companion of must be a valid security ID, or empty.")
+            if row.get("outside_rebalance", False):
+                raise CompanionError("A holding cannot be both a companion and outside the rebalance.")
+            if anchor == key:
+                raise CompanionError("A holding cannot be its own companion.")
+            if positions.get(anchor, {}).get("companion_of"):
+                raise CompanionError("Companion chains are not supported; choose a target fund as the anchor.")
         if row["market"] == "TASE" and units != units.to_integral_value():
             raise ValueError("TASE holdings require whole units.")
         if row.get("manual_price") is not None:
@@ -116,9 +135,18 @@ def validate_account(account):
     return deepcopy(account)
 
 
+def excluded_holdings(account, targets):
+    """Unmatched companions act exactly like explicitly outside holdings."""
+    outside = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
+    return outside | {k for k, row in account["positions"].items() if row.get("companion_of")
+                      and (row["companion_of"] not in targets or row["companion_of"] in outside)}
+
+
 def rebalance_targets(account, targets):
     """Remove explicitly excluded funds, retaining relative included targets."""
-    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
+    excluded = excluded_holdings(account, targets)
+    if any(row.get("companion_of") and k in targets for k, row in account["positions"].items()):
+        raise CompanionError("A target fund cannot also be a companion. Clear its companion selection first.")
     if not excluded.intersection(targets):
         return dict(targets)
     included = {k: number(w) for k, w in targets.items() if k not in excluded}
@@ -129,7 +157,7 @@ def rebalance_targets(account, targets):
 def compare_holdings(account, instruments, targets, quotes, fx):
     validate_account(account)
     targets = rebalance_targets(account, targets)
-    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
+    excluded = excluded_holdings(account, targets)
     values = {}
     for key in set(targets) | set(account["positions"]):
         if key in excluded:
@@ -141,26 +169,41 @@ def compare_holdings(account, instruments, targets, quotes, fx):
         rate = number(fx, positive=True) if instruments[key]["currency"] == "USD" else Decimal(1)
         values[key] = units * number(quote["price"], positive=True) * rate if units else Decimal(0)
     total = sum(values.values()) + number(account["cash_ils"])
+    combined = dict(values)
+    companions = {k: p["companion_of"] for k, p in account["positions"].items() if p.get("companion_of")}
+    for key, anchor in companions.items():
+        if anchor in targets:
+            combined[anchor] = combined.get(anchor, Decimal(0)) + values[key]
     rows = []
     for key in sorted(values):
+        if key in companions:
+            rows.append({"id": key, "Fund": instruments[key]["label"], "Value (₪)": float(values[key]),
+                         "Target %": None, "Actual %": None, "Gap (₪)": None,
+                         "Status": "Companion", "companion_of": companions[key]})
+            continue
         target = number(targets.get(key, 0))
-        actual = values[key] / total if total else None
-        gap = target * total - values[key]
+        actual = combined[key] / total if total else None
+        gap = target * total - combined[key]
         rows.append({"id": key, "Fund": instruments[key]["label"], "Value (₪)": float(values[key]),
                      "Target %": float(target), "Actual %": float(actual) if actual is not None else None,
                      "Gap (₪)": float(gap), "Status": "Not held yet" if actual is None else
                      "Underweight" if gap > Decimal("0.01") else "Overweight" if gap < Decimal("-0.01") else "On target"})
     rows.extend({"id": key, "Fund": instruments[key]["label"], "Value (₪)": None,
                  "Target %": None, "Actual %": None, "Gap (₪)": None,
-                 "Status": "Outside the rebalance"} for key in sorted(excluded))
-    return rows, values, total
+                 "Status": "Outside the rebalance",
+                 **({"companion_of": companions[key]} if key in companions else {})} for key in sorted(excluded))
+    return rows, combined, total
 
 
 def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context, allocation_mode):
     """Buy whole units within gaps; proportional shares are never redistributed."""
     allocation_mode = validate_allocation_mode(allocation_mode)
     targets = rebalance_targets(account, targets)
-    rows, values, total = compare_holdings(account, instruments, targets, quotes, fx)
+    # A skipped, unpriced anchor is still a selected target. Its companion must
+    # not become "unmatched" just because this partial plan cannot buy it.
+    valuation_targets = context.get("targets", targets) if any(p.get("companion_of") for p in account["positions"].values()) else targets
+    rows, values, total = compare_holdings(account, instruments, valuation_targets, quotes, fx)
+    excluded = excluded_holdings(account, valuation_targets)
     new_money = number(new_money)
     budget = number(account["cash_ils"]) + new_money
     gaps, costs, minimums = {}, {}, {}
@@ -174,7 +217,7 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context,
         minimums[key] = max(1, int((minimum / costs[key]).to_integral_value(rounding=ROUND_CEILING)))
     # A stale non-target holding also invalidates account weights and the plan.
     for key, position in account["positions"].items():
-        if position.get("outside_rebalance", False):
+        if key in excluded:
             continue
         if number(position["units"]) and not quotes[key].get("fresh"):
             raise ValueError(f"{key}: holding valuation is stale; refresh or enter a dated broker price.")

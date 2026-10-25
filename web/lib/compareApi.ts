@@ -8,8 +8,10 @@ export async function compareRequest<T>(path: string, init: RequestInit = {}): P
   if ([408, 504, 524].includes(response.status)) throw new Error(text.timeout);
   if (!response.ok) {
     if (response.status === 401) throw new Error(text.unauthorized);
-    const body = response.status === 400 ? await response.json().catch(() => null) : null;
-    throw new Error(typeof body?.detail === "string" ? body.detail : text.requestError);
+    const body = await response.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : Array.isArray(body?.detail)
+      ? body.detail.map((issue: {msg?:unknown})=>typeof issue?.msg === "string" ? issue.msg : "").filter(Boolean).join("; ") : "";
+    throw new Error(detail || text.requestError);
   }
   return response.json() as Promise<T>;
 }

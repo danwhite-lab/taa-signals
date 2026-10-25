@@ -8,8 +8,9 @@ type Row = Record<string, string | boolean | null>;
 type Quote = Record<string, unknown>;
 const label = (key: string) => text.columns[key as keyof typeof text.columns] ?? key;
 
-export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur }: {
+export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, targets = [] }: {
   row: Row; quote?: Quote; busy: boolean;
+  targets?: {id:string;label:string}[];
   onEdit: (key: string, field: string, value: string | boolean) => void; onBlur: () => void;
 }) {
   const security = String(row.Security);
@@ -39,7 +40,14 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur }: {
         {(missing || stale) && <details className="holding-price-status"><summary className="price-alert" title={String(quote?.status ?? quote?.error ?? text.unavailable)}>{missing ? words.missing : words.stale}</summary>
           <span>{String(quote?.status ?? quote?.error ?? text.unavailable)}</span></details>}
       </div>
-      {check("Outside the rebalance", words.outside)}
+      <div className="holding-membership">{check("Outside the rebalance", words.outside)}
+        <label>{words.companion}<select aria-label={`${words.companion} ${security}`} disabled={busy}
+          value={String(row["Companion of"] ?? "")} onChange={event=>onEdit(security,"Companion of",event.target.value)}>
+          <option value="">{words.none}</option>
+          {row["Companion of"] && !targets.some(t=>t.id===row["Companion of"]) && <option value={String(row["Companion of"])}>{words.unmatchedCompanion}</option>}
+          {targets.filter(t=>t.id!==security).map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+        </select></label>
+      </div>
       <div className="holding-remove">
         <button type="button" className="btn btn-destructive" disabled={busy} aria-label={words.removeFund.replace("{fund}", String(row.Fund))}
           onClick={() => onEdit(security, "Remove", true)}>-</button>

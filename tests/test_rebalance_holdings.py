@@ -8,6 +8,34 @@ from haa.rebalance_holdings import (apply_purchases, combined_targets, compare_h
 from haa.workspace_sync import snapshot, restore
 
 
+@pytest.mark.parametrize('mode,expected',[
+    ('proportional','5e57d6102f6d505c4cacd241be204777da6be13ec6a904a6cb089e0f81be3e5b'),
+    ('biggest_gap_first','7d94c327a8107aecf09875cbde9732be37482a1e860992eee0fbfa70f3ab1269')])
+def test_no_companion_outputs_match_main_golden_bytes(mode,expected):
+    from haa.rebalance_holdings import fingerprint
+    account,instruments,quotes,targets=setup_book(units=(3,5),cash=10)
+    rows,_,_=compare_holdings(account,instruments,targets,quotes,1)
+    assert fingerprint(rows)=='8b0d84b6554a36bb55285c413aa667f4d2f26e95f1b3958deefc8922da104e53'
+    plan=make_buy_plan(account,instruments,targets,quotes,1,200,{},allocation_mode=mode)
+    plan.pop('id')
+    assert fingerprint(plan)==expected
+
+
+def test_companion_anchor_may_be_unheld_and_fingerprint_invalidates_recording():
+    account,instruments,quotes,targets=setup_book(units=(10,0))
+    legacy,anchor=list(targets)
+    account['positions'][legacy]['companion_of']=anchor
+    targets={anchor:1.}
+    account['positions'].pop(anchor)
+    rows,values,total=compare_holdings(account,instruments,targets,quotes,1)
+    assert values[anchor]==total==Decimal('100')
+    assert next(r for r in rows if r['id']==anchor)['Actual %']==1.
+    plan=make_buy_plan(account,instruments,targets,quotes,1,100,{},allocation_mode='proportional')
+    account['positions'][legacy].pop('companion_of')
+    with pytest.raises(ValueError,match='changed'):
+        apply_purchases(account,plan,[],{})
+
+
 def setup_book(units=(0, 0), prices=(10, 20), cash=0):
     securities = [security("1149038", "TASE", "ILS", "Nasdaq"), security("1187079", "TASE", "ILS", "Leveraged Nasdaq")]
     instruments = {s['id']: s for s in securities}
