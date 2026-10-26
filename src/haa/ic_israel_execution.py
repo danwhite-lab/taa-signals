@@ -4,14 +4,15 @@ import pandas as pd
 
 from .market_sessions import tase_equity_sessions, us_equity_sessions
 from .tase_data import TASE_ISRAEL_ASSET_IDS
+from .valuation_gaps import valuation_prices, require_execution_prices
 
 
-def execution_schedule(decisions, prices, benchmark, start=None, end=None, delay=0):
+def execution_schedule(decisions, prices, benchmark, start=None, end=None, delay=0, *, price_warnings=None):
     """Never carry a pre-inception signal forward into an unrelated month.
 
     Preserve the monthly engine's joint fund/benchmark close convention. The
-    calendar supplies dates, never prices. Missing held-fund sessions fail
-    closed, while pre-inception periods are skipped before the first entry.
+    calendar supplies dates. Bounded valuation holes are flagged; execution
+    still requires actual quotes. Pre-inception periods precede the first entry.
     """
     if decisions.empty or prices.empty:
         raise ValueError("Insufficient US signal history for Inflation Compass Israel.")
@@ -43,11 +44,12 @@ def execution_schedule(decisions, prices, benchmark, start=None, end=None, delay
             continue
         for asset in weights:
             expected = local[(local >= entry) & (local <= exit)]
-            values = prices[asset].reindex(expected)
-            missing = values.isna() | ~values.map(lambda v: math.isfinite(v) and v > 0)
-            if missing.any():
-                date = expected[missing.to_numpy()][0]
-                raise ValueError(f"{asset} ({TASE_ISRAEL_ASSET_IDS[asset]}): missing actual fund price on {date:%Y-%m-%d}; refusing to bridge the gap.")
+            for date in (entry, exit):
+                require_execution_prices(prices, date, (asset,))
+            _, warnings = valuation_prices(prices, expected, (asset,),
+                "{asset} ({id}): missing actual fund price on {date}; refusing to bridge the gap.")
+            if price_warnings is not None:
+                price_warnings.extend(w for w in warnings if w not in price_warnings)
         for date in (entry, exit):
             value = prices.at[date, benchmark] if date in prices.index and benchmark in prices else float("nan")
             if not math.isfinite(value) or value <= 0:

@@ -84,4 +84,6 @@ def present(report, request, selected, profile, loaded):
               "tables": {kind: preview(frame) for kind, frame in tables.items()},
               "charts": {"scenarios": chart(complete, "scenario", "CAGR", "test"), "rolling": chart(completed_rolling, "scenario", "CAGR", boxes=True),
                          "monte_carlo": chart(bootstrap, "horizon", "CAGR", "Outcome")}, "has_bootstrap": not report.monte_carlo.empty}
-    return clean({"kind": "research-v1", "public": public, "downloads": downloads})
+    from .price_warnings import annotate_price_warnings
+    warnings = [w for row in report.scenarios.get("price_warnings", []) if isinstance(row, (list, tuple)) for w in row]
+    return clean(annotate_price_warnings({"kind": "research-v1", "public": public, "downloads": downloads}, warnings))

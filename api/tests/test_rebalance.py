@@ -105,6 +105,14 @@ def test_unpriced_unheld_anchor_does_not_exclude_its_active_companion_from_parti
     assert [(r['id'],r['units']) for r in value['plan']['orders']]==[(other,5)]
 
 
+def test_target_picker_resolves_generic_alias_by_existing_security_id():
+    from haa.rebalance_holdings import security
+    instrument=security('1187079','TASE',label='NASDAQ_X3_MONTHLY_IL')
+    assert page.target_display_name(instrument['id'],instrument)=='MTF Nasdaq-100 x3 monthly — 1187079'
+    unknown=security('1234567','TASE',label='INTERNAL_CODE')
+    assert page.target_display_name(unknown['id'],unknown)==unknown['id']
+
+
 @pytest.fixture
 def book(monkeypatch, signed_in):
     items = [security("1149038", "TASE"), security("1187079", "TASE"), security("GLD", "US")]

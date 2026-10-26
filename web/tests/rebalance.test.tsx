@@ -28,6 +28,7 @@ const state = { workspace_revision: 1, allocation_mode: "proportional", account_
 const candidate = { ...state.account, last_operation_id: "fake-operation", revision: 1 };
 const preview = { account: candidate, preview: [{ Fund: item.label, "Units to save": "2.00" }], errors: [] };
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
+function roleButton(id:string,name:string){return within(screen.getByRole('group',{name:holdings.role+' '+id})).getByRole('button',{name});}
 
 it('shows an unmatched companion as outside, with no target and the exclusion explanation',async()=>{
   const next={...state,targets:{[other.id]:1},comparison:[
@@ -50,11 +51,13 @@ it('selects a companion generically, clears exclusion, and groups its comparison
     {id:other.id,Fund:other.label,target_display:'100.00%',actual_display:'100.00%',Status:'On target'},
   ]};
   mock.request.mockImplementation(async(path:string)=>path==='/api/rebalance/editor'?preview:next);
-  render(<Page/>);const select=await screen.findByRole('combobox',{name:holdings.companion+' '+item.id});
+  render(<Page/>);await screen.findByRole('group',{name:holdings.role+' '+item.id});
+  fireEvent.click(roleButton(item.id,holdings.roles.companion));
+  const select=screen.getByRole('combobox',{name:holdings.companion+' '+item.id});
   expect(within(select).getByRole('option',{name:other.label})).toBeTruthy();
   expect(within(select).queryByRole('option',{name:item.label})).toBeNull();
   fireEvent.change(select,{target:{value:other.id}});
-  expect(screen.getByLabelText(text.columns['Outside the rebalance']+' '+item.id)).toHaveProperty('checked',false);
+  expect(roleButton(item.id,holdings.roles.outside).getAttribute('aria-pressed')).toBe('false');
   fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(()=>expect(mock.request.mock.calls.some(([path])=>path==='/api/rebalance/editor')).toBe(true));
   const body=mock.request.mock.calls.find(([path])=>path==='/api/rebalance/editor')![1];
@@ -64,8 +67,8 @@ it('selects a companion generically, clears exclusion, and groups its comparison
   expect(rows[1].textContent).toContain(other.label);expect(rows[2].textContent).toContain(item.label);
   expect(within(table).getAllByText(item.label)).toHaveLength(1);
   expect(within(rows[2]).getByText(text.companionNote)).toBeTruthy();
-  fireEvent.click(screen.getByLabelText(text.columns['Outside the rebalance']+' '+item.id));
-  expect(select).toHaveProperty('value','');
+  fireEvent.click(roleButton(item.id,holdings.roles.outside));
+  expect(screen.queryByRole('combobox',{name:holdings.companion+' '+item.id})).toBeNull();
 });
 
 afterEach(() => { cleanup(); mock.request.mockReset(); mock.save.mockReset(); mock.mode.mockReset(); vi.restoreAllMocks(); });
@@ -121,7 +124,7 @@ it("minus hides the whole row but preserves removal in requests and every other 
   fireEvent.click(within(screen.getByRole("group",{name:text.market})).getByRole("button",{name:"US"}));
   fireEvent.change(screen.getByLabelText(text.columns.Units+" "+other.id),{target:{value:"9"}});
   fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"13"}});
-  fireEvent.click(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+other.id));
+  fireEvent.click(roleButton(other.id,holdings.roles.outside));
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
   expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
   for(const key of ["Units","Manual price per unit","Price date"] as const) expect(screen.queryByLabelText(text.columns[key]+" "+item.id)).toBeNull();
@@ -130,7 +133,7 @@ it("minus hides the whole row but preserves removal in requests and every other 
   expect(screen.getByText(text.unsaved)).toBeTruthy(); expect(mock.save).not.toHaveBeenCalled();
   expect(screen.getByLabelText(text.columns.Units+" "+other.id)).toHaveProperty("value","9");
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","13");
-  expect(screen.getByLabelText(text.columns["Outside the rebalance"]+" "+other.id)).toHaveProperty("checked",true);
+  expect(roleButton(other.id,holdings.roles.outside).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByRole("combobox",{name:text.search})).toHaveProperty("value","gld");
   expect(screen.getByText(text.selected+": "+item.label)).toBeTruthy();
   fireEvent.click(screen.getByText(text.previewAction));
@@ -190,7 +193,7 @@ it("last edited value/units wins, outside edits invalidate the plan, and draft a
   fireEvent.click(within(screen.getByRole("listbox")).getByText(other.label));
   fireEvent.click(screen.getByText(text.addSelected)); await screen.findByLabelText(`${text.columns.Units} US:IEF`);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`)).toHaveProperty("value", "125");
-  fireEvent.click(screen.getByLabelText(`${text.columns["Outside the rebalance"]} US:GLD`));
+  fireEvent.click(roleButton(item.id,holdings.roles.outside));
   fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(() => expect(mock.request.mock.calls.some(([p]) => p === "/api/rebalance/editor")).toBe(true));
   const body = mock.request.mock.calls.find(([p]) => p === "/api/rebalance/editor")![1];

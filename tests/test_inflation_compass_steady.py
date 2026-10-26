@@ -184,6 +184,23 @@ def test_internal_missing_fund_price_stops_with_id_and_date_not_forward_fill():
         execution_schedule(decisions, prices, "SPY")
 
 
+def test_held_fund_short_internal_gap_warns_without_changing_signals_or_trades():
+    from haa.engine import run_backtest
+    from haa.ic_israel_execution import execution_schedule
+    prices=local_prices();strategy=InflationCompassStandardIsrael();decisions=strategy.decisions(prices)
+    schedule=execution_schedule(decisions,prices,'SPY')
+    entry,exit=next(iter(schedule.values()))
+    from haa.market_sessions import tase_equity_sessions
+    days=tase_equity_sessions(str(entry.date()),str(exit.date()))[2:5]
+    baseline=run_backtest(decisions,prices.resample('ME').last(),1000.,daily_prices=prices)
+    prices.loc[days,'XLE_IL']=np.nan
+    result=run_backtest(decisions,prices.resample('ME').last(),1000.,daily_prices=prices)
+    pd.testing.assert_frame_equal(result.monthly,baseline.monthly,check_exact=True)
+    pd.testing.assert_frame_equal(result.audit,baseline.audit,check_exact=True)
+    pd.testing.assert_frame_equal(strategy.decisions(prices),decisions,check_exact=True)
+    assert any('1145903' in w and all(str(day.date()) in w for day in days) for w in result.price_warnings)
+
+
 def test_slowdown_waits_for_both_real_funds_and_names_missing_bond():
     from haa.ic_israel_execution import execution_schedule
     prices = local_prices()

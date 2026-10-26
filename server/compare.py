@@ -166,11 +166,11 @@ def run_loaded(request, chosen, loaded, code, *, started=None, input_seconds=0.)
             if nav.empty or not np.isfinite(nav[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all(): error("invalidResult")
         with span("result_seconds"): bundle = present(request, result, loaded, bounds)
         bundle["public"]["calculation_timing"] = {"input_seconds": input_seconds, "engine_seconds": round(elapsed, 6)}
-        if len(json.dumps({**bundle["public"], "warnings": loaded["warnings"], "downloads": manifest(bundle)}, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
+        if len(json.dumps({**bundle["public"], "warnings": bundle["public"].get("warnings",[])+loaded["warnings"], "downloads": manifest(bundle)}, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
         return bundle
     bundle, info = RESULTS.run(model="compare:"+request.mode, params=params, start=str(request.start), end=str(request.end), version=loaded["version"], compute=compute)
     public = bundle["public"]
-    public.update(cache=info, warnings=loaded["warnings"]+info["warnings"], data_version=loaded["version"], downloads=manifest(bundle),
+    public.update(cache=info, warnings=public.get("warnings",[])+loaded["warnings"]+info["warnings"], data_version=loaded["version"], downloads=manifest(bundle),
         timing={"input_seconds": round(input_seconds, 6), "engine_seconds": 0. if info["hit"] else public["calculation_timing"]["engine_seconds"], "total_seconds": round(perf_counter()-started, 6)})
     if len(json.dumps(public, ensure_ascii=False).encode()) >= 3_000_000: error("sizeError")
     LOG.info("compare seconds input=%.6f engine=%.6f", public["timing"]["input_seconds"], public["timing"]["engine_seconds"])

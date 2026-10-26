@@ -73,8 +73,12 @@ def complete_tase_prices(prices, assets, cutoff):
         raise ValueError("No common complete actual TASE execution history.")
     first, last = frame.index[valid][0], frame.index[valid][-1]
     pending = frame.index[frame.index > last]
-    complete = frame.loc[first:last]
-    validate_tase_sessions(complete)
-    if not np.isfinite(complete.to_numpy()).all() or (complete <= 0).any().any():
-        raise ValueError("Missing/invalid internal TASE prices; refusing filled execution gaps.")
+    sessions = tase_equity_sessions(str(first.date()), str(last.date()))
+    complete = frame.loc[first:last].reindex(sessions)
+    # This validates execution-history eligibility only. Keep raw NaNs in the
+    # returned frame; valuation marking and actual-trade checks live in engines.
+    validate_tase_sessions(pd.DataFrame({'calendar': 1.}, index=frame.loc[first:last].index.union(sessions)))
+    from .valuation_gaps import valuation_prices
+    valuation_prices(frame, complete.index, assets,
+        'Missing/invalid internal TASE prices for {asset} on {date}; refusing filled execution gaps.', calendar=tase_equity_sessions)
     return complete, pending

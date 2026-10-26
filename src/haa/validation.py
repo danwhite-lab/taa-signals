@@ -156,6 +156,7 @@ def _scenario_row(test: str, scenario: str, result: BacktestResult | None, initi
         "first_holding_end": result.monthly.index.min(),
         "last_holding_end": result.monthly.index.max(),
         **_metrics_row(result, initial_investment, value_column),
+        **({"price_warnings": result.price_warnings} if result.price_warnings else {}),
     }
 
 

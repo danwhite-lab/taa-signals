@@ -142,8 +142,8 @@ def test_missing_sessions_pending_nav_and_no_future_leak():
         model.decisions(bad, as_of="2025-01-01")
     bad = combined.copy()
     bad.loc[local.index[100], "RVOL_CASH_IL"] = np.nan
-    with pytest.raises(ValueError, match="internal TASE"):
-        model.decisions(bad, as_of="2025-01-01")
+    short_gap = model.decisions(bad, as_of="2025-01-01")
+    pd.testing.assert_frame_equal(short_gap, baseline, check_exact=True)
     pending = combined.copy()
     pending.loc[local.index[-1], "RVOL_CASH_IL"] = np.nan
     trimmed = model.decisions(pending, as_of="2025-01-01")

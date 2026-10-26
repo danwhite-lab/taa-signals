@@ -96,6 +96,9 @@ def test_exact_frames_csv_profiles_and_no_validation_in_options(signed_in, monke
 def test_exact_gate_order_and_no_price_or_engine_access(signed_in, monkeypatch, label, expected):
     monkeypatch.setattr(page, "load", Mock(side_effect=AssertionError("Gated models must not load")))
     selected = page.definition(label)
+    if expected == "no_backtest":
+        # This model now supports backtests; explicitly simulate the gate.
+        monkeypatch.setattr(selected.model_class, "backtest_available", False)
     for response in (client.get("/api/research/options", params={"label": label}, headers=HEADERS), client.post("/api/research", headers=HEADERS, json={"label":label})):
         assert response.status_code == 200
         assert response.json()["gate"] == expected

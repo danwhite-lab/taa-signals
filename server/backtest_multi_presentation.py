@@ -177,4 +177,5 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     public.update(cards=cards, value_title=W["proxyBlendCurve" if proxy and blend else "proxyCurve" if proxy else "equityCurve"],
                   drawdown_title=W["proxyBlendDrawdown" if proxy and blend else "proxyDrawdown" if proxy else "drawdownTitle"],
                   summary_title=W["performanceDetails"] if proxy else None)
-    return clean({"kind": "backtest-deep-history-v1" if proxy else "backtest-portfolio-v1", "public": public, "downloads": downloads})
+    from .price_warnings import annotate_price_warnings
+    return clean(annotate_price_warnings({"kind": "backtest-deep-history-v1" if proxy else "backtest-portfolio-v1", "public": public, "downloads": downloads}, result.price_warnings))

@@ -113,6 +113,7 @@ def compare_models(
                 result.monthly.loc[common],
                 result.audit[result.audit["holding_end"].isin(common)],
                 result.tax_events,
+                price_warnings=result.price_warnings,
             )
             for name, result in rebased.items()
         }

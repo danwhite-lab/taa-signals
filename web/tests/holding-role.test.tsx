@@ -1,0 +1,25 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import HoldingEditorRow from '../components/HoldingEditorRow';
+import words from '../content/holdings.json';
+const row={Security:'US:FAKE',Fund:'Example holding',Currency:'USD',Units:'12','Value (₪ / $)':'120','Outside the rebalance':false};
+afterEach(cleanup);
+it('uses three compact buttons, shows the picker only for Companion, and sorts friendly names',()=>{
+  const edit=vi.fn();const targets=[{id:'US:ZZZ',label:'Zulu fund'},{id:'US:AAA',label:'Alpha fund'},{id:'US:BBB',label:''}];
+  const props={row,quote:{price:10,fresh:true},busy:false,onEdit:edit,onBlur:vi.fn(),targets};
+  const view=render(<HoldingEditorRow {...props}/>);
+  const group=screen.getByRole('group',{name:words.role+' US:FAKE'});
+  expect(within(group).getAllByRole('button').map(n=>n.textContent)).toEqual(Object.values(words.roles));
+  expect(screen.queryByRole('checkbox')).toBeNull();expect(screen.queryByRole('combobox')).toBeNull();
+  expect(within(group).getByRole('button',{name:words.roles.normal}).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(within(group).getByRole('button',{name:words.roles.companion}));
+  expect(edit).toHaveBeenCalledWith('US:FAKE','Role','companion');
+  view.rerender(<HoldingEditorRow {...props} role="companion"/>);
+  const picker=screen.getByRole('combobox');
+  expect(within(picker).getAllByRole('option').map(n=>n.textContent)).toEqual([words.none,'Alpha fund','US:BBB','Zulu fund']);
+  fireEvent.change(picker,{target:{value:'US:AAA'}});
+  expect(edit).toHaveBeenCalledWith('US:FAKE','Companion of','US:AAA');
+  view.rerender(<HoldingEditorRow {...props} role="outside"/>);
+  expect(screen.queryByRole('combobox')).toBeNull();
+  expect(screen.getByLabelText('Units US:FAKE')).toHaveProperty('value','12');
+});
