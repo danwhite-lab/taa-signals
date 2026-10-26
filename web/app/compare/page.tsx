@@ -103,6 +103,7 @@ export default function ComparePage() {
     {result?.gate === "available" && <section aria-label={text.completed}>
       <p>{text.completed}</p>{result.success && <Markdown>{fmt.text(result.success ?? "")}</Markdown>}{result.source_caption && <p>{fmt.text(result.source_caption)}</p>}
       <p>{result.cache.hit ? text.cached : text.calculated}</p>{result.warnings.map((w,i)=><p className="signal-warning" key={i}>{w}</p>)}
+      {download("price-warnings")}
       <details><summary>{text.coverage}</summary><DataTable value={result.coverage}/></details>
       <details><summary>{text.sections[0]}</summary>
         {models ? <><Plot value={result.charts.value_pre} title={text.preChart}/>{result.tax_enabled && <Plot value={result.charts.value_after} title={text.afterChart}/>}</> : <Plot value={result.charts[`value_${suffix}`]} title={text.portfolioChart}/>}

@@ -117,13 +117,13 @@ def run_loaded(request, selected, loaded, code, *, started=None, input_seconds=0
         elapsed = perf_counter()-began
         bundle = present(report, request, selected, profile, loaded)
         bundle["public"]["calculation_timing"] = {"input_seconds": input_seconds, "validation_seconds": round(elapsed, 6)}
-        probe = {**bundle["public"], "warnings": loaded["warnings"], "downloads": manifest(bundle)}
+        probe = {**bundle["public"], "warnings": bundle["public"].get("warnings",[])+loaded["warnings"], "downloads": manifest(bundle)}
         if len(json.dumps(probe, ensure_ascii=False).encode()) >= 2_900_000: raise HTTPException(400, WORDS["sizeError"])
         return bundle
     bundle, info = RESULTS.run(model="research:"+selected.label, params=params,
         start=loaded["history"]["start"], end=loaded["history"]["end"], version=loaded["version"], compute=compute)
     result = bundle["public"]
-    result.update(cache=info, data_version=loaded["version"], warnings=loaded["warnings"]+info["warnings"], downloads=manifest(bundle),
+    result.update(cache=info, data_version=loaded["version"], warnings=result.get("warnings",[])+loaded["warnings"]+info["warnings"], downloads=manifest(bundle),
         timing={"input_seconds": round(input_seconds, 6), "validation_seconds": 0. if info["hit"] else result["calculation_timing"]["validation_seconds"],
                 "total_seconds": round(perf_counter()-started, 6)})
     if len(json.dumps(result, ensure_ascii=False).encode()) >= 3_000_000: raise HTTPException(400, WORDS["sizeError"])
@@ -148,7 +148,7 @@ def run(request, code):
 
 
 def download(key, kind):
-    if len(key) != 64 or any(c not in "0123456789abcdef" for c in key) or kind not in WORDS["downloads"]:
+    if len(key) != 64 or any(c not in "0123456789abcdef" for c in key) or kind not in {*WORDS["downloads"], "price-warnings"}:
         raise HTTPException(400, WORDS["downloadError"])
     with RESULTS.lock:
         bundle = RESULTS.warm.get(key)

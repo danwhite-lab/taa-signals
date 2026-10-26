@@ -76,11 +76,11 @@ def test_subrange_restarts_capital_and_books_no_pre_start_tax():
     assert result.common_index.min()==pd.Timestamp('2024-02-05')
 
 
-def test_missing_sessions_prices_or_opens_rejected():
+def test_short_valuation_gap_is_flagged_but_missing_opens_still_rejected():
     daily,slow,prices=fixture()
     broken=prices.drop(prices.index[10])
-    with pytest.raises(ValueError,match='Missing US equity trading sessions'):
-        run_portfolio_backtest({'fast':(.5,daily),'slow':(.5,ModelInput('slow',slow.decisions,broken,broken))},100)
+    result=run_portfolio_backtest({'fast':(.5,daily),'slow':(.5,ModelInput('slow',slow.decisions,broken,broken))},100)
+    assert result.price_warnings and 'price carried forward' in result.price_warnings[0]
     daily.daily_open_prices.iloc[10,0]=np.nan
     with pytest.raises(ValueError,match='opening prices'):
         run_portfolio_backtest({'fast':(.5,daily),'slow':(.5,slow)},100)

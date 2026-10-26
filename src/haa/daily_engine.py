@@ -12,6 +12,7 @@ from .engine import BacktestResult
 from .metrics import performance_metrics
 from .tax import IsraeliTaxState
 from .market_sessions import validate_us_equity_sessions
+from .valuation_gaps import valuation_prices, require_execution_prices
 
 
 def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_cost=0.0,
@@ -40,7 +41,10 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
     completed_through = decisions.attrs.get("completed_through")
     if completed_through is not None:
         prices = prices.loc[:completed_through]
-    validate_us_equity_sessions(prices)
+    from .market_sessions import us_equity_sessions
+    calendar = us_equity_sessions(str(prices.index.min().date()), str(prices.index.max().date()))
+    validate_us_equity_sessions(pd.DataFrame({'calendar': 1.}, index=prices.index.union(calendar)))
+    prices = prices.reindex(calendar)
     if daily_open_prices is None:
         raise ValueError("Next-open daily execution requires adjusted opening prices; closes cannot substitute for opens.")
     if not assets.issubset(daily_open_prices.columns) or daily_open_prices.index.has_duplicates:
@@ -65,8 +69,17 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         eligible = eligible.loc[:pd.Timestamp(end)]
     if eligible.empty:
         raise ValueError("No complete daily execution sessions within the selected date range.")
-    if not np.isfinite(eligible.to_numpy()).all() or (eligible <= 0).any().any():
-        raise ValueError("Missing or invalid daily execution prices; refusing to skip sessions.")
+    prior_target, prior_day = None, None
+    for day in eligible.index:
+        if day not in schedule:
+            raise ValueError(f"No daily decision scheduled for {day.date()}; missing signals cannot be forward-filled.")
+        target = next(iter(schedule[day][1].target_weights))
+        if target != prior_target or contribution_for(day, None, prior_day, monthly_contribution):
+            require_execution_prices(prices, day, {target, benchmark_asset} | ({prior_target} if prior_target else set()))
+        prior_target, prior_day = target, day
+    prices, price_warnings = valuation_prices(prices, eligible.index, assets,
+        'Missing or invalid daily execution prices for {asset} on {date}; refusing to skip sessions.', calendar=us_equity_sessions)
+    eligible = prices.loc[eligible.index]
     required_opens = opens.loc[eligible.index]
     if not np.isfinite(required_opens.to_numpy()).all() or (required_opens <= 0).any().any():
         raise ValueError("Missing or invalid opening prices; refusing to skip sessions or use closing prices.")
@@ -99,6 +112,8 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         target = next(iter(decision.target_weights))
         changing = holding is not None and holding != target
         entering = holding is None or changing
+        if entering or contribution:
+            require_execution_prices(prices, date, {target, benchmark_asset} | ({holding} if holding else set()))
         fee_pre = fee_after = 0.0
         fee_orders = []
         if entering:
@@ -172,7 +187,7 @@ def run_daily_backtest(decisions, daily_prices, initial_investment, transaction_
         last["holding_end"] = group.index[-1]
         monthly_rows.append(last)
     monthly = pd.DataFrame(monthly_rows).set_index("holding_end")
-    return BacktestResult(monthly, pd.DataFrame(audit).set_index("signal_date"), pd.DataFrame(events), daily)
+    return BacktestResult(monthly, pd.DataFrame(audit).set_index("signal_date"), pd.DataFrame(events), daily, price_warnings)
 
 
 def daily_performance_metrics(result: BacktestResult, column: str, initial: float) -> dict:

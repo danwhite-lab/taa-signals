@@ -210,13 +210,13 @@ class DailyEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "single-strategy"):
             compare_models({"Daily": model, "Other": model}, 1000)
         prices.iloc[3, 0] = np.nan
-        with self.assertRaisesRegex(ValueError, "Missing or invalid"):
+        with self.assertRaisesRegex(ValueError, "execution price unavailable"):
             run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy())
 
     def test_execution_engine_rejects_entire_missing_session(self):
         decisions, prices = self.fixture()
         prices = prices.drop(index=prices.index[2])
-        with self.assertRaisesRegex(ValueError, "Missing US equity trading sessions"):
+        with self.assertRaisesRegex(ValueError, "opening prices|execution price unavailable"):
             run_backtest(decisions, prices, 1000, daily_prices=prices, daily_open_prices=prices.copy())
 
     def test_overnight_old_holding_then_new_holding_intraday(self):

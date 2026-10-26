@@ -240,12 +240,18 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-page label > input:not([type="checkbox"]) { display: block; margin-top: 7px; min-height: 38px; }
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .holdings-editor { margin-top: 20px; min-width: 0; }
-.holding-column-headings, .holding-main { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .65fr); gap: 14px; align-items: center; }
+.holding-column-headings, .holding-main { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr)) minmax(0, 1fr) minmax(280px, 2.4fr) 32px; gap: 14px; align-items: center; }
 .holding-column-headings { color: #687482; font-size: .8rem; padding: 10px 12px; }
 .holding-editor-row { border-top: 1px solid #dce2e8; padding: 14px 12px; min-width: 0; }
 .holding-main > * { min-width: 0; }
-.holding-membership > label { display: block; font-size: .8rem; }
-.holding-membership select { display: block; width: 100%; min-width: 0; margin-top: 5px; }
+.holding-main { min-height: 68px; }
+.holding-membership { display: flex; align-items: center; gap: 8px; height: 36px; }
+.holding-role-buttons { display: flex; flex: 0 0 auto; gap: 2px; }
+.holding-role-buttons .btn { padding: 6px; font-size: .75rem; min-height: 32px; }
+.holding-role-buttons [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: #1e3a8a; }
+.holding-role-picker { flex: 1 1 130px; min-width: 0; }
+.rebalance-page .holding-role-picker label { display: flex; gap: 4px; align-items: center; margin: 0; font-size: .8rem; }
+.holding-role-picker select { width: 100%; min-width: 0; height: 32px; margin: 0; font: inherit; border: 1px solid #b7c2cc; border-radius: 5px; background: white; }
 .companion-row td:first-child { padding-left: 24px; }
 .companion-note { display: block; font-size: .8rem; color: #687482; }
 .holding-fund strong { display: block; font-size: .9rem; font-weight: 500; line-height: 1.5; overflow-wrap: break-word; }
@@ -268,6 +274,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .holding-editor-row { border: 1px solid #dce2e8; border-radius: 8px; margin: 14px 0; padding: 16px; }
   .holding-main { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   .holding-fund, .holding-price { grid-column: 1 / -1; }
+  .holding-membership { grid-column: 1 / -1; }
   .holding-main .holding-field > span, .holding-main .holding-check > span, .holding-mobile-label { position: static; width: auto; height: auto; padding: 0; margin: 0 0 6px; overflow: visible; clip-path: none; white-space: normal; }
   .holding-main .holding-check { display: flex; align-items: start; gap: 5px; }
   .holding-mobile-label { display: block; color: #687482; font-size: .8rem; }

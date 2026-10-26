@@ -14,6 +14,7 @@ class BacktestResult:
     audit: pd.DataFrame
     tax_events: pd.DataFrame
     daily: pd.DataFrame | None = None
+    price_warnings: tuple[str, ...] = ()
 
 
 def run_backtest(
@@ -189,11 +190,12 @@ def _run_weighted_backtest(
     rows: list[dict] = []
     decision_dates = pd.DatetimeIndex(decisions.index)
     actual_schedule = None
+    price_warnings = []
     if decisions.attrs.get("ic_israel_actual_execution"):
         from .ic_israel_execution import execution_schedule
         if daily_prices is None:
             raise ValueError("Inflation Compass Israel requires actual daily TASE fund prices.")
-        actual_schedule = execution_schedule(decisions, execution_prices, benchmark_asset, start, end, execution_delay_business_days)
+        actual_schedule = execution_schedule(decisions, execution_prices, benchmark_asset, start, end, execution_delay_business_days, price_warnings=price_warnings)
     for position, (signal_date, decision) in enumerate(decisions.iterrows()):
         weights = _normalise_weights(decision["target_weights"])
         if actual_schedule is not None:
@@ -231,7 +233,8 @@ def _run_weighted_backtest(
     if execution.empty:
         raise ValueError("No complete holding periods within the selected date range.")
 
-    return _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee, trading_fees)
+    from .valuation_gaps import with_price_warnings
+    return with_price_warnings(_simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee, trading_fees), price_warnings)
 
 
 def _simulate_weighted_execution(execution, initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution=0., fixed_fee=0., trading_fees=None):

@@ -16,6 +16,7 @@ from haa.rebalance_holdings import (empty_account, validate_account, number, sec
     execution_security, combined_targets, rebalance_targets, compare_holdings,
     make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
+from haa.portfolio import EXECUTION_SECURITY_LABELS
 from . import private_api as private, rebalance_quotes as market
 from .rebalance_editor import _preview_positions
 
@@ -169,6 +170,7 @@ def snapshot(workspace, account, portfolios, request):
         "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
         "instruments": instruments, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
         "signals": sources, "errors": errors, "targets": targets, "eligible": eligible, "comparison": comparison,
+        "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
         "total_display": f"₪{total:,.2f}" if total is not None else "Unavailable",
         "full_total_display": f"₪{full_total:,.2f}" if full_total is not None else "Unavailable",
@@ -176,6 +178,17 @@ def snapshot(workspace, account, portfolios, request):
         "ready": ready, "context": context, "rebalance_fx": rebalance_fx,
         "overweight": any(r["Status"] == "Overweight" for r in comparison),
         "seconds": round(perf_counter()-started, 6)}
+
+
+def target_display_name(key, instrument):
+    """Prefer existing friendly labels, resolving aliases by actual security ID."""
+    label = instrument.get("label", "")
+    if label and label not in {key, instrument["identifier"]} and not ("_" in label and label.isupper() and " " not in label):
+        return label
+    for (currency, asset), friendly in EXECUTION_SECURITY_LABELS.items():
+        if currency == instrument["currency"] and instrument["market"] == "TASE" and TASE_ISRAEL_ASSET_IDS.get(asset) == instrument["identifier"]:
+            return friendly
+    return key
 
 
 def safe(operation):

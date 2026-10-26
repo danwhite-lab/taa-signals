@@ -104,10 +104,11 @@ def test_annual_internal_reset_and_fees():
     assert charged.daily.iloc[-1].pre_tax_value < result.daily.iloc[-1].pre_tax_value
 
 
-def test_missing_session_refuses_fabricated_fills():
+def test_missing_non_trade_session_is_flagged_for_valuation_only():
     decisions, prices = fixture(["QLD"]*10)
-    with pytest.raises(ValueError, match="Missing"):
-        run(decisions, prices.drop(index=prices.index[2]))
+    result=run(decisions, prices.drop(index=prices.index[2]))
+    assert result.price_warnings and 'price carried forward' in result.price_warnings[0]
+    assert prices.index[2] not in set(result.audit.execution_date)
 
 
 def test_ils_mixed_portfolio_aligns_with_standalone():

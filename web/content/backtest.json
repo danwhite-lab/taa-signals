@@ -1,4 +1,5 @@
 {
+  "priceWarningsDownload": "Download price warnings CSV",
   "title": "Backtest",
   "eyebrow": "Backtest research",
   "mode": "Mode",

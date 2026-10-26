@@ -15,6 +15,7 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   portfolios: { id: string; name: string }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string; companion_of?: string }[];
   targets?: Record<string,number>;
+  target_funds?: {id:string;label:string}[];
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
   held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
@@ -24,6 +25,7 @@ const show = (value: unknown, context="") => fmt.cell(value, context);
 export default function RebalanceHoldings() {
   const [state, setState] = useState<State | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [roles,setRoles] = useState<Record<string,string>>({});
   const [cash, setCash] = useState(""); const [fx, setFx] = useState(""); const [fxDate, setFxDate] = useState("");
   const [money, setMoney] = useState("0"); const [portfolio, setPortfolio] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false); const [paused, setPaused] = useState(false); const [busy, setBusy] = useState(false);
@@ -47,6 +49,7 @@ export default function RebalanceHoldings() {
     if (edit) setDirty(true);
   }
   function seed(value: State) {
+    setRoles({});
     setState(value); setRows(value.rows); setCash(value.account.cash_ils); setFx(value.account.manual_fx ?? ""); setFxDate(value.account.manual_fx_date ?? "");
     setPortfolio(value.portfolio_id); setDirty(false); setPlan(null); setRecording(false); setPreview(null); setChanged(false); setConfirmed({});
   }
@@ -62,13 +65,16 @@ export default function RebalanceHoldings() {
   }
   useEffect(() => { void action(load); }, []);
   function edit(key: string, field: string, value: string | boolean) {
+    if (field === 'Role') setRoles(previous=>({...previous,[key]:String(value)}));
     if (field === "Remove" && value === true) holdingsHeading.current?.focus({ preventScroll: true });
-    invalidate(true); setRows(previous => previous.map(row => row.Security === key ? { ...row, [field]: value,
+    invalidate(true); setRows(previous => previous.map(row => row.Security === key ? { ...row,
+      ...(field === 'Role' ? {'Outside the rebalance':value==='outside', 'Companion of':value==='companion' ? row['Companion of'] ?? '' : ''} : {[field]:value}),
       ...(field === "Companion of" && value ? {"Outside the rebalance":false} : field === "Outside the rebalance" && value ? {"Companion of":""} : {}),
       ...(field === "Units" ? { "Enter as": "Units", "Units edited": true } : field === "Value (₪ / $)" ? { "Enter as": "Value" } : {}) } : row));
   }
   function args() { return { portfolio_id: portfolio, account_hash: state?.account_hash, new_money: money }; }
   async function editor() {
+    if (rows.some(row=>!row.Remove && roles[String(row.Security)]==='companion' && !row['Companion of'])) throw new Error(holdings.chooseCompanion);
     return request<Preview>("/api/rebalance/editor", { ...args(), rows: rows.map(row => ({ ...row,
       "Manual price per unit": row["Manual price per unit"] === "" ? null : row["Manual price per unit"], "Price date": row["Price date"] || null })),
       cash, manual_fx: fx, manual_fx_date: fxDate || null });
@@ -108,10 +114,10 @@ export default function RebalanceHoldings() {
       await request<State>(`/api/rebalance${nextPortfolio ? `?portfolio_id=${encodeURIComponent(nextPortfolio)}` : ""}`);
     if (state && value.account_hash !== state.account_hash) throw new RebalanceError(409, text.paused);
     setState(value); setPortfolio(value.portfolio_id);
-    if (!dirty) setRows(value.rows);
+    if (!dirty) {setRows(value.rows);setRoles({});}
     else setRows(previous => [...previous, ...value.rows.filter(row => !previous.some(old => old.Security === row.Security))]);
   }
-  const targetFunds=Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id].label})).sort((a,b)=>a.label.localeCompare(b.label));
+  const targetFunds=state?.target_funds ?? Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id].label || id}));
   const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
     row,...state.comparison.filter(child=>child.companion_of===row.id),
   ]).concat(state.comparison.filter(row=>row.companion_of&&!state.comparison.some(anchor=>anchor.id===row.companion_of))) : [];
@@ -130,8 +136,8 @@ export default function RebalanceHoldings() {
       {!state.fx.fresh && <p>{text.fxMissing}</p>}
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
-          <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.outside, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
-          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds}
+          <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.role, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
+          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} role={roles[String(row.Security)]}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
         <details><summary>{text.add}</summary>

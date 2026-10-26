@@ -22,6 +22,7 @@ class PortfolioBacktestResult:
     daily: pd.DataFrame | None = None
     sleeve_nav: pd.DataFrame | None = None
     audit: pd.DataFrame | None = None
+    price_warnings: tuple[str, ...] = ()
 
 
 def run_portfolio_backtest(
@@ -126,7 +127,9 @@ def run_portfolio_backtest(
                 "holding_period_return": sum(targets[a]*asset_returns[a] for a in targets), "spy_return": benchmark_return})
         funded = _simulate_weighted_execution(pd.DataFrame(rows), initial_investment, transaction_cost, tax_enabled, tax_rate, monthly_contribution, fixed_fee, trading_fees)
         sleeve_returns = pd.DataFrame({n:r.monthly.loc[common,"pre_tax_monthly_return"] for n,r in sleeve_results.items()})
-        return PortfolioBacktestResult(funded.monthly, sleeve_returns, common, funded.tax_events, audit=funded.audit)
+        from .valuation_gaps import collected_warnings
+        return PortfolioBacktestResult(funded.monthly, sleeve_returns, common, funded.tax_events, audit=funded.audit,
+                                       price_warnings=collected_warnings(sleeve_results.values()))
 
     returns = pd.DataFrame({
         name: result.monthly.loc[common, "pre_tax_monthly_return"]
@@ -205,4 +208,6 @@ def run_portfolio_backtest(
         for name, result in sleeve_results.items():
             if not result.tax_events.empty:
                 tax_events.extend({"date": row.get("date"), "tax_level": "strategy sleeve", "sold_sleeve": name, **row.to_dict()} for _, row in result.tax_events.iterrows())
-    return PortfolioBacktestResult(monthly, returns, common, pd.DataFrame(tax_events))
+    from .valuation_gaps import collected_warnings
+    return PortfolioBacktestResult(monthly, returns, common, pd.DataFrame(tax_events),
+                                   price_warnings=collected_warnings(sleeve_results.values()))

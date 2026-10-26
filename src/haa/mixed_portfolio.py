@@ -7,10 +7,13 @@ charge fees per actual buy/sell side; the legacy monthly-only engine is unchange
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 
 from .engine import BacktestResult, run_backtest, _normalise_weights
+from .valuation_gaps import valuation_prices, require_execution_prices, collected_warnings
 from .market_sessions import scheduled_execution_dates, us_equity_sessions, validate_us_equity_sessions, scheduled_tase_execution_dates, tase_equity_sessions, validate_tase_sessions
 from .tax import IsraeliTaxState
 
@@ -197,6 +200,7 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
             prior = decisions.loc[decisions.index < date]
             signal,row=schedule.get(date,(prior.index[-1],prior.iloc[-1]))
             target=weights_for(row)
+            require_execution_prices(prices, date, set(target) | set(pre_positions) | set(after_positions) | {model.benchmark_asset})
             details=[]
             for positions,is_after in ((pre_positions,False),(after_positions,True)):
                 cash=after_cash if is_after else pre_cash
@@ -290,7 +294,8 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         if not assets.issubset(model.daily_prices.columns):
             raise ValueError('Required sleeve/benchmark security prices are unavailable.')
         quotes=model.daily_prices.loc[:,sorted(assets)].sort_index()
-        validate_sessions(quotes)
+        calendar = session_dates(str(quotes.index.min().date()), str(quotes.index.max().date()))
+        validate_sessions(pd.DataFrame({'calendar': 1.}, index=quotes.dropna(how='all').index.union(calendar)))
         valid=np.isfinite(quotes).all(axis=1)&(quotes>0).all(axis=1)
         if not valid.any(): raise ValueError('No usable daily sleeve history.')
         if model.decisions.attrs.get('signal_calendar') == 'XNYS' and local:
@@ -306,7 +311,7 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     if first>last: raise ValueError('No common executable daily history in the requested date range.')
     sessions=session_dates(str(first.date()),str(last.date()))
     if sessions.empty: raise ValueError('No common executable trading sessions.')
-    results={}; events=[]; audits=[]; benchmark_quotes=None
+    results={}; events=[]; audits=[]; benchmark_quotes=None; valuation_sleeves={}
     for name,(weight,model) in sleeves.items():
         assets={benchmark}
         for _,row in model.decisions.iterrows(): assets.update(weights_for(row))
@@ -316,8 +321,19 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
                 raise ValueError('Mixed DCA requires opening prices for every sleeve to measure cash-flow-adjusted returns.')
             if not np.isfinite(model.daily_open_prices.reindex(sessions).loc[:,sorted(assets)].to_numpy()).all():
                 raise ValueError('Missing opening prices within mixed DCA history.')
-        if not np.isfinite(values.to_numpy()).all() or (values<=0).any().any():
-            raise ValueError(f'{name}: missing/invalid security prices within common history; refusing to bridge gaps.')
+        if model.decisions.attrs.get('execution_frequency') != 'daily':
+            from .backtest_options import contribution_for
+            scheduled = set(schedule_dates(model.decisions.index))
+            prior_day = None
+            for day in sessions:
+                if prior_day is None or day in scheduled or contribution_for(day, None, prior_day, monthly_contribution):
+                    require_execution_prices(model.daily_prices, day, assets)
+                prior_day = day
+        marked, price_warnings = valuation_prices(model.daily_prices, sessions, assets,
+            '{asset}: missing/invalid security prices within common history on {date}; refusing to bridge gaps.', calendar=session_dates)
+        model = replace(model, daily_prices=marked)
+        valuation_sleeves[name] = (weight, model)
+        values = marked.reindex(sessions).loc[:,sorted(assets)]
         if benchmark_quotes is not None and not np.allclose(values[benchmark],benchmark_quotes,rtol=1e-12,atol=1e-12):
             raise ValueError('Sleeves have inconsistent benchmark price histories.')
         benchmark_quotes=values[benchmark]
@@ -339,7 +355,8 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
                 intraday=model.daily_prices.loc[date,asset]/model.daily_open_prices.loc[date,asset]
                 buys.append(row.pre_tax_value/intraday if i==0 or row.allocation_change else 0.)
             result.daily['purchase_notional']=buys
-        results[name]=result
+        from .valuation_gaps import with_price_warnings
+        results[name]=with_price_warnings(result, price_warnings)
         if not result.tax_events.empty:
             events.append(result.tax_events.assign(sold_sleeve=name,tax_level='strategy sleeve'))
         audits.append(result.audit.assign(sleeve=name))
@@ -352,6 +369,8 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         for book in ('pre_tax','after_tax'):
             daily[book+'_fee']=sum(r.daily[book+'_fee'] for r in results.values())
     daily_model=next((m for _,m in sleeves.values() if m.decisions.attrs.get('execution_frequency')=='daily'), next(iter(sleeves.values()))[1])
+    marked_benchmark, _ = valuation_prices(daily_model.daily_prices, sessions, (benchmark,), calendar=session_dates)
+    daily_model = replace(daily_model, daily_prices=marked_benchmark)
     if daily_model.daily_open_prices is None and not local: raise ValueError('Daily sleeve requires adjusted opening prices.')
     benchmark_opens=(daily_model.daily_prices if local else daily_model.daily_open_prices).reindex(sessions)[benchmark]
     if not np.isfinite(benchmark_opens).all() or (benchmark_opens<=0).any():
@@ -387,16 +406,18 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
         if sleeve_rebalance_mode == 'rvol_cap' and (rebalance_sleeve not in weights or not 0 < rebalance_target < rebalance_cap < 1):
             raise ValueError('Invalid RVol sleeve transfer cap/target.')
         from .fee_portfolio import replay
-        daily, sleeve_nav, replay_events, replay_audit = replay(sleeves, results, daily, initial, trading_fees,
+        daily, sleeve_nav, replay_events, replay_audit = replay(valuation_sleeves, results, daily, initial, trading_fees,
             taxed, tax_rate, sleeve_rebalance_mode, rebalance_sleeve, rebalance_cap, rebalance_target)
         monthly=aggregate_months(daily, aggregate_fees=True)
         sleeve_returns=pd.DataFrame({n:r.daily.pre_tax_monthly_return.groupby(r.daily.index.to_period('M')).apply(lambda x:(1+x).prod()-1).to_numpy() for n,r in results.items()},index=monthly.index)
-        return PortfolioBacktestResult(monthly,sleeve_returns,sessions,replay_events,daily,sleeve_nav,replay_audit)
+        _check_transfer_prices(sleeves, daily)
+        return PortfolioBacktestResult(monthly,sleeve_returns,sessions,replay_events,daily,sleeve_nav,replay_audit,collected_warnings(results.values()))
     daily,sleeve_nav,transfer_events,transfer_audit=_rebalance_mixed_daily(
         daily,sleeve_nav,after_sleeve_nav,weights,sleeve_rebalance_mode,rebalance_sleeve,
         rebalance_cap,rebalance_target,fee,fixed_fee,taxed,tax_rate,
     )
     if sleeve_rebalance_mode != 'none':
+        _check_transfer_prices(sleeves, daily)
         for value,ret in [('pre_tax_value','pre_tax_monthly_return'),('after_tax_value','after_tax_monthly_return')]:
             previous=daily[value].shift(1)
             previous.iloc[0]=initial
@@ -411,4 +432,13 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
     sleeve_returns=pd.DataFrame({n:r.daily.pre_tax_monthly_return.groupby(r.daily.index.to_period('M')).apply(lambda x:(1+x).prod()-1).to_numpy() for n,r in results.items()},index=monthly.index)
     return PortfolioBacktestResult(monthly,sleeve_returns,sessions,
         pd.concat(events,ignore_index=True) if events else pd.DataFrame(),daily,sleeve_nav,
-        pd.concat(audits,ignore_index=True))
+        pd.concat(audits,ignore_index=True), collected_warnings(results.values()))
+
+
+def _check_transfer_prices(sleeves, daily):
+    """Portfolio-level sales/buys also require actual execution closes."""
+    for date in daily.index[daily.get('portfolio_rebalance', pd.Series(False,index=daily.index)).astype(bool)]:
+        for _, model in sleeves.values():
+            prior = model.decisions.loc[model.decisions.index < date]
+            if not prior.empty:
+                require_execution_prices(model.daily_prices, date, set(weights_for(prior.iloc[-1])))

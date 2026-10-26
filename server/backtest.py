@@ -243,7 +243,8 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
     if getattr(strategy, "backtest_window", None):
         public["actual_execution_start"] = result.audit.execution_date.min().isoformat()
         public["captions"].append(f"Actual TASE execution starts {result.audit.execution_date.min():%Y-%m-%d}. ILS-hedged utilities (MTF 1150507); actual fund history only.")
-    return clean({"kind": "single-backtest-v1", "public": public, "downloads": downloads})
+    from .price_warnings import annotate_price_warnings
+    return clean(annotate_price_warnings({"kind": "single-backtest-v1", "public": public, "downloads": downloads}, result.price_warnings))
 
 
 def run(request, code):
@@ -314,7 +315,7 @@ def download(key, kind):
     if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
         raise HTTPException(400, "Invalid result cache key.")
     from .backtest_multi import deep
-    allowed = {"audit", "tax_events", "daily_nav", "portfolio_nav", "sleeve_nav", "executions", "sleeve_tax", "proxy_tax", "proxy_audit", "synthetic_tax", "synthetic_nav", "synthetic_audit", "synthetic_source", "daily_source", "history_sources"}
+    allowed = {"audit", "tax_events", "daily_nav", "portfolio_nav", "sleeve_nav", "executions", "sleeve_tax", "proxy_tax", "proxy_audit", "synthetic_tax", "synthetic_nav", "synthetic_audit", "synthetic_source", "daily_source", "history_sources", "price-warnings"}
     allowed |= {f"source_{key}_{segment}" for key, spec in deep.ALL_DEEP_HISTORY_SPECS.items() if spec.actual_etf_ticker for segment in ("actual", "early")}
     if kind not in allowed:
         raise HTTPException(400, "Unknown download type.")

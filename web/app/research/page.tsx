@@ -103,6 +103,7 @@ export default function ResearchPage() {
       {result.warnings.map((w,i) => <p className="signal-warning" key={i}>{w}</p>)}
       <div className="backtest-grid">{result.cards.map(card => <section key={card.label}><h3>{card.label}</h3><p>{fmt.cell(card.value,card.label)}</p></section>)}</div>
       <h2>{text.checksTitle}</h2><DataTable value={result.checks} /><h2>{text.meansTitle}</h2><p>{result.meaning}</p><p>{text.limits}</p>
+      {download("price-warnings")}
       <details><summary>{text.sections[0]}</summary><DataTable value={result.tables.scenarios} /><Plot value={result.charts.scenarios} title={text.scenarioChart} />{download("scenarios")}</details>
       <details><summary>{text.sections[1]}</summary><DataTable value={result.tables.execution} /><p>{text.executionCaption}</p></details>
       <details><summary>{text.sections[2]}</summary><h3>{text.rolling}</h3><DataTable value={result.tables.rolling} /><Plot value={result.charts.rolling} title={text.rollingChart} /><h3>{text.subperiods}</h3><DataTable value={result.tables.subperiods} /></details>

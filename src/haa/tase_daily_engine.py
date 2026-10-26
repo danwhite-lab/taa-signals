@@ -8,6 +8,7 @@ from .backtest_options import contribution_for, order_fee
 from .engine import BacktestResult, _normalise_weights
 from .market_sessions import validate_tase_sessions
 from .tax import IsraeliTaxState
+from .valuation_gaps import valuation_prices, require_execution_prices
 
 
 def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
@@ -35,7 +36,10 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
     prices = prices.loc[:decisions.attrs.get("completed_through")]
     if cross_market and decisions.attrs.get("execution_prices_started_from") is not None:
         prices = prices.loc[decisions.attrs["execution_prices_started_from"]:]
-    validate_tase_sessions(prices)
+    from .market_sessions import tase_equity_sessions
+    calendar = tase_equity_sessions(str(prices.index.min().date()), str(prices.index.max().date()))
+    validate_tase_sessions(pd.DataFrame({'calendar': 1.}, index=prices.index.union(calendar)))
+    prices = prices.reindex(calendar)
     # Price dates, not US business days, determine the execution session.
     schedule = {}
     if cross_market:
@@ -53,9 +57,18 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
     if end is not None: dates = dates[dates <= pd.Timestamp(end)]
     if not len(dates):
         raise ValueError("No local daily execution sessions in the requested range.")
-    values = prices.loc[dates]
-    if not np.isfinite(values.to_numpy()).all() or (values <= 0).any().any():
-        raise ValueError("Missing or invalid TASE daily prices; no fills or returns can be fabricated.")
+    prior_state, prior_day, prior_assets = None, None, set()
+    for day in dates:
+        if day not in schedule:
+            raise ValueError(f"No local daily decision scheduled for {day.date()}.")
+        _, decision = schedule[day]
+        state = decision.model_state
+        reset = prior_day is not None and day.year != prior_day.year and state in decisions.attrs.get("annual_reset_states", ("QLD",))
+        if prior_state is None or state != prior_state or reset or contribution_for(day, None, prior_day, monthly_contribution):
+            require_execution_prices(prices, day, set(decision.target_weights) | prior_assets | {benchmark_asset})
+        prior_state, prior_day, prior_assets = state, day, set(decision.target_weights)
+    prices, price_warnings = valuation_prices(prices, dates, assets,
+        'Missing or invalid TASE daily prices for {asset} on {date}; no fills or returns can be fabricated.', calendar=tase_equity_sessions)
     pre_positions, after_positions = {}, {}
     pre_cash = after_cash = float(initial_investment)
     tax = IsraeliTaxState(tax_rate=tax_rate)
@@ -85,6 +98,7 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
         details = []; purchase_notional = 0.
         if rebalance:
             target = _normalise_weights(decision.target_weights)
+            require_execution_prices(prices, date, set(target) | set(pre_positions) | set(after_positions) | {benchmark_asset})
             for positions, after_book in ((pre_positions, False), (after_positions, True)):
                 cash = after_cash if after_book else pre_cash
                 if trading_fees:
@@ -160,4 +174,4 @@ def run_tase_daily_backtest(decisions, daily_prices, initial_investment,
         previous_date = date
     daily = pd.DataFrame(output).set_index('holding_end')
     from .mixed_portfolio import aggregate_months
-    return BacktestResult(aggregate_months(daily, aggregate_fees=bool(trading_fees)), pd.DataFrame(audit), pd.DataFrame(events), daily)
+    return BacktestResult(aggregate_months(daily, aggregate_fees=bool(trading_fees)), pd.DataFrame(audit), pd.DataFrame(events), daily, price_warnings)
