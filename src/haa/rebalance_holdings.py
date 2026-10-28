@@ -209,8 +209,8 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context,
     gaps, costs, minimums = {}, {}, {}
     for key, weight in targets.items():
         quote = quotes.get(key)
-        if not quote or quote.get("error") or not quote.get("fresh"):
-            raise ValueError(f"{key}: a fresh, actual per-unit price is required.")
+        if not quote or quote.get("error") or quote.get("price") is None:
+            raise ValueError(f"{key}: an actual per-unit price is required.")
         costs[key] = number(quote["price"], positive=True) * (number(fx, positive=True) if instruments[key]["currency"] == "USD" else 1)
         gaps[key] = max(Decimal(0), number(weight) * (total + new_money) - values.get(key, Decimal(0)))
         minimum = number(account["positions"].get(key, {}).get("minimum_ils", 0))
@@ -219,8 +219,8 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context,
     for key, position in account["positions"].items():
         if key in excluded:
             continue
-        if number(position["units"]) and not quotes[key].get("fresh"):
-            raise ValueError(f"{key}: holding valuation is stale; refresh or enter a dated broker price.")
+        if number(position["units"]) and (quotes[key].get("error") or quotes[key].get("price") is None):
+            raise ValueError(f"{key}: holding price is unavailable.")
     unspent = {}
     if allocation_mode == "proportional":
         gap_total = sum(gaps.values(), Decimal(0))

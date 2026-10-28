@@ -161,5 +161,4 @@ def test_maya_quotes_value_units_and_size_buys_without_altering_freshness_rules(
     plan = make_buy_plan(account, {key: instrument}, {key: 1.}, {key: quote}, '1', '5', {}, allocation_mode="biggest_gap_first")
     assert plan['orders'][0]['units'] == 3
     stale = market.quote_from_maya_fund(fund_publication(identifier), instrument, '2026-10-17T12:00:00Z')
-    with pytest.raises(ValueError, match='fresh'):
-        make_buy_plan(account, {key: instrument}, {key: 1.}, {key: stale}, '1', '5', {}, allocation_mode="biggest_gap_first")
+    assert make_buy_plan(account, {key: instrument}, {key: 1.}, {key: stale}, '1', '5', {}, allocation_mode="biggest_gap_first")["orders"]

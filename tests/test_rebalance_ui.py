@@ -159,15 +159,18 @@ def test_edit_units_then_done_records_only_actual_units_and_unspent_cash(rebalan
     assert rebalance_account['payload']['holdings_account'] == saved
 
 
-def test_stale_or_unavailable_prices_never_produce_automatic_buys(rebalance_account, monkeypatch):
+def test_stale_prices_produce_dated_buy_list_while_missing_prices_still_block(rebalance_account, monkeypatch):
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'price': '10', 'fresh': False, 'as_of': '2026-09-01', 'source': 'Old fund publication'})
     app = visit()
-    assert button(app, 'What to buy').disabled
-    assert any('Price missing or stale:' in item.value for item in app.caption)
+    assert not button(app, 'What to buy').disabled
+    assert any('latest available price' in item.value and '2026-09-01' in item.value for item in app.caption)
+    button(app, 'What to buy').click().run()
+    assert any('latest available prices shown beside the affected orders' in item.value for item in app.caption)
+    assert any('Price date' in table.value.columns for table in app.dataframe)
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'error': 'No raw price', 'fresh': False})
     app.run()
     assert not app.exception
-    assert any('Price missing or stale:' in item.value for item in app.caption)
+    assert any('Price missing:' in item.value for item in app.caption)
     assert button(app, 'Save holdings')
 
 
@@ -408,8 +411,8 @@ def test_ils_value_entry_previews_whole_tase_units_without_adding_cash(rebalance
     assert saved['cash_ils'] == '0.0'
 
 
-@pytest.mark.parametrize('quote', [{'error': 'unavailable', 'fresh': False}, {'price': '10', 'fresh': False}])
-def test_value_entry_never_converts_with_missing_or_stale_price(rebalance_account, monkeypatch, quote):
+@pytest.mark.parametrize('quote', [{'error': 'unavailable', 'fresh': False}])
+def test_value_entry_never_converts_with_missing_price(rebalance_account, monkeypatch, quote):
     monkeypatch.setattr(market, 'unit_quote', lambda *a: quote)
     app = visit()
     before = deepcopy(rebalance_account['payload']['holdings_account'])
@@ -662,14 +665,14 @@ def test_editor_shows_fetched_price_date_without_creating_manual_overrides(rebal
     assert saved['manual_price'] is None and saved['manual_price_date'] is None
 
 
-def test_fetched_stale_price_is_shown_with_its_real_date_and_stays_blocked(rebalance_account, monkeypatch):
+def test_fetched_stale_price_is_shown_with_its_real_date_and_stays_usable(rebalance_account, monkeypatch):
     monkeypatch.setattr(market, 'unit_quote', lambda *a: {'price': '10', 'fresh': False, 'as_of': '2026-09-01'})
     app = visit()
     row = app.dataframe[0].value.iloc[0]
     assert row['Price per unit (₪ / $)'] == 10.
     assert str(row['Price observation date'])[:10] == '2026-09-01'
     assert row['Price status'] == 'Stale'
-    assert button(app, 'What to buy').disabled
+    assert not button(app, 'What to buy').disabled
 
 
 def test_missing_fetched_price_date_are_blank_not_invented(rebalance_account, monkeypatch):

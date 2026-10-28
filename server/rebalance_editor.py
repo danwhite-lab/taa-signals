@@ -42,7 +42,7 @@ def _preview_positions(account, instruments, rows):
             same = position["manual_price"] == old.get("manual_price") and position["manual_price_date"] == old.get("manual_price_date")
             position["manual_entered_at"] = old.get("manual_entered_at") if same else utc_now()
             quote = market_data.unit_quote(instruments[key], position)
-            current = bool(quote.get("fresh") and not quote.get("error") and quote.get("price"))
+            current = bool(not quote.get("error") and quote.get("price"))
             if row["Enter as"] == "Value":
                 if not current:
                     errors.append(f"{instruments[key]['label']}: value entry needs a current price; enter a dated manual price in this row first.")
@@ -60,7 +60,7 @@ def _preview_positions(account, instruments, rows):
                             "Units to save": float(position["units"]),
                             "Price per unit (₪ / $)": _quote_cells(quote)["Price per unit (₪ / $)"],
                             "Price observation date": _quote_cells(quote)["Price observation date"],
-                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" else "Current") if current else "Missing / stale — no conversion"})
+                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" and quote.get("fresh") else "Current" if quote.get("fresh") else "Stale") if current else "Missing — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
     return positions, preview, errors

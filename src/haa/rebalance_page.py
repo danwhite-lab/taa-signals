@@ -102,7 +102,7 @@ def _preview_positions(account, instruments, rows):
             same = position["manual_price"] == old.get("manual_price") and position["manual_price_date"] == old.get("manual_price_date")
             position["manual_entered_at"] = old.get("manual_entered_at") if same else utc_now()
             quote = market_data.unit_quote(instruments[key], position)
-            current = bool(quote.get("fresh") and not quote.get("error") and quote.get("price"))
+            current = bool(not quote.get("error") and quote.get("price"))
             if row["Enter as"] == "Value":
                 if not current:
                     errors.append(f"{instruments[key]['label']}: value entry needs a current price; enter a dated manual price in this row first.")
@@ -120,7 +120,7 @@ def _preview_positions(account, instruments, rows):
                             "Units to save": float(position["units"]),
                             "Price per unit (₪ / $)": _quote_cells(quote)["Price per unit (₪ / $)"],
                             "Price observation date": _quote_cells(quote)["Price observation date"],
-                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" else "Current") if current else "Missing / stale — no conversion"})
+                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" and quote.get("fresh") else "Current" if quote.get("fresh") else "Stale") if current else "Missing — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
     return positions, preview, errors
@@ -289,11 +289,13 @@ def _render_editor(account, instruments, targets, commit_account):
 
 
 
-def _record_step(account, pending, context, commit_account):
+def _record_step(account, pending, context, commit_account, stale=None, quotes=None):
     if st.button("Record these buys", key="rebalance_record"):
         st.session_state["rebalance_record_id"] = pending["id"]
     if st.session_state.get("rebalance_record_id") != pending["id"]:
         return
+    if stale:
+        st.caption("These purchases are being recorded against the dated prices shown in this buy list.")
     with st.form(f"rebalance_confirm_{pending['id']}"):
         st.subheader("Record these buys")
         st.caption("After trading, enter units actually bought and actual ₪ paid (including fees charged to this cash budget). For USD orders, enter the ₪ equivalent you actually used. Zero means not bought. Unspent cash stays in this shared account.")
@@ -356,7 +358,8 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     quotes = {k: market_data.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(relevant)}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market_data.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
-    blocked = {k for k, q in quotes.items() if q.get("error") or not q.get("fresh")}
+    blocked = {k for k, q in quotes.items() if q.get("error") or q.get("price") is None}
+    stale = {k for k, q in quotes.items() if k not in blocked and not q.get("fresh")}
     held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
     missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
     needs_rebalance_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
@@ -370,7 +373,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             st.rerun()
         st.caption("Actual unadjusted prices only. Public/delayed observations are not guaranteed fills. Five-minute caches. Manual prices are native currency per ONE unit, not agorot or cents.")
         if any(q.get("valuation_kind") == "fund_nav" for q in quotes.values()):
-            st.caption("Mutual-fund prices are published redemption valuations, not live or guaranteed purchase prices. Publication can lag; stale observations still block sizing. Clear a saved manual price and its date to return to the automatic feed.")
+            st.caption("Mutual-fund prices are published redemption valuations, not live or guaranteed purchase prices. Publication can lag; a stale observation is used with its date shown. Clear a saved manual price and its date to return to the automatic feed.")
         if quotes:
             st.dataframe(pd.DataFrame([{"Security": k, "Price per unit": q.get("price"),
                 "Currency": instruments[k]["currency"], "Raw publication": q.get("raw_published_value"),
@@ -388,16 +391,20 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
 
     with warning_box:
         if blocked:
-            st.caption("Price missing or stale: " + ", ".join(instruments[k]['label'] for k in sorted(blocked)) + " — enter below.")
-        if uses_usd and (fx.get("error") or not fx.get("fresh")):
-            st.caption("⚠ USD/ILS is missing or stale. Enter its dated override below the holdings editor.")
+            st.caption("Price missing: " + ", ".join(instruments[k]['label'] for k in sorted(blocked)) + " — enter below.")
+        if stale:
+            st.caption("Using the latest available price for: " + ", ".join(f"{instruments[k]['label']} ({quotes[k].get('as_of')})" for k in sorted(stale)))
+        if uses_usd and (fx.get("error") or fx.get("price") is None):
+            st.caption("⚠ USD/ILS is missing. Enter its dated override below the holdings editor.")
+        elif uses_usd and not fx.get("fresh"):
+            st.caption(f"Using the latest available USD/ILS rate dated {fx.get('as_of')}.")
         if st.session_state.get("workspace_conflict"):
             st.caption("Sync paused: reload before saving. Details below.")
         elif st.session_state.get("rebalance_sync_unavailable"):
             st.caption("Sync is temporarily unavailable; saving will retry.")
 
     comparison, total = [], None
-    if not missing_held and not rebalance_fx.get("error"):
+    if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
             comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"])
         except (ValueError, KeyError, TypeError):
@@ -421,6 +428,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             comparison = [{"id": k, "Fund": instruments[k]["label"], "Target %": targets.get(k, 0), "Actual %": None,
                 "Status": "Cannot price" if k in blocked else "Valuation incomplete"} for k in sorted(set(targets) | set(account["positions"]))]
         table = pd.DataFrame(comparison, columns=["Fund", "Target %", "Actual %", "Status"])
+        table["Status"] = [f"{row['Status']} · Stale price ({quotes[row['id']].get('as_of')})" if row.get("id") in stale else row["Status"] for row in comparison]
         if not portfolio or errors:
             table["Target %"] = None
             table["Status"] = "Target unavailable"
@@ -432,7 +440,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     # Preserve the allocator and its price rules. Skipping an UNHELD fund
     # does not alter account value; keep remaining target weights unchanged.
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and total is not None and not held_blocked and rebalance_fx.get("fresh") and eligible and not unsaved)
+    ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible and not unsaved)
     allocation_mode = validate_allocation_mode(st.session_state.get("rebalance_allocation_mode", DEFAULT_ALLOCATION_MODE))
     context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx, "allocation_mode": allocation_mode,
                "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state}
@@ -449,7 +457,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             st.session_state["rebalance_pending"] = pending
             st.session_state.pop("rebalance_inputs_changed", None)
         except (ValueError, KeyError, TypeError):
-            st.error("A current valuation is required. Check the price and FX details.")
+            st.error("A valuation is required. Check the missing price and FX details.")
     if st.session_state.get("rebalance_inputs_changed"):
         with action_box:
             st.caption("Inputs changed, press What to buy again")
@@ -462,10 +470,10 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             st.caption("Overweight, buy-only so nothing to buy")
     if held_blocked:
         with warning_box:
-            st.caption("A held fund needs a current manual price before accurate account weights or buys can be calculated.")
+            st.caption("A held fund needs a price before accurate account weights or buys can be calculated.")
     if pending:
         with results_box:
-            rows = [{"Fund": instruments[r["id"]]["label"], "Whole units to buy": r["units"], "Estimated cost (₪)": float(r["estimated_ils"])} for r in pending["orders"]]
+            rows = [{"Fund": instruments[r["id"]]["label"], "Whole units to buy": r["units"], "Estimated cost (₪)": float(r["estimated_ils"]), "Price date": quotes[r["id"]].get("as_of") if r["id"] in stale else None} for r in pending["orders"]]
             if rows:
                 st.dataframe(pd.DataFrame(rows).style.format({"Estimated cost (₪)": "{:,.2f}"}), hide_index=True, use_container_width=True)
                 if len(rows) == 1 and allocation_mode == "biggest_gap_first":
@@ -473,7 +481,9 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
             else:
                 st.caption("No whole-unit order fits the budget, targets and configured minimums.")
             st.caption(f"Leftover: ₪{float(pending['leftover_ils']):,.2f}")
+            if stale:
+                st.caption("This buy list uses the latest available prices shown beside the affected orders.")
             if blocked - excluded:
                 st.caption("Partial buy list: unpriced, unheld funds were skipped. Targets were not redistributed.")
             if pending["orders"]:
-                _record_step(account, pending, context, commit_account)
+                _record_step(account, pending, context, commit_account, stale, quotes)
