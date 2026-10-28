@@ -89,8 +89,9 @@ def assess_quote(quote, market, as_of=None):
         if observed.date() > today:
             raise ValueError("Price is dated in the future.")
         if result.get("field") == "Manual per-unit price":
-            # Explicit broker observations can be intraday; never call them closes.
-            fresh = observed >= expected
+            # A dated broker observation explicitly chosen by the user wins over
+            # the automatic feed. It is not an automatic stale-price warning.
+            fresh = True
         else:
             fresh = observed == expected
         result.update(fresh=fresh, expected_through=str(expected.date()),
@@ -177,7 +178,7 @@ def fx_quote(account):
         observed = pd.Timestamp(quote["as_of"]).date()
         expected = max(last_completed_session("US"), last_completed_session("TASE")).date()
         today = pd.Timestamp.now(tz="UTC").date()
-        quote["fresh"] = expected <= observed <= today
+        quote["fresh"] = bool(account.get("manual_fx") is not None) or expected <= observed <= today
         quote["status"] = "Current indicative FX" if quote["fresh"] else f"Stale/unverified FX: need {expected} or later"
         return quote
     except Exception as exc:

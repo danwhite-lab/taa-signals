@@ -17,7 +17,7 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
-  held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
+  stale?: string[]; held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
@@ -121,6 +121,9 @@ export default function RebalanceHoldings() {
   const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
     row,...state.comparison.filter(child=>child.companion_of===row.id),
   ]).concat(state.comparison.filter(row=>row.companion_of&&!state.comparison.some(anchor=>anchor.id===row.companion_of))) : [];
+  const staleFunds = state?.stale ?? [];
+  const isStale = (id: string) => staleFunds.includes(id);
+  const staleDate = (id: string) => String(state?.quotes[id]?.as_of ?? "—");
   return <main className="rebalance-page"><h1>{text.title}</h1>
     {busy && <p role="status">{state ? text.working : text.loading}</p>}
     {!state && <>{message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}</>}
@@ -132,8 +135,9 @@ export default function RebalanceHoldings() {
     {state && <>
 
       {!!state.blocked.length && <p className="signal-warning">{text.missing} {state.blocked.map(key => state.instruments[key].label).join(", ")}</p>}
+      {!!staleFunds.length && <p className="signal-warning">{text.stalePrices.replace("{funds}", staleFunds.map(key => `${state.instruments[key].label} (${staleDate(key)})`).join(", "))}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
-      {!state.fx.fresh && <p>{text.fxMissing}</p>}
+      {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
           <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.role, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
@@ -202,10 +206,10 @@ export default function RebalanceHoldings() {
         </div>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
-        {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status === "Companion" ? text.companionStatus : row.Status}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
+        {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
       {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
-        {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
-        {state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
+        {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
+        {staleFunds.length > 0 && <p className="signal-warning">{text.stalePlan}</p>}{state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
         {state.allocation_mode === "proportional" && <>
           {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
             <p key={key}>{text.unspentShare.replace("{fund}", state.instruments[key].label).replace("{unspent}", fmt.cell(value, "cash"))
@@ -213,7 +217,7 @@ export default function RebalanceHoldings() {
           <p>{text.pooledCash}</p>
         </>}
         {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
-        {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}</p>
+        {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{staleFunds.length > 0 && <p className="signal-warning">{text.staleRecord}</p>}{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}{isStale(order.id) && <> — {text.staleOrder.replace("{date}", staleDate(order.id))}</>}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
           <label>{text.paid}<input inputMode="decimal" value={confirmed[order.id]?.paid_ils ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], paid_ils: event.target.value } }))} /></label></div>)}
           <label><input type="checkbox" checked={ack} disabled={busy} onChange={event => setAck(event.target.checked)} />{text.acknowledge}</label>

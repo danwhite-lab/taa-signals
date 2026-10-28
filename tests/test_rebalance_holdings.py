@@ -197,10 +197,10 @@ def test_invalid_tase_units_are_rejected(invalid):
 
 
 @pytest.mark.parametrize('mode', ['biggest_gap_first', 'proportional'])
-def test_missing_stale_prices_block_plans_even_for_an_off_target_holding(mode):
+def test_missing_prices_block_plans_even_for_an_off_target_holding_but_stale_prices_value(mode):
     account, instruments, quotes, targets = setup_book(units=(10, 0))
     quotes['TASE:1149038']['fresh'] = False
-    with pytest.raises(ValueError): make_buy_plan(account, instruments, {'TASE:1187079': 1.}, quotes, 1, 500, {}, allocation_mode=mode)
+    assert make_buy_plan(account, instruments, {'TASE:1187079': 1.}, quotes, 1, 500, {}, allocation_mode=mode)["orders"]
     quotes['TASE:1149038'] = {'error': 'no price'}
     with pytest.raises(ValueError): compare_holdings(account, instruments, targets, quotes, 1)
 

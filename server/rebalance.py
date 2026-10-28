@@ -116,13 +116,16 @@ def snapshot(workspace, account, portfolios, request):
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
-    blocked = {k for k in relevant if quotes[k].get("error") or not quotes[k].get("fresh")}
+    # A published but late price remains usable. Keep "blocked" exclusively
+    # for prices that cannot value a holding at all.
+    blocked = {k for k in relevant if quotes[k].get("error") or quotes[k].get("price") is None}
+    stale = {k for k in relevant if k not in blocked and not quotes[k].get("fresh")}
     held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
     missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
     needs_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
     rebalance_fx = fx if needs_fx else {"price": "1", "fresh": True}
     comparison, total, full_total = [], None, None
-    if not missing_held and not rebalance_fx.get("error"):
+    if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
             comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"])
         except (ValueError, KeyError, TypeError):
@@ -151,7 +154,7 @@ def snapshot(workspace, account, portfolios, request):
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and total is not None and not held_blocked and rebalance_fx.get("fresh") and eligible)
+    ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
     context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account)}
@@ -161,7 +164,7 @@ def snapshot(workspace, account, portfolios, request):
         current = q.get("fresh") and not q.get("error") and q.get("price")
         editor_rows.append({"Security": key, "Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],
             "Outside the rebalance": p.get("outside_rebalance", False), "Enter as": "Units", "Units": f'{number(p.get("units", 0)):.2f}', "Units edited": False,
-            "Value (₪ / $)": f'{number(p.get("units", 0)) * number(q["price"], positive=True):.2f}' if current else "",
+            "Value (₪ / $)": f'{number(p.get("units", 0)) * number(q["price"], positive=True):.2f}' if (not q.get("error") and q.get("price") is not None) else "",
             "Manual price per unit": p.get("manual_price"), "Price date": p.get("manual_price_date"),
             "Minimum order (₪)": p.get("minimum_ils", "0"), "Remove": False})
         if p.get("companion_of"):
@@ -174,7 +177,7 @@ def snapshot(workspace, account, portfolios, request):
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
         "total_display": f"₪{total:,.2f}" if total is not None else "Unavailable",
         "full_total_display": f"₪{full_total:,.2f}" if full_total is not None else "Unavailable",
-        "blocked": sorted(blocked), "held_blocked": sorted(held_blocked), "partial": bool(blocked-excluded),
+        "blocked": sorted(blocked), "stale": sorted(stale), "held_blocked": sorted(held_blocked), "partial": bool(blocked-excluded),
         "ready": ready, "context": context, "rebalance_fx": rebalance_fx,
         "overweight": any(r["Status"] == "Overweight" for r in comparison),
         "seconds": round(perf_counter()-started, 6)}
@@ -297,7 +300,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
 
 def planned(state, request):
     if not state["ready"]:
-        raise HTTPException(400, "A current valuation is required. Check the price and FX details.")
+        raise HTTPException(400, "A valuation is required. Check the missing price and FX details.")
     return make_buy_plan(state["account"], state["instruments"], state["eligible"], state["quotes"],
                          state["rebalance_fx"]["price"], request.new_money, state["context"], state["allocation_mode"])
 
