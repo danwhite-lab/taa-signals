@@ -117,6 +117,15 @@ export default function RebalanceHoldings() {
     if (!dirty) {setRows(value.rows);setRoles({});}
     else setRows(previous => [...previous, ...value.rows.filter(row => !previous.some(old => old.Security === row.Security))]);
   }
+  function selectAllocationMode(mode: AllocationMode) {
+    if (!state || mode === state.allocation_mode) return;
+    invalidate();
+    void action(async () => {
+      const saved = await saveAllocationMode(state.workspace_revision, mode);
+      setState(previous => previous && ({ ...previous, workspace_revision: saved.revision, allocation_mode: mode }));
+      await refresh(portfolio, false);
+    });
+  }
   const targetFunds=state?.target_funds ?? Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id].label || id}));
   const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
     row,...state.comparison.filter(child=>child.companion_of===row.id),
@@ -188,15 +197,7 @@ export default function RebalanceHoldings() {
             <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
         {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                         <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
-                        <label>{text.allocationMode}<select value={state.allocation_mode} disabled={busy || paused} onChange={event => {
-              const mode = event.target.value as AllocationMode;
-              invalidate();
-              void action(async () => {
-                const saved = await saveAllocationMode(state.workspace_revision, mode);
-                setState(previous => previous && ({ ...previous, workspace_revision: saved.revision, allocation_mode: mode }));
-                await refresh(portfolio, false);
-              });
-            }}>{Object.entries(text.allocationModes).map(([key, caption]) => <option key={key} value={key}>{caption}</option>)}</select></label>
+                        <div className="allocation-mode"><span>{text.allocationMode}</span><div role="group" aria-label={text.allocationMode}>{Object.entries(text.allocationModes).map(([key, caption]) => <button type="button" className="btn btn-secondary" aria-pressed={state.allocation_mode === key} disabled={busy || paused} key={key} onClick={() => selectAllocationMode(key as AllocationMode)}>{caption}</button>)}</div></div>
           </div>
           {!state.portfolios.length && <p>{text.noPortfolio}</p>}
           {changed && <p>{text.changed}</p>}
@@ -205,10 +206,10 @@ export default function RebalanceHoldings() {
             })}>{text.generate}</button>
         </div>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
-      <section><h2>{text.comparison}</h2><table><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
-        {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td>{row.target_display}</td><td>{row.actual_display}</td><td>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
-      {plan && <section><h2>{text.buyList}</h2><table><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
-        {plan.orders.map(order => <tr key={order.id}><td>{state.instruments[order.id].label}{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td>{fmt.number(order.units)}</td><td>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
+      <section><h2>{text.comparison}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
+        {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td data-label={text.fund}>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td data-label={text.target}>{row.target_display}</td><td data-label={text.actual}>{row.actual_display}</td><td data-label={text.status}>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
+      {plan && <section><h2>{text.buyList}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
+        {plan.orders.map(order => <tr key={order.id}><td data-label={text.fund}>{state.instruments[order.id].label}{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td data-label={text.wholeUnits}>{fmt.number(order.units)}</td><td data-label={text.estimated}>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
         {staleFunds.length > 0 && <p className="signal-warning">{text.stalePlan}</p>}{state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
         {state.allocation_mode === "proportional" && <>
           {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
@@ -217,7 +218,7 @@ export default function RebalanceHoldings() {
           <p>{text.pooledCash}</p>
         </>}
         {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
-        {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{staleFunds.length > 0 && <p className="signal-warning">{text.staleRecord}</p>}{plan.orders.map(order => <div key={order.id}><p>{state.instruments[order.id].label}{isStale(order.id) && <> — {text.staleOrder.replace("{date}", staleDate(order.id))}</>}</p>
+        {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{staleFunds.length > 0 && <p className="signal-warning">{text.staleRecord}</p>}{plan.orders.map(order => <div className="record-order" key={order.id}><p>{state.instruments[order.id].label}{isStale(order.id) && <> — {text.staleOrder.replace("{date}", staleDate(order.id))}</>}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
           <label>{text.paid}<input inputMode="decimal" value={confirmed[order.id]?.paid_ils ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], paid_ils: event.target.value } }))} /></label></div>)}
           <label><input type="checkbox" checked={ack} disabled={busy} onChange={event => setAck(event.target.checked)} />{text.acknowledge}</label>
@@ -231,8 +232,8 @@ export default function RebalanceHoldings() {
             <p>{text.automaticCaption}</p>
             <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(convert)}>{text.previewAction}</button>
             {preview && <section><h3>{text.preview}</h3>{preview.errors.map((value, index) => <p role="alert" key={index}>{value}</p>)}
-              <div className="signal-table-scroll"><table><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
-                <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></div></section>}
+              <table className="preview-table"><thead><tr>{Object.keys(preview.preview[0] ?? {}).map(key => <th key={key}>{key}</th>)}</tr></thead>
+                <tbody>{preview.preview.map((row, index) => <tr key={index}>{Object.entries(row).map(([key,value]) => <td key={key}>{show(value,key)}</td>)}</tr>)}</tbody></table></section>}
 
             <details><summary>{text.fx}</summary><p>{text.fxCaption}</p><label>{text.fxRate}<input value={fx} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setFx(event.target.value); }} /></label>
               <label>{text.fxDate}<input type="date" value={fxDate} disabled={busy} onChange={event => { invalidate(true); setFxDate(event.target.value); }} /></label></details>
