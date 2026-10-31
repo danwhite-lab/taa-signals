@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from haa.data import download_latest_yahoo_close, download_yahoo_prices
+from haa.data import default_ticker_map, download_latest_yahoo_close, download_yahoo_prices
 
 
 def test_download_latest_yahoo_close_uses_most_recent_valid_close(monkeypatch):
@@ -42,3 +42,11 @@ def test_download_yahoo_prices_names_an_unavailable_ticker(monkeypatch):
 
     with pytest.raises(RuntimeError, match="BIL"):
         download_yahoo_prices({"SPY": "SPY", "TIP": "TIP", "IEF": "IEF", "BIL": "BIL"})
+
+
+def test_nikkei_price_index_uses_close_not_adjusted_close_and_data_file_tickers():
+    raw = pd.DataFrame({"Adj Close": [100.], "Close": [90.]}, index=pd.to_datetime(["2026-08-31"]))
+    from haa.data import _normalise_frame
+
+    assert _normalise_frame(raw, "^N225", price_only=True).iloc[0] == 90.
+    assert default_ticker_map(("SOXX", "NIKKEI_225")) == {"SOXX": "SOXX", "NIKKEI_225": "^N225"}

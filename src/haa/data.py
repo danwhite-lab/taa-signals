@@ -8,6 +8,7 @@ from typing import Iterable, Mapping
 
 import pandas as pd
 
+from .buy_and_hold_funds import price_only_yahoo_assets, yahoo_tickers
 from .constants import ASSETS
 
 OECD_CLI_COUNTRIES = ("AUS", "CAN", "FRA", "DEU", "ITA", "JPN", "KOR", "MEX", "ESP", "TUR", "GBR", "USA", "BRA", "CHN", "IND", "IDN", "ZAF")
@@ -15,6 +16,7 @@ OECD_CLI_URL = "https://sdmx.oecd.org/public/rest/data/OECD.SDD.STES,DSD_STES@DF
 
 DEFAULT_TICKER_MAP = {
     **{asset: asset for asset in ASSETS},
+    **yahoo_tickers(),
     "CSPX_IL": "1159250.TA",
     "IEF_IL": "1159268.TA",
     "AYALON_KASPIT": "5136866.TA",
@@ -25,17 +27,18 @@ def default_ticker_map(assets: Iterable[str]) -> dict[str, str]:
     return {asset: DEFAULT_TICKER_MAP.get(asset, asset) for asset in assets}
 
 
-def _normalise_frame(frame: pd.DataFrame, asset: str, require_adjusted: bool = False) -> pd.Series:
+def _normalise_frame(frame: pd.DataFrame, asset: str, require_adjusted: bool = False, price_only: bool = False) -> pd.Series:
     """Extract an adjusted close series, falling back to Close only if necessary."""
+    fields = ("Close", "Adj Close") if price_only else (("Adj Close",) if require_adjusted else ("Adj Close", "Close"))
     if isinstance(frame.columns, pd.MultiIndex):
         # yfinance can return either (field, ticker) or (ticker, field).
-        for field in (("Adj Close",) if require_adjusted else ("Adj Close", "Close")):
+        for field in fields:
             if field in frame.columns.get_level_values(0):
                 candidate = frame[field]
                 return candidate[asset] if isinstance(candidate, pd.DataFrame) else candidate
             if field in frame.columns.get_level_values(1):
                 return frame.xs(field, axis=1, level=1)[asset]
-    for field in (("Adj Close",) if require_adjusted else ("Adj Close", "Close")):
+    for field in fields:
         if field in frame.columns:
             return frame[field]
     raise ValueError(f"{asset}: adjusted close required; no raw Close fallback." if require_adjusted else f"{asset}: CSV/data must include 'Adj Close' or 'Close'.")
@@ -77,7 +80,7 @@ def upload_asset_from_filename(filename: str, allowed_assets: Iterable[str] = AS
     return matches.pop()
 
 
-def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None, *, require_adjusted_assets: Iterable[str] = ()) -> pd.DataFrame:
+def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None, *, require_adjusted_assets: Iterable[str] = (), price_only_assets: Iterable[str] = ()) -> pd.DataFrame:
     """Download each canonical role from its selected Yahoo ticker source."""
     import yfinance as yf
 
@@ -88,7 +91,8 @@ def download_yahoo_prices(ticker_map: Mapping[str, str] | None = None, *, requir
     if raw.empty:
         raise RuntimeError("Yahoo Finance returned no data. Try again or upload CSV files.")
     strict = set(require_adjusted_assets)
-    result = pd.DataFrame({asset: _normalise_frame(raw, ticker, require_adjusted=asset in strict) for asset, ticker in sources.items()})
+    price_only = set(price_only_assets) | price_only_yahoo_assets()
+    result = pd.DataFrame({asset: _normalise_frame(raw, ticker, require_adjusted=asset in strict, price_only=asset in price_only) for asset, ticker in sources.items()})
     result = _clean_prices(result)
     unavailable = [asset for asset in sources if result[asset].dropna().empty]
     if unavailable:

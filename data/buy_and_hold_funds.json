@@ -1,0 +1,46 @@
+{
+  "semiconductors_us": {
+    "name": "Buy and Hold Semiconductors",
+    "holding_asset": "SOXX",
+    "currency": "USD",
+    "yahoo_ticker": "SOXX",
+    "source_status": "proxy",
+    "source_note": "SOXX, a US-listed semiconductor ETF, is a declared proxy for the MVIS US Listed Semiconductor 25 Total Return Index. The app has no licensed official MVIS total-return index history, so it does not claim this is the index or splice one into it.",
+    "catalog_variant": "Semiconductors",
+    "catalog_implementation": "US-listed SOXX proxy"
+  },
+  "semiconductors_israel": {
+    "name": "Buy and Hold Semiconductors Israel",
+    "holding_asset": "MVSMHTR_IL",
+    "currency": "ILS",
+    "tase_security_id": "5132972",
+    "tase_security_type": "mutual_fund",
+    "source_status": "actual",
+    "source_note": "Kesem MVSMHTR mutual fund, security 5132972. Uses actual Maya redemption prices in ILS; the fund is currency hedged, priced once each day, and has no trading fee modeled.",
+    "catalog_variant": "Semiconductors",
+    "catalog_implementation": "Israel"
+  },
+  "japan_us": {
+    "name": "Buy and Hold Japan Nikkei 225",
+    "holding_asset": "NIKKEI_225",
+    "currency": "USD",
+    "yahoo_ticker": "^N225",
+    "price_only": true,
+    "source_status": "price_only",
+    "source_note": "Nikkei 225 price index (^N225). The app has no official total-return series configured, so this is explicitly price-only and is never presented as total return.",
+    "catalog_variant": "Japan",
+    "catalog_implementation": "Nikkei 225 price index"
+  },
+  "japan_israel": {
+    "name": "Buy and Hold Japan Israel",
+    "holding_asset": "NIKKEI_225_HEDGED_IL",
+    "currency": "ILS",
+    "tase_security_id": "1150531",
+    "tase_security_type": "etf",
+    "source_status": "actual",
+    "source_note": "MTF Nikkei 225 currency-hedged ETF, security 1150531. Uses actual TASE prices in ILS. Each modeled buy or sale uses 0.05% commission with a 2 ILS minimum.",
+    "trading_fees": {"ils_percent": 0.05, "ils_minimum": 2.0},
+    "catalog_variant": "Japan",
+    "catalog_implementation": "Israel"
+  }
+}

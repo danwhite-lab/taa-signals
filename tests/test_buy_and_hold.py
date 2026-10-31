@@ -11,6 +11,8 @@ from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
 from haa.strategies import BuyAndHoldNasdaq3xMonthlyIsrael, BuyAndHoldTA125x3Israel
 from haa.strategies import BuyAndHoldSP500x3Israel, BuyAndHoldDAX3xMonthlyIsrael
+from haa.strategies import BuyAndHoldJapan, BuyAndHoldJapanIsrael, BuyAndHoldSemiconductors, BuyAndHoldSemiconductorsIsrael
+from haa.comparison import ModelInput, compare_models
 from haa.model_catalog import definition_for_label
 
 
@@ -172,3 +174,51 @@ def test_qqq_buy_and_hold_implementations_remain_invested_and_use_separate_histo
         assert result.tax_events.empty
     assert TASE_ISRAEL_ASSET_IDS["QQQ_IL"] == "1186063"
     assert execution_security_label("QQQ_IL", "ILS") == "Nasdaq-100 — 1186063"
+
+
+@pytest.mark.parametrize("cls,asset,currency,variant,implementation", [
+    (BuyAndHoldSemiconductors, "SOXX", "USD", "Semiconductors", "US-listed SOXX proxy"),
+    (BuyAndHoldSemiconductorsIsrael, "MVSMHTR_IL", "ILS", "Semiconductors", "Israel"),
+    (BuyAndHoldJapan, "NIKKEI_225", "USD", "Japan", "Nikkei 225 price index"),
+    (BuyAndHoldJapanIsrael, "NIKKEI_225_HEDGED_IL", "ILS", "Japan", "Israel"),
+])
+def test_new_data_defined_buy_and_hold_variants_stay_invested(cls, asset, currency, variant, implementation):
+    model = cls()
+    prices = pd.DataFrame({asset: [100., 110., 121., 133.1]}, index=pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30"]))
+    decisions = model.decisions(prices)
+    assert model.data_assets == model.market_data_assets == (asset,)
+    assert model.signal_assets == ()
+    assert decisions.selected_asset.eq(asset).all()
+    assert decisions.trade.tolist() == [True, False, False, False]
+    definition = resolve("Buy and Hold", variant, implementation)
+    assert definition.model_class is cls
+    assert definition.execution_currency == currency
+
+
+def test_semiconductor_proxy_and_price_only_japan_are_explicit_and_never_spliced():
+    assert BuyAndHoldSemiconductors.declared_proxy
+    assert "proxy" in BuyAndHoldSemiconductors.validation_profile.notes.lower()
+    assert BuyAndHoldJapan.price_only
+    assert "price-only" in BuyAndHoldJapan.validation_profile.notes.lower()
+    assert TASE_ISRAEL_ASSET_IDS["MVSMHTR_IL"] == "5132972"
+    assert TASE_ISRAEL_ASSET_IDS["NIKKEI_225_HEDGED_IL"] == "1150531"
+    assert execution_security_label("MVSMHTR_IL", "ILS").endswith("5132972")
+    assert execution_security_label("NIKKEI_225_HEDGED_IL", "ILS").endswith("1150531")
+
+
+def test_japan_israel_commission_is_used_the_same_in_compare_and_single_backtest():
+    model = BuyAndHoldJapanIsrael()
+    dates = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-31", "2024-04-30", "2024-05-31"])
+    prices = pd.DataFrame({model.holding_asset: [100., 110., 121., 133.1, 146.41]}, index=dates)
+    decisions = model.decisions(prices)
+    assert model.default_trading_fees.charge(1_000) == pytest.approx(2.)
+    assert model.default_trading_fees.charge(10_000) == pytest.approx(5.)
+    single = run_backtest(decisions, prices, 10_000., daily_prices=None, benchmark_asset=model.holding_asset, trading_fees=model.default_trading_fees)
+    taxed = run_backtest(decisions, prices, 10_000., daily_prices=None, benchmark_asset=model.holding_asset, tax_enabled=True, tax_rate=.25, trading_fees=model.default_trading_fees)
+    compared = compare_models({
+        "one": ModelInput("one", decisions, prices, benchmark_asset=model.holding_asset, trading_fees=model.default_trading_fees),
+        "two": ModelInput("two", decisions, prices, benchmark_asset=model.holding_asset, trading_fees=model.default_trading_fees),
+    }, 10_000.)
+    assert compared.results["one"].monthly.pre_tax_value.equals(compared.results["two"].monthly.pre_tax_value)
+    assert compared.results["one"].monthly.pre_tax_value.iloc[-1] == pytest.approx(single.monthly.pre_tax_value.iloc[-1])
+    assert taxed.tax_events.empty

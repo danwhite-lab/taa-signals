@@ -46,6 +46,8 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "XLU_IL": "1150507",
         "GOLD_IL": "1147875",
         "HAREL_GOV_BONDS_IL": "5131792",
+        "MVSMHTR_IL": "5132972",
+        "NIKKEI_225_HEDGED_IL": "1150531",
     }
 
 
@@ -119,6 +121,21 @@ def test_plain_gold_and_harel_bonds_use_exact_local_security_histories():
     flagged = plain_holding_provenance(metadata, frame.columns, {"GOLD_IL": frame.GOLD_IL})
     assert "stand-in" in flagged.loc["GOLD_IL", "history_kind"]
     assert not flagged.automatic_proxy_extension.any()
+
+
+def test_data_defined_semiconductor_fund_and_japan_etf_use_their_actual_tase_paths():
+    calls = []
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    source = TasePriceSource(factory_for({
+        "5132972": pd.DataFrame({"Close": [100., 101.]}, index=dates),
+        "1150531": pd.DataFrame({"Adj Close": [200., 201.], "Close": [199., 200.]}, index=dates),
+    }, calls))
+    prices, metadata = source.fetch_all(("MVSMHTR_IL", "NIKKEI_225_HEDGED_IL"))
+    assert prices.MVSMHTR_IL.tolist() == [100., 101.]
+    assert prices.NIKKEI_225_HEDGED_IL.tolist() == [200., 201.]
+    assert metadata.loc["MVSMHTR_IL", "price_field"] == "Maya published redemption price"
+    assert metadata.loc["NIKKEI_225_HEDGED_IL", "price_field"] == "Adjusted close"
+    assert calls == [("5132972", "history"), ("1150531", "history")]
 
 
 def test_gld_source_substitution_is_flagged_as_stand_in():
