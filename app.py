@@ -17,6 +17,7 @@ from haa.comparison import ModelInput, compare_models
 from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, download_yahoo_daily_bars, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import ALL_DEEP_HISTORY_SPECS, DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input, deep_history_options, load_deep_history
 from haa.backtest_options import result_metrics as backtest_result_metrics, unit_curves
+from haa.buy_and_hold_funds import declared_proxy_assets, price_only_yahoo_assets
 from haa.portfolio_config import backtest_portfolio_config, deep_history_portfolio_config
 from haa.synthetic_history import monthly_blend_input
 from haa.portfolio_comparison import compare_portfolios
@@ -1659,6 +1660,12 @@ source_metadata = pd.DataFrame(
     index=pd.Index(runtime_yahoo_assets, name="asset"),
 )
 source_metadata = pd.concat([source_metadata, tase_metadata]).reindex(runtime_assets)
+for asset in declared_proxy_assets().intersection(runtime_yahoo_assets):
+    source_metadata.loc[asset, "source"] = "Yahoo Finance — declared proxy"
+    source_metadata.loc[asset, "price_field"] = "Adjusted close for proxy ETF"
+for asset in price_only_yahoo_assets().intersection(runtime_yahoo_assets):
+    source_metadata.loc[asset, "source"] = "Yahoo Finance — price index"
+    source_metadata.loc[asset, "price_field"] = "Close only — price return, not total return"
 for _label in active_model_labels:
     if getattr(MODEL_OPTIONS[_label], "signal_calendar", None) == "XNYS":
         source_metadata.loc[list(MODEL_OPTIONS[_label].us_data_assets), "price_field"] = "Required adjusted close; no raw Close fallback"
@@ -1677,8 +1684,8 @@ plain_holding_assets = tuple(asset for label in active_model_labels
     for asset in MODEL_OPTIONS[label].data_assets)
 if plain_holding_assets:
     from haa.tase_data import plain_holding_provenance
-    holding_provenance = plain_holding_provenance(source_metadata, plain_holding_assets, replacements)
-    st.caption("Plain buy-and-hold assets: actual available fund history only; no automatic proxy or pre-fund extension. Fund expenses are already embedded in prices.")
+    holding_provenance = plain_holding_provenance(source_metadata, plain_holding_assets, replacements, declared_proxy_assets())
+    st.caption("Plain buy-and-hold assets use their configured available price history only; no automatic proxy extension or pre-fund splice. Declared proxies and price-only index histories are labelled.")
     for asset, row in holding_provenance.iterrows():
         if row.history_kind != "Actual fund history":
             st.warning(f"{asset}: {row.history_kind}. Any stand-in or pre-fund period belongs to the selected replacement/source, not verified actual fund history.")
@@ -1944,7 +1951,7 @@ if page in {"Backtest", "Research", "Rules"}:
             st.stop()
     first_signal = decisions.index.min()
     try:
-        result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset, daily_open_prices=execution_opens, **backtest_extra)
+        result = run_backtest(decisions, monthly, initial, cost_pct, tax_enabled, tax_rate, pd.Timestamp(start), pd.Timestamp(end), daily_prices=prices, benchmark_asset=benchmark_asset, daily_open_prices=execution_opens, trading_fees=getattr(strategy, "default_trading_fees", None), **backtest_extra)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -1967,6 +1974,7 @@ if page in {"Backtest", "Research", "Rules"}:
                 daily_prices=substitution_prices,
                 benchmark_asset=benchmark_asset,
                 daily_open_prices=execution_opens,
+                trading_fees=getattr(strategy, "default_trading_fees", None),
                 **backtest_extra,
             )
         except ValueError as exc:
@@ -2787,7 +2795,14 @@ if page == "Compare":
                     selected_market_assets = getattr(selected_strategy, "market_data_assets", selected_assets)
                     selected_monthly = to_month_end(selected_daily.loc[:, list(selected_market_assets)])
                     selected_decision_prices = selected_daily if getattr(selected_strategy, "uses_daily_signals", False) else selected_monthly
-                    comparison_inputs[selected_name] = ModelInput(selected_name, selected_strategy.decisions(selected_decision_prices), selected_monthly, selected_daily, getattr(selected_strategy, "benchmark_asset", "SPY"))
+                    comparison_inputs[selected_name] = ModelInput(
+                        selected_name,
+                        selected_strategy.decisions(selected_decision_prices),
+                        selected_monthly,
+                        selected_daily,
+                        getattr(selected_strategy, "benchmark_asset", "SPY"),
+                        trading_fees=getattr(selected_strategy, "default_trading_fees", None),
+                    )
                     first_date, last_date = common_monthly_period(selected_monthly)
                     if first_date is None or last_date is None:
                         raise ValueError(f"{selected_name} has no common monthly data.")

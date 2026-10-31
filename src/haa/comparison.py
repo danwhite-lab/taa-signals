@@ -20,6 +20,7 @@ class ModelInput:
     benchmark_asset: str = "SPY"
     daily_open_prices: pd.DataFrame | None = None
     execution_currency: str = "USD"
+    trading_fees: object | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ def compare_models(
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
             monthly_contribution=monthly_contribution,
+            trading_fees=model.trading_fees,
         )
         preliminary[name] = result
         availability.append({
@@ -99,6 +101,7 @@ def compare_models(
             daily_prices=model.daily_prices,
             benchmark_asset=model.benchmark_asset,
             monthly_contribution=monthly_contribution,
+            trading_fees=model.trading_fees,
         )
     final_common = None
     for result in rebased.values():

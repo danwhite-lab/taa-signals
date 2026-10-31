@@ -12,6 +12,8 @@ from typing import Callable, Iterable, Mapping
 
 import pandas as pd
 
+from .buy_and_hold_funds import tase_asset_ids, tase_etf_assets
+
 
 TASE_ISRAEL_ASSET_IDS = {
     "SP500_X3_IL": "5117759",
@@ -38,8 +40,9 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLU_IL": "1150507",
     "GOLD_IL": "1147875",
     "HAREL_GOV_BONDS_IL": "5131792",
+    **tase_asset_ids(),
 }
-TASE_ETF_ASSETS = frozenset({"DAX_X3_MONTHLY_IL", "NASDAQ_X3_MONTHLY_IL", "RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "XLU_IL", "GOLD_IL"})
+TASE_ETF_ASSETS = frozenset({"DAX_X3_MONTHLY_IL", "NASDAQ_X3_MONTHLY_IL", "RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "XLU_IL", "GOLD_IL"}) | tase_etf_assets()
 PUBLIC_HISTORY_YEARS = 5
 INFLATION_COMPASS_HISTORY_YEARS = 8
 RVOL_PUBLISHED_CLOSE_ASSETS = frozenset({"RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL"})
@@ -71,10 +74,11 @@ class TaseDataError(RuntimeError):
     """Raised when a public TASE/Maya series cannot be safely used."""
 
 
-def plain_holding_provenance(metadata, assets, replacements=()):
+def plain_holding_provenance(metadata, assets, replacements=(), proxy_assets=()):
     """Never describe a user replacement as verified actual local fund history."""
     result = metadata.loc[list(dict.fromkeys(assets))].copy()
-    result["history_kind"] = ["Unverified replacement / possible stand-in" if asset in replacements
+    result["history_kind"] = ["Declared proxy / stand-in" if asset in proxy_assets
+                              else "Unverified replacement / possible stand-in" if asset in replacements
                               else "Selected source / stand-in" if str(result.loc[asset, "identifier"]) != TASE_ISRAEL_ASSET_IDS.get(asset, asset)
                               else "Actual fund history" for asset in result.index]
     result["automatic_proxy_extension"] = False

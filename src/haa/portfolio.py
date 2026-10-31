@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Iterable, Mapping
 
+from .buy_and_hold_funds import BUY_AND_HOLD_FUNDS
+
 
 SUPPORTED_CURRENCIES = ("USD", "ILS")
 # Execution labels are deliberately separate from canonical strategy asset
@@ -50,6 +52,8 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "XLP_IL"): "MTF S&P Consumer Staples — 1150366",
     ("ILS", "XLU_IL"): "ILS-hedged utilities (MTF 1150507) — 1150507",
     ("USD", "BIL"): "BIL USD - 5139076",
+    **{("ILS", item.holding_asset): f"{item.name.removeprefix('Buy and Hold ')} — {item.tase_security_id}"
+       for item in BUY_AND_HOLD_FUNDS.values() if item.tase_security_id},
 }
 
 

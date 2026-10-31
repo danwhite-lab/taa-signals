@@ -5,7 +5,9 @@ from dataclasses import replace
 
 import pandas as pd
 
+from ..buy_and_hold_funds import fund
 from ..constants import TA125_SMART_MOMENTUM_ASSET
+from ..trading_fees import TradingFees
 from ..validation import ExecutionSpec, ParameterSpec, ValidationProfile
 
 
@@ -303,6 +305,101 @@ class BuyAndHoldDAX3xMonthlyIsrael(BuyAndHoldSPY):
         execution=ExecutionSpec("continuous", "KSM 1146984 remains continuously invested", (0,), (0,)),
         data_confidence="limited",
         notes="Actual TASE history of KSM 1146984 only. Unhedged, with EUR exposure from the underlying. Leverage resets monthly. No DAX-index or any other proxy, pre-fund extension or forward fill. Management fees of 2.75% and trustee fees of 0.03% are embedded in prices and not deducted again. Exchange-traded: no purchase addition; ordinary broker commission applies. History starts at whatever the public endpoint actually returns within the existing five-year request window.",
+    )
+
+
+class _ConfiguredBuyAndHold(BuyAndHoldSPY):
+    """A continuous holding whose instrument details live in the fund data file."""
+
+    fund_key: str
+    actual_history_only = True
+    declared_proxy = False
+    price_only = False
+    default_trading_fees: TradingFees | None = None
+
+
+_SEMICONDUCTORS_US = fund("semiconductors_us")
+_SEMICONDUCTORS_ISRAEL = fund("semiconductors_israel")
+_JAPAN_US = fund("japan_us")
+_JAPAN_ISRAEL = fund("japan_israel")
+
+
+class BuyAndHoldSemiconductors(_ConfiguredBuyAndHold):
+    """Declared SOXX proxy for MVIS US Listed Semiconductor 25 Total Return."""
+
+    fund_key = _SEMICONDUCTORS_US.key
+    name = _SEMICONDUCTORS_US.name
+    holding_asset = _SEMICONDUCTORS_US.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    declared_proxy = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-semiconductors-us",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold the declared SOXX proxy continuously in USD."),),
+        execution=ExecutionSpec("continuous", "SOXX remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes=_SEMICONDUCTORS_US.source_note,
+    )
+
+
+class BuyAndHoldSemiconductorsIsrael(_ConfiguredBuyAndHold):
+    """Continuous holding of the actual Kesem MVSMHTR fund in ILS."""
+
+    fund_key = _SEMICONDUCTORS_ISRAEL.key
+    name = _SEMICONDUCTORS_ISRAEL.name
+    holding_asset = _SEMICONDUCTORS_ISRAEL.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-semiconductors-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Kesem MVSMHTR 5132972 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "Kesem MVSMHTR 5132972 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes=_SEMICONDUCTORS_ISRAEL.source_note,
+    )
+
+
+class BuyAndHoldJapan(_ConfiguredBuyAndHold):
+    """Continuous Nikkei 225 price-index holding; no total-return claim."""
+
+    fund_key = _JAPAN_US.key
+    name = _JAPAN_US.name
+    holding_asset = _JAPAN_US.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    price_only = True
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-japan-us",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold the Nikkei 225 price index continuously; total return is not available in this app."),),
+        execution=ExecutionSpec("continuous", "Nikkei 225 price index remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes=_JAPAN_US.source_note,
+    )
+
+
+class BuyAndHoldJapanIsrael(_ConfiguredBuyAndHold):
+    """Continuous holding of the actual currency-hedged MTF Nikkei 225 ETF."""
+
+    fund_key = _JAPAN_ISRAEL.key
+    name = _JAPAN_ISRAEL.name
+    holding_asset = _JAPAN_ISRAEL.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    default_trading_fees = TradingFees("ILS", **_JAPAN_ISRAEL.fee_options)
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-japan-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold currency-hedged MTF Nikkei 225 ETF 1150531 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "MTF Nikkei 225 1150531 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate",
+        notes=_JAPAN_ISRAEL.source_note,
     )
 
 
