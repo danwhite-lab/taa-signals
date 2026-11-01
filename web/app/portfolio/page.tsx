@@ -107,8 +107,8 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
         editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
       }}>+</button>
-    </details>
     </div>
+    </details>
       <label>Total capital (ILS)<NumberField label="Total capital (ILS)" value={capital} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, total_ils: value })} /></label>
       <label className={styles.fxSetting}>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
