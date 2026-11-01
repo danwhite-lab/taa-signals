@@ -25,6 +25,10 @@
 .sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 7rem; font-variant-numeric: tabular-nums; }
 .sleeves input { width: 7rem; box-sizing: border-box; }
 .sleeves button { min-width: 2.5rem; }
+.rowActions { display: flex; gap: 6px; justify-content: flex-end; }
+.editor fieldset { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; border: 0; padding: 0; }
+.editor label { flex: 1 1 16rem; }
+.editor select { display: block; width: 100%; }
 .addSleeve { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 16px; }
 .addSleeve label { flex: 1 1 16rem; min-width: 0; }
 .addSleeve select { display: block; width: 100%; max-width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; }
