@@ -131,7 +131,7 @@ def book(monkeypatch, signed_in):
     monkeypatch.setattr(page.market, "unit_quote", lambda instrument, position: deepcopy(quotes.get(instrument["id"], {"error": "Missing", "fresh": False})))
     monkeypatch.setattr(page.market, "fx_quote", lambda account: deepcopy(fx))
     def targets_for(workspace, rows, portfolio_id, current):
-        return portfolios[0], instruments, [], targets, [], "Mock source settings"
+        return portfolios[0], instruments, [], targets, [], "Mock source settings", []
     monkeypatch.setattr(page, "targets_for", targets_for)
     return remote, instruments, targets, quotes, fx
 
