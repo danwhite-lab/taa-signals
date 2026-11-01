@@ -98,7 +98,21 @@ def targets_for(workspace, portfolios, portfolio_id, account):
                     skipped.append(role)
                 else:
                     retained.append(entry)
-            tickers = data.parse_ticker_map("\n".join(retained), yahoo)
+            retained_text = "\n".join(retained)
+            try:
+                tickers = data.parse_ticker_map(retained_text, yahoo)
+            except ValueError as exc:
+                # Only a complete, otherwise-valid old map may receive new
+                # catalogue defaults. Other validation remains strict.
+                if not str(exc).startswith("Missing Yahoo ticker mapping for:"):
+                    raise
+                supplied = {entry.split("=", 1)[0].strip().upper() for entry in retained if "=" in entry}
+                missing = sorted(set(yahoo) - supplied)
+                defaults = data.default_ticker_map(yahoo)
+                tickers = data.parse_ticker_map(retained_text + "\n" + "\n".join(f"{role}={defaults[role]}" for role in missing), yahoo)
+                note = "Used built-in default tickers for missing roles: " + ", ".join(missing) + ". Saved settings were not changed."
+                source += " " + note
+                diagnostics.append({"stage": "ticker", "code": "ticker_defaulted", "message": note, "roles": missing})
             if skipped:
                 source += " Ignored saved lines for removed roles: " + ", ".join(sorted(set(skipped)))
         else:
