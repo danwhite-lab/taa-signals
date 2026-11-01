@@ -322,6 +322,7 @@ _SEMICONDUCTORS_US = fund("semiconductors_us")
 _SEMICONDUCTORS_ISRAEL = fund("semiconductors_israel")
 _JAPAN_US = fund("japan_us")
 _JAPAN_ISRAEL = fund("japan_israel")
+_WORLD_VALUE_ISRAEL = fund("world_value_israel")
 
 
 class BuyAndHoldSemiconductors(_ConfiguredBuyAndHold):
@@ -401,6 +402,22 @@ class BuyAndHoldJapanIsrael(_ConfiguredBuyAndHold):
         data_confidence="moderate",
         notes=_JAPAN_ISRAEL.source_note,
     )
+
+
+class BuyAndHoldWorldValueIsrael(_ConfiguredBuyAndHold):
+    """Continuous holding of the actual USD-hedged Tachlit World Value ETF."""
+    fund_key = _WORLD_VALUE_ISRAEL.key
+    name = _WORLD_VALUE_ISRAEL.name
+    holding_asset = _WORLD_VALUE_ISRAEL.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    default_trading_fees = TradingFees("ILS", **_WORLD_VALUE_ISRAEL.fee_options)
+    validation_profile = replace(BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-world-value-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Tachlit World Value USD-hedged ETF 1189596 continuously in ILS."),),
+        execution=ExecutionSpec("continuous", "Tachlit World Value 1189596 remains continuously invested", (0,), (0,)),
+        data_confidence="moderate", notes=_WORLD_VALUE_ISRAEL.source_note)
 
 
 class BuyAndHoldACWI:

@@ -303,6 +303,12 @@
       "plain_language": "Simply buy and hold the Migdal TA-125 Smart Momentum fund (5134713). The fund's underlying index does the work: it shifts weights between TA-125 stocks by momentum and trend, including the 50-day versus 200-day average relationship. You make no timing decisions, and the suggested maximum is 20% of a portfolio.",
       "flags": []
     },
+    "Buy and Hold World Value Israel": {
+      "label": "Buy and Hold World Value Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Simply hold the Tachlit World Value fund (1189596) all the time, with no timing rule. It owns value-oriented stocks worldwide and is hedged to the shekel.",
+      "flags": []
+    },
     "VAA-G4 (T1/B1)": {
       "label": "VAA-G4 (T1/B1)",
       "execution_currency": "USD",
