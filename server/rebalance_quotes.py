@@ -26,6 +26,29 @@ MAYA_ILS_UNIT_FUNDS = {
     "5140850": {"isin": "IL0051408503", "fund_type_id": 4},
 }
 
+# These are process-local, dated observations that have already passed the
+# normal unit and identity checks.  They are only a resilience fallback after
+# a subsequent provider failure; they are never a proxy, a splice, or an
+# invented price.  Each returned fallback remains visibly stale.
+LAST_AVAILABLE_QUOTES = {}
+LAST_AVAILABLE_FX = None
+
+
+def quote_key(instrument):
+    return (instrument["market"], instrument["identifier"], instrument["currency"])
+
+
+def last_available_quote(instrument, failure):
+    prior = LAST_AVAILABLE_QUOTES.get(quote_key(instrument))
+    if prior is None:
+        return {"error": str(failure), "fresh": False, "status": "Unavailable", "source": "No verified prior price"}
+    fallback = assess_quote(prior, instrument["market"])
+    if fallback.get("error"):
+        return {"error": str(failure), "fresh": False, "status": "Unavailable", "source": "No verified prior price"}
+    fallback.update(fresh=False, fallback=True,
+                    status=f"Using last available price dated {fallback['as_of']}; latest update unavailable")
+    return fallback
+
 
 def quote_from_maya_fund(published, instrument, as_of=None):
     """Normalize only explicitly verified fund units; fail closed on changes."""
@@ -157,9 +180,15 @@ def unit_quote(instrument, position):
                                  "source": "Manual broker observation", "field": "Manual per-unit price"}, instrument["market"])
         # Reassess the cached quote against *now*, including a just-completed session.
         quote = fetch_unit_quote(instrument)
-        return dict(quote) if quote.get("error") else assess_quote(quote, instrument["market"])
+        if quote.get("error"):
+            return last_available_quote(instrument, quote["error"])
+        quote = assess_quote(quote, instrument["market"])
+        if quote.get("error"):
+            return last_available_quote(instrument, quote["error"])
+        LAST_AVAILABLE_QUOTES[quote_key(instrument)] = dict(quote)
+        return quote
     except Exception as exc:
-        return {"error": str(exc), "fresh": False, "status": "Unavailable", "source": "No substitute used"}
+        return last_available_quote(instrument, exc)
 
 
 @cache_data(ttl=300, show_spinner=False)
@@ -170,6 +199,7 @@ def fetch_fx_quote():
 
 
 def fx_quote(account):
+    global LAST_AVAILABLE_FX
     try:
         quote = ({"price": account["manual_fx"], "as_of": account["manual_fx_date"],
                   "source": "Manual ILS per USD", "fetched_at": account.get("updated_at")}
@@ -180,9 +210,15 @@ def fx_quote(account):
         today = pd.Timestamp.now(tz="UTC").date()
         quote["fresh"] = bool(account.get("manual_fx") is not None) or expected <= observed <= today
         quote["status"] = "Current indicative FX" if quote["fresh"] else f"Stale/unverified FX: need {expected} or later"
+        LAST_AVAILABLE_FX = dict(quote)
         return quote
     except Exception as exc:
-        return {"error": str(exc), "fresh": False, "status": "FX unavailable"}
+        if LAST_AVAILABLE_FX is None:
+            return {"error": str(exc), "fresh": False, "status": "FX unavailable"}
+        fallback = dict(LAST_AVAILABLE_FX)
+        fallback.update(fresh=False, fallback=True,
+                        status=f"Using last available USD/ILS rate dated {fallback.get('as_of', 'unknown')}; latest update unavailable")
+        return fallback
 
 
 @cache_data(ttl=300, show_spinner=False)
