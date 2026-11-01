@@ -7,7 +7,7 @@ from .haa_simple import HAASimple
 from .haa_simple_leveraged_2x import HAASimpleLeveraged2x
 from .haa_simple_israel import HAASimpleIsrael
 from .buy_and_hold import BuyAndHoldACWI, BuyAndHoldGlobalIsrael, BuyAndHoldQQQ, BuyAndHoldQQQIsrael, BuyAndHoldSPY, BuyAndHoldSPYIsrael, TA125SmartMomentum
-from .century_momentum import CenturyMomentum, CenturyMomentumIsrael
+from .century_momentum import CenturyMomentum, CenturyMomentumIsrael, CenturyMomentumMoveToCash, CenturyMomentumMoveToCashIsrael
 from .growth_inflation import GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified
 from .gem import GEM, GEMIsrael
 from .ggcem import GGCEMLinkOriginal, GGCEMLinkOriginalIsrael
@@ -27,4 +27,4 @@ from .buy_and_hold import BuyAndHoldJapan, BuyAndHoldJapanIsrael, BuyAndHoldSemi
 from .chimeric import ChimericAssetAllocation, ChimericFullRetreat
 
 
-__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "BuyAndHoldACWI", "BuyAndHoldGlobalIsrael", "BuyAndHoldQQQ", "BuyAndHoldQQQIsrael", "BuyAndHoldSPY", "BuyAndHoldSPYIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "GEM", "GEMIsrael", "GGCEMLinkOriginal", "GGCEMLinkOriginalIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "MomentumCorrelationTriplet", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]
+__all__ = ["BAAG4Aggressive", "BAAG4AggressiveIsrael", "BuyAndHoldACWI", "BuyAndHoldGlobalIsrael", "BuyAndHoldQQQ", "BuyAndHoldQQQIsrael", "BuyAndHoldSPY", "BuyAndHoldSPYIsrael", "CenturyMomentum", "CenturyMomentumIsrael", "CenturyMomentumMoveToCash", "CenturyMomentumMoveToCashIsrael", "GEM", "GEMIsrael", "GGCEMLinkOriginal", "GGCEMLinkOriginalIsrael", "GrowthInflationConcentrated", "GrowthInflationConcentratedIsrael", "GrowthInflationDiversified", "HAA4", "HAA4Israel", "HAA4Leveraged2x", "HAAClassicNoQQQ", "HAAClassicLeveragedNoQQQ", "HAASimple", "HAASimpleLeveraged2x", "HAASimpleIsrael", "InflationCompassFast", "InflationCompassFastIsrael", "InflationCompassStandard", "InflationCompassStandardIsrael", "InflationCompassSteady", "InflationCompassSteadyIsrael", "MomentumCorrelationTriplet", "OrthogonalAlpha", "TA125SmartMomentum", "VAAG4"]

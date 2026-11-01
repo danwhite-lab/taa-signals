@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, BuyAndHoldSPY, CenturyMomentum, CenturyMomentumIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, BuyAndHoldSPY, CenturyMomentum, CenturyMomentumIsrael, CenturyMomentumMoveToCash, CenturyMomentumMoveToCashIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -43,10 +43,12 @@ def test_catalog_selection_resolves_existing_stable_model_class():
     assert spy.model_class is BuyAndHoldSPY
     assert spy.execution_currency == "USD"
     assert spy.strategy_mode == "buy_and_hold"
-    assert variants("Century Momentum") == ("Standard",)
+    assert variants("Century Momentum") == ("Standard", "Move to Cash")
     assert implementations("Century Momentum", "Standard") == ("Original", "Israel")
     assert resolve("Century Momentum", "Standard", "Original").model_class is CenturyMomentum
     assert resolve("Century Momentum", "Standard", "Israel").model_class is CenturyMomentumIsrael
+    assert resolve("Century Momentum", "Move to Cash", "Original").model_class is CenturyMomentumMoveToCash
+    assert resolve("Century Momentum", "Move to Cash", "Israel").model_class is CenturyMomentumMoveToCashIsrael
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Original").model_class is GrowthInflationConcentrated
     assert resolve("Growth-Inflation Sector Timing", "Concentrated", "Israel").model_class is GrowthInflationConcentratedIsrael
     assert resolve("Growth-Inflation Sector Timing", "Diversified", "Original").model_class is GrowthInflationDiversified
