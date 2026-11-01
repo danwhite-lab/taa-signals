@@ -125,6 +125,8 @@ def test_israel_execution_variants_use_the_identical_usd_compass_calculations():
     )
     for original, israel in pairs:
         original_rows, local_rows = original().decisions(prices), israel().decisions(prices)
+        assert local_rows.index.equals(original_rows.index)
+        assert local_rows["regime"].equals(original_rows["regime"])
         signal_columns = original_rows.columns.difference(["target_weights", "previous_weights", "selected_asset", "selected_assets", "previous_asset"])
         pd.testing.assert_frame_equal(original_rows[signal_columns], local_rows[signal_columns], check_exact=True)
 

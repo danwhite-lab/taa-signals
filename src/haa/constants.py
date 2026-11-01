@@ -1,5 +1,7 @@
 ASSETS = ("SPY", "TIP", "IEF", "BIL")
-ISRAEL_SIMPLE_ASSETS = ("TIP", "CSPX_IL", "IEF_IL", "AYALON_KASPIT")
+# HAA-Simple Israel keeps the original U.S. inputs for every signal and maps
+# the selected asset to these local execution holdings.
+ISRAEL_SIMPLE_ASSETS = (*ASSETS, "CSPX_IL", "IEF_IL", "AYALON_KASPIT")
 TA125_SMART_MOMENTUM_ASSET = "TA125_SMART_MOMENTUM"
 LEVERAGED_ASSETS = ("SSO",)
 # IEF belongs to Classic HAA's eight-asset risk-on ranking as well as its
@@ -86,7 +88,11 @@ GGCEM_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*GGCEM_DATA_ASSETS, *GGCEM_ISRAE
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")
 CENTURY_MOMENTUM_DATA_ASSETS = ("SPMO", "IEF", "SPY")
-CENTURY_MOMENTUM_ISRAEL_DATA_ASSETS = ("SPMO_IL", "IEF_IL")
+CENTURY_MOMENTUM_CASH_DATA_ASSETS = ("SPMO", "BIL", "SPY")
+# Israel implementations derive the trend signal from SPMO and retain local
+# TASE series only as execution/valuation holdings.
+CENTURY_MOMENTUM_ISRAEL_DATA_ASSETS = ("SPMO", "SPMO_IL", "IEF_IL")
+CENTURY_MOMENTUM_CASH_ISRAEL_DATA_ASSETS = ("SPMO", "SPMO_IL", "RVOL_CASH_IL")
 STRATEGY_NAME = "HAA-Simple"
 MOMENTUM_LOOKBACKS = (1, 3, 6, 12)
 DEFAULT_TAX_RATE = 0.25

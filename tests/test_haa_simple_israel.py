@@ -4,7 +4,7 @@ from haa.engine import run_backtest
 from haa.strategies import HAASimpleIsrael
 
 
-ASSETS = ("TIP", "CSPX_IL", "IEF_IL", "AYALON_KASPIT")
+ASSETS = ("SPY", "TIP", "IEF", "BIL", "CSPX_IL", "IEF_IL", "AYALON_KASPIT")
 
 
 def prices_with_terminal_scores(scores: dict[str, float]) -> pd.DataFrame:
@@ -15,28 +15,31 @@ def prices_with_terminal_scores(scores: dict[str, float]) -> pd.DataFrame:
     return prices
 
 
-def test_tip_and_cspx_positive_select_cspx():
-    decision = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": .1, "CSPX_IL": .2})).iloc[-2]
+def test_tip_and_spy_positive_select_cspx():
+    decision = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": .1, "SPY": .2})).iloc[-2]
     assert decision["regime"] == "risk-on"
+    assert decision["signal_selected_asset"] == "SPY"
     assert decision["selected_asset"] == "CSPX_IL"
 
 
-def test_nonpositive_tip_or_cspx_selects_best_local_defensive_asset():
-    tip_off = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": 0, "IEF_IL": .2, "AYALON_KASPIT": .1})).iloc[-2]
-    cspx_off = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": .1, "CSPX_IL": 0, "IEF_IL": .1, "AYALON_KASPIT": .2})).iloc[-2]
+def test_nonpositive_tip_or_spy_selects_mapped_us_defensive_asset():
+    tip_off = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": 0, "IEF": .2, "BIL": .1})).iloc[-2]
+    spy_off = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": .1, "SPY": 0, "IEF": .1, "BIL": .2})).iloc[-2]
     assert tip_off["selected_asset"] == "IEF_IL"
-    assert cspx_off["selected_asset"] == "AYALON_KASPIT"
+    assert spy_off["selected_asset"] == "AYALON_KASPIT"
 
 
-def test_local_defensive_tie_selects_ief_il():
-    decision = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": 0, "IEF_IL": .1, "AYALON_KASPIT": .1})).iloc[-2]
+def test_us_defensive_tie_selects_ief_il():
+    decision = HAASimpleIsrael().decisions(prices_with_terminal_scores({"TIP": 0, "IEF": .1, "BIL": .1})).iloc[-2]
     assert decision["selected_asset"] == "IEF_IL"
 
 
-def test_requires_real_history_for_every_local_series():
-    prices = prices_with_terminal_scores({"TIP": .1, "CSPX_IL": .1})
-    prices["AYALON_KASPIT"] = float("nan")
-    assert HAASimpleIsrael().decisions(prices).empty
+def test_stale_tase_prices_do_not_change_underlying_signal_or_selection():
+    prices = prices_with_terminal_scores({"TIP": .1, "SPY": .1})
+    baseline = HAASimpleIsrael().decisions(prices)
+    prices.loc[prices.index[-4]:, ["CSPX_IL", "IEF_IL", "AYALON_KASPIT"]] = float("nan")
+    actual = HAASimpleIsrael().decisions(prices)
+    pd.testing.assert_frame_equal(actual, baseline, check_exact=True)
 
 
 def test_israel_execution_uses_cspx_benchmark_on_same_dates():
