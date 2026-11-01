@@ -4,6 +4,16 @@ import HoldingEditorRow from '../components/HoldingEditorRow';
 import words from '../content/holdings.json';
 const row={Security:'US:FAKE',Fund:'Example holding',Currency:'USD',Units:'12','Value (₪ / $)':'120','Outside the rebalance':false};
 afterEach(cleanup);
+it('keeps a holding compact until its name is opened',()=>{
+  render(<HoldingEditorRow row={row} quote={{price:10,fresh:true}} busy={false} onEdit={vi.fn()} onBlur={vi.fn()}/>);
+  const summary=screen.getByRole('button',{name:'Example holding'});
+  expect(summary.getAttribute('aria-expanded')).toBe('false');
+  expect(summary.parentElement?.querySelector('.holding-editor-content')?.classList.contains('is-open')).toBe(false);
+  fireEvent.click(summary);
+  expect(summary.getAttribute('aria-expanded')).toBe('true');
+  expect(summary.parentElement?.querySelector('.holding-editor-content')?.classList.contains('is-open')).toBe(true);
+});
+
 it('uses three compact buttons, shows the picker only for Companion, and sorts friendly names',()=>{
   const edit=vi.fn();const targets=[{id:'US:ZZZ',label:'Zulu fund'},{id:'US:AAA',label:'Alpha fund'},{id:'US:BBB',label:''}];
   const props={row,quote:{price:10,fresh:true},busy:false,onEdit:edit,onBlur:vi.fn(),targets};
