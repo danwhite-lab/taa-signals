@@ -109,9 +109,13 @@ def targets_for(workspace, portfolios, portfolio_id, account):
             sleeves = portfolio["payload"]["sleeves"]
             if len({s["model"] for s in sleeves}) != len(sleeves):
                 raise ValueError()
+            known_labels = {item.label for item in MODEL_CATALOG}
+            if any(not isinstance(s.get("model"), str) or s["model"] not in known_labels for s in sleeves):
+                safe = "The selected portfolio contains an unavailable saved strategy. Choose an available model on the Portfolio page."
+                return portfolio, instruments, rows, {}, [safe], source, [{"stage": "model", "code": "saved_model_unavailable", "message": safe}]
             signals, errors = market.load_portfolio_signals(tuple(s["model"] for s in sleeves), tuple(tickers.items()), {})
             if errors:
-                labels = [str(item).split(":", 1)[0] for item in errors if isinstance(item, str)]
+                labels = [s["model"] for s in sleeves]
                 safe = "Completed targets are unavailable for: " + ", ".join(labels) + ". Check those sleeve data and signal settings."
                 errors, diagnostics = [safe], [{"stage": "sleeve", "code": "sleeve_unavailable", "message": safe, "models": labels}]
             if not errors:
@@ -292,7 +296,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
         checked(account, body.account_hash)
         if not body.cash.strip():
             raise HTTPException(400, "Enter unallocated account cash, or enter 0 if there is none.")
-        _, instruments, _, targets, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
+        _, instruments, _, targets, _, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
         seen = set()
         for row in body.rows:
             key = row["Security"]
