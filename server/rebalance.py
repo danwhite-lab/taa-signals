@@ -85,7 +85,24 @@ def targets_for(workspace, portfolios, portfolio_id, account):
     rows, targets, errors = [], {}, []
     try:
         raw = workspace["payload"].get("ticker_text")
-        tickers = data.parse_ticker_map(raw, yahoo) if raw is not None else data.default_ticker_map(yahoo)
+        skipped = []
+        if raw is not None:
+            # Keep parser validation strict for retained roles. Only complete
+            # ROLE=TICKER lines for catalogue roles that no longer exist are
+            # ignored, so an old preference cannot blank all targets.
+            retained = []
+            for entry in raw.replace(",", "\n").splitlines():
+                stripped = entry.strip()
+                role = stripped.split("=", 1)[0].strip().upper() if "=" in stripped else None
+                if role and role not in yahoo:
+                    skipped.append(role)
+                else:
+                    retained.append(entry)
+            tickers = data.parse_ticker_map("\n".join(retained), yahoo)
+            if skipped:
+                source += " Ignored saved lines for removed roles: " + ", ".join(sorted(set(skipped)))
+        else:
+            tickers = data.default_ticker_map(yahoo)
         if raw is None:
             source = "Default ticker settings; no workspace ticker settings or uploaded replacements are available. No source was silently substituted."
         if portfolio:
