@@ -18,6 +18,8 @@ type Report = {gate: string; reason: string | null; initial: number; currency: s
   tables: Record<string, Table>; charts: Record<string, Chart | null>; has_bootstrap: boolean; warnings: string[];
   cache: {hit: string | null; key: string}; timing: unknown; calculation_timing: unknown;
   downloads: {kind: string; label: string; filename: string}[]};
+let modelsCache: Model[] | null = null;
+const optionsCache = new Map<string, Options>();
 
 function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayTable value={value} label={label}/>; }
 
@@ -37,20 +39,33 @@ function Plot({value, title}: {value: Chart | null; title: string}) {
 }
 
 export default function ResearchPage() {
-  const [label, setLabel] = useState("HAA-Simple"), [initial, setInitial] = useState(100000);
+  const [label, setLabel] = useState(""), [initial, setInitial] = useState(100000);
+  const [models, setModels] = useState<Model[] | null>(modelsCache);
   const [options, setOptions] = useState<Options | null>(null), [result, setResult] = useState<Report | null>(null);
-  const [error, setError] = useState(""), [loading, setLoading] = useState(true), [running, setRunning] = useState(false);
+  const [error, setError] = useState(""), [loading, setLoading] = useState(false), [loadingModels, setLoadingModels] = useState(!modelsCache), [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState(0), [elapsed, setElapsed] = useState(0), [changed, setChanged] = useState(false);
   const inFlight = useRef(false);
-  const current = options?.models.find(model => model.label === label);
+  const current = models?.find(model => model.label === label);
   useEffect(() => {
+    if (modelsCache) return;
+    const controller = new AbortController();
+    void researchRequest<{models: Model[]}>("/api/research/models", {signal:controller.signal})
+      .then(value => { if (!controller.signal.aborted) { modelsCache=value.models; setModels(value.models); } })
+      .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingModels(false); });
+    return () => controller.abort();
+  }, [attempt]);
+  useEffect(() => {
+    if (!label) { setLoading(false); return; }
+    const cached=optionsCache.get(label);
+    if (cached) { setOptions(cached); return; }
     const controller = new AbortController(); setLoading(true); setError(""); setResult(null);
     void researchRequest<Options>(`/api/research/options?label=${encodeURIComponent(label)}`, {signal:controller.signal})
-      .then(value => { if (!controller.signal.aborted) setOptions(value); })
+      .then(value => { if (!controller.signal.aborted) { optionsCache.set(label,value); setOptions(value); } })
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [label, attempt]);
+  }, [label]);
   useEffect(() => {
     if (!running) return;
     const began = Date.now(); setElapsed(0);
@@ -59,7 +74,7 @@ export default function ResearchPage() {
   }, [running]);
   function clear() { if (result) setChanged(true); setResult(null); setError(""); }
   function choose(strategy: string, requestedVariant?: string) {
-    const candidates = options?.models.filter(m => m.strategy === strategy) ?? [];
+    const candidates = models?.filter(m => m.strategy === strategy) ?? [];
     const preferred = requestedVariant ?? current?.variant;
     const variant = candidates.some(m => m.variant === preferred) ? preferred : candidates[0]?.variant;
     const group = candidates.filter(m => m.variant === variant);
@@ -77,16 +92,17 @@ export default function ResearchPage() {
     finally { clearTimeout(timer); inFlight.current = false; setRunning(false); }
   }
   const gated = !loading && options?.gate !== "available";
-  const variants = [...new Set(options?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
+  const variants = [...new Set(models?.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
   function download(kind: string) { const item = result?.downloads.find(d => d.kind === kind); return item && <button className="btn btn-secondary" onClick={() => void researchDownload(result!.cache.key, kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>; }
   return <main className="backtest-page"><h1>{text.title}</h1>
-    {options && <fieldset disabled={running} className="signal-selector">
-      <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={e => choose(e.target.value)}>{[...new Set(options.models.map(m => m.strategy))].sort().map(s => <option key={s}>{s}</option>)}</select></label>
+    {models && <fieldset disabled={running || loadingModels} className="signal-selector">
+      <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={e => choose(e.target.value)}><option value="">{text.chooseStrategy}</option>{[...new Set(models.map(m => m.strategy))].sort().map(s => <option key={s}>{s}</option>)}</select></label>
+      {current && <>
       <label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={e => choose(current?.strategy ?? "", e.target.value)}>{variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label>
-      <label>{text.implementation}<select value={label} onChange={e => {setLabel(e.target.value); clear();}}>{options.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
+      <label>{text.implementation}<select value={label} onChange={e => {setLabel(e.target.value); clear();}}>{models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label></>}
     </fieldset>}
-    {loading && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
-    {!loading && error && <button className="btn btn-secondary" onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
+    {loadingModels && <p role="status">{text.loading}</p>}{loading && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
+    {!loading && !loadingModels && error && <button className="btn btn-secondary" onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
     {gated ? <p className="signal-info">{options?.reason}</p> : options?.profile && !loading && <>
       <p>{text.caption}</p><details><summary>{text.readTitle}</summary><Markdown>{text.readMarkdown.replace(/^ {4,}/gm, "")}</Markdown></details>
       <p>{options.profile.caption}</p><details><summary>{text.scope}</summary><DataTable value={options.profile.parameters} /><p>{options.profile.notes}</p></details>

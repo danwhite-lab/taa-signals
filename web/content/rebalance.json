@@ -49,6 +49,7 @@
   "reload": "Reload saved holdings",
   "reloadConfirm": "Reload saved holdings and discard this local draft?",
   "loading": "Loading shared holdings, prices and completed targets…",
+  "retry": "Try again",
   "working": "Working…",
   "error": "The operation could not be confirmed. Your draft is unchanged.",
   "unauthorized": "Your session expired. Sign in again.",

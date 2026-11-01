@@ -138,21 +138,29 @@ def _plain_rules():
 
 
 @app.get("/api/rules")
-def rules(response: Response) -> dict:
+def rules(response: Response, label: str | None = None) -> dict:
     response.headers["Cache-Control"] = "no-store"
     try:
         descriptions, notes = _shared_rules()
         plain = _plain_rules()
-        return {"source": "app.py:MODEL_RULES", "implementation_notes": notes,
-                "models": [{"label": item.label, "strategy": item.strategy,
+        models = [{"label": item.label, "strategy": item.strategy,
                             "variant": item.variant, "implementation": item.implementation,
-                            "execution_currency": item.execution_currency,
-                            "markdown": descriptions.get(item.label),
-                            "plain_text": plain.get(item.label, {}).get("plain_language"),
-                            "plain_flags": plain.get(item.label, {}).get("flags", []),
-                            "description_missing": item.label not in descriptions,
-                            "risk_warning": getattr(item.model_class, "risk_warning", None)}
-                           for item in MODEL_CATALOG]}
+                            "execution_currency": item.execution_currency}
+                  for item in MODEL_CATALOG]
+        if label is None:
+            return {"source": "app.py:MODEL_RULES", "models": models}
+        item = next((item for item in MODEL_CATALOG if item.label == label), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Unknown strategy catalogue label.")
+        return {"source": "app.py:MODEL_RULES", "implementation_notes": notes,
+                "model": {"label": item.label, "strategy": item.strategy,
+                          "variant": item.variant, "implementation": item.implementation,
+                          "execution_currency": item.execution_currency,
+                          "markdown": descriptions.get(item.label),
+                          "plain_text": plain.get(item.label, {}).get("plain_language"),
+                          "plain_flags": plain.get(item.label, {}).get("flags", []),
+                          "description_missing": item.label not in descriptions,
+                          "risk_warning": getattr(item.model_class, "risk_warning", None)}}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
@@ -200,19 +208,39 @@ def signals(label: str = "HAA-Simple", as_of: str | None = None,
     return signals_page.signals_payload(label, as_of, _engine_code_version())
 
 
+@app.get("/api/backtest/models")
+def backtest_models(session=Depends(private_api.authenticated)):
+    return {"models": [{f.name: getattr(m, f.name) for f in fields(m) if f.name != "model_class"}
+                       for m in MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)]}
+
+
 @app.get("/api/backtest/options")
-def backtest_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
+def backtest_options(label: str, session=Depends(private_api.authenticated)):
     return backtest_page.options(label)
 
 
+@app.get("/api/research/models")
+def research_models(session=Depends(private_api.authenticated)):
+    return {"models": research.catalogue()}
+
+
 @app.get("/api/research/options")
-def research_options(label: str = "HAA-Simple", session=Depends(private_api.authenticated)):
+def research_options(label: str, session=Depends(private_api.authenticated)):
     return research.options(label)
 
 
 @app.get("/api/compare/options")
-def compare_options(session=Depends(private_api.authenticated)):
-    return compare_page.options(private_api.portfolios(session))
+def compare_options(kind: str | None = None, session=Depends(private_api.authenticated)):
+    # The unqualified response remains for existing API consumers.  The web UI
+    # uses kind so opening Compare does not request either private picker.
+    if kind is None:
+        return compare_page.options(private_api.portfolios(session))
+    options = compare_page.options(private_api.portfolios(session) if kind == "portfolios" else [])
+    if kind == "models":
+        return {"models": options["models"]}
+    if kind == "portfolios":
+        return {"portfolios": options["portfolios"]}
+    raise HTTPException(400, "Choose models or portfolios.")
 
 
 @app.post("/api/compare")

@@ -27,6 +27,8 @@ type Results = { label: string; currency: string; settings: Row; engine_paramete
   extra_tables?: { label: string; value: Table }[]; extra_charts?: { label: string; value: Chart }[];
   rolling?: { years: number; label: string; table: Table; chart: Chart }[];
   cards?: { label: string; value: string; delta?: string }[]; value_title?: string; drawdown_title?: string; summary_title?: string; data_validation?: Table };
+let modelsCache: Model[] | null = null;
+const optionsCache = new Map<string, Options>();
 
 function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayTable value={value} label={label}/>; }
 
@@ -41,7 +43,7 @@ function Lines({ value, title }: { value: Chart; title: string }) {
     <p>{value.caption}</p></section>;
 }
 
-const initialForm: Form = { ...defaultFees, label: "HAA-Simple", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
+const initialForm: Form = { ...defaultFees, label: "", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
   tax_enabled: true, tax_rate: 25, monthly_contribution: 1000, reference_replay: false };
 
 export default function BacktestPage() {
@@ -50,26 +52,39 @@ export default function BacktestPage() {
   const [form, setForm] = useState<Form>(initialForm);
   const [dca, setDca] = useState(false);
   const [options, setOptions] = useState<Options | null>(null);
+  const [models, setModels] = useState<Model[] | null>(modelsCache);
   const [result, setResult] = useState<Results | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(!modelsCache);
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [changed, setChanged] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const inFlight = useRef(false);
-  const current = options?.models.find(model => model.label === form.label);
+  const current = models?.find(model => model.label === form.label);
   useEffect(() => {
-    if (mode !== "single") { setLoading(false); return; }
+    if (modelsCache) return;
+    const controller = new AbortController();
+    void backtestRequest<{models: Model[]}>("/api/backtest/models", {signal: controller.signal})
+      .then(value => { if (!controller.signal.aborted) { modelsCache=value.models; setModels(value.models); } })
+      .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingModels(false); });
+    return () => controller.abort();
+  }, [attempt]);
+  useEffect(() => {
+    if (mode !== "single" || !form.label) { setLoading(false); return; }
+    const cached = optionsCache.get(form.label);
+    if (cached) { setOptions(cached); setForm(previous => ({...previous,start:cached.bounds.start_min,end:cached.bounds.end_max,reference_replay:false})); return; }
     const controller = new AbortController(); setLoading(true); setOptions(null); setError(""); setResult(null);
     void backtestRequest<Options>(`/api/backtest/options?label=${encodeURIComponent(form.label)}`, { signal: controller.signal })
       .then(value => {
         if (controller.signal.aborted) return;
-        setOptions(value); setForm(previous => ({ ...previous, start: value.bounds.start_min, end: value.bounds.end_max, reference_replay: false }));
+        optionsCache.set(form.label,value); setOptions(value); setForm(previous => ({ ...previous, start: value.bounds.start_min, end: value.bounds.end_max, reference_replay: false }));
       }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [form.label, attempt, mode]);
+  }, [form.label, mode]);
   useEffect(() => {
     if (!running) return;
     const started = Date.now(); setElapsed(0);
@@ -82,8 +97,8 @@ export default function BacktestPage() {
     setResult(null); setError("");
   }
   function choose(strategy: string, requestedVariant?: string) {
-    if (!options) return;
-    const candidates = options.models.filter(model => model.strategy === strategy);
+    if (!models) return;
+    const candidates = models.filter(model => model.strategy === strategy);
     const preferred = requestedVariant ?? current?.variant;
     const variant = candidates.some(model => model.variant === preferred) ? preferred : candidates[0].variant;
     const group = candidates.filter(model => model.variant === variant);
@@ -114,9 +129,9 @@ export default function BacktestPage() {
     } catch (failure) { setError(timedOut ? text.timeout : (failure as Error).message); }
     finally { clearTimeout(timeout); inFlight.current = false; setRunning(false); }
   }
-  const strategies = [...new Set(options?.models.map(model => model.strategy) ?? [])].sort();
-  const variants = [...new Set(options?.models.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
-  const implementations = options?.models.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
+  const strategies = [...new Set(models?.map(model => model.strategy) ?? [])].sort();
+  const variants = [...new Set(models?.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
+  const implementations = models?.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
     <fieldset className="segmented" role="radiogroup" aria-label={text.mode} disabled={running}><legend>{text.mode}</legend>
       {(["single", "portfolio", "deep"] as const).map(value => <label className="segment" key={value}>
@@ -124,8 +139,9 @@ export default function BacktestPage() {
       </label>)}
     </fieldset>
     {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})} />}
-    {loading && <p role="status">{text.loading}</p>}
-    {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!options && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
+    {loadingModels && mode === "single" && <p role="status">{text.loading}</p>}
+    {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!models && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
+    {mode === "single" && models && <fieldset disabled={running || loadingModels} className="backtest-controls"><legend>{text.single}</legend><label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(event.target.value)}><option value="">{text.chooseStrategy}</option>{strategies.map(value => <option key={value}>{value}</option>)}</select></label></fieldset>}
     {mode === "single" && options && current && <>
       <fieldset disabled={running} className="backtest-controls"><legend>{text.single}</legend>
         <div className="signal-selector">

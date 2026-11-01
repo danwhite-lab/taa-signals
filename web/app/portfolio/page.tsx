@@ -64,9 +64,9 @@ function NumberField({ label, value, disabled, decimals, onChange }: { label: st
     }} />;
 }
 
-function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelModes, modelsError, reloadModels, changeName, changePayload }:
+function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelModes, modelsError, reloadModels, openModels, changeName, changePayload }:
   { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelModes: Record<string, string | undefined>; modelsError: string;
-    reloadModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
+    reloadModels: () => void; openModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
   const [ruleExpanded, setRuleExpanded] = useState(false);
@@ -98,7 +98,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
     {!payload && <p role="alert">Summary unavailable: enter valid Portfolio JSON below. Your draft has not been changed.</p>}
     <div className={styles.settings} role="group" aria-label={words.settings}>
     <label>Portfolio name<input value={name} maxLength={80} disabled={disabled} onChange={event => changeName(event.target.value)} /></label>
-    <div className={styles.modelSetting}>    {modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
+    <details className={styles.modelSetting} onToggle={event => { if (event.currentTarget.open) openModels(); }}><summary>Add a sleeve</summary>{modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
     <div className={styles.addSleeve}>
       <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
         value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
@@ -107,7 +107,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
         editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
       }}>+</button>
-    </div>
+    </details>
     </div>
       <label>Total capital (ILS)<NumberField label="Total capital (ILS)" value={capital} disabled={disabled || !payload}
         onChange={value => payload && changePayload({ ...payload, total_ils: value })} /></label>
@@ -193,7 +193,6 @@ export default function Portfolio() {
       setModelModes(Object.fromEntries(config.models.map(model => [model.label, model.signal_mode])));
     } catch { setModelsError("Available models could not be loaded. Existing drafts are unchanged."); }
   }
-  useEffect(() => { void loadModels(); }, []);
   async function act(operation: () => Promise<void>, mutation = false) {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(""); setMessage("");
@@ -282,6 +281,7 @@ export default function Portfolio() {
     </section>
     {(selected || json) && <PortfolioSummary key={selected?.id ?? 'new'} name={name} json={json} isDefault={selected?.is_default ?? false}
       defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelModes={modelModes} modelsError={modelsError} reloadModels={() => void loadModels()}
+      openModels={() => { if (models === null && !modelsError) void loadModels(); }}
       changeName={changeName} changePayload={payload => setJson(JSON.stringify(payload, null, 2))}/>}
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>
       {selected && <p role="status">Loaded: {selected.name}</p>}

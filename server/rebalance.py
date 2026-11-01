@@ -171,7 +171,9 @@ def snapshot(workspace, account, portfolios, request):
             editor_rows[-1]["Companion of"] = p["companion_of"]
     return {"workspace_revision": workspace["revision"], "account": account, "account_hash": fingerprint(account),
         "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
-        "instruments": instruments, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
+        # The add-holding catalogue is requested separately.  The initial page
+        # only needs instruments already held or targeted.
+        "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
         "signals": sources, "errors": errors, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
@@ -208,6 +210,11 @@ def safe(operation):
 @router.get("/api/rebalance")
 def get_page(portfolio_id: str | None = None, session=Depends(private.authenticated)):
     return safe(lambda: snapshot(*loaded(session), Request(portfolio_id=portfolio_id)))
+
+
+@router.get("/api/rebalance/instruments")
+def instruments(session=Depends(private.authenticated)):
+    return {"instruments": known_instruments()[0]}
 
 
 @router.post("/api/rebalance/refresh")

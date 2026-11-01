@@ -1,6 +1,6 @@
 {
   "title": "Research",
-  "strategy": "Strategy", "variant": "Variant", "implementation": "Implementation", "noVariants": "No variants",
+  "strategy": "Strategy", "chooseStrategy": "Choose a strategy", "variant": "Variant", "implementation": "Implementation", "noVariants": "No variants",
   "initial": "Initial investment", "currency": "Research currency", "run": "Run confidence check",
   "loading": "Loading research scope and available history…", "retry": "Try again",
   "running": "Running deterministic validation and block-bootstrap scenarios…",

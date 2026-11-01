@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
@@ -30,18 +30,23 @@ function Plot({value, title}: {value?: Chart; title: string}) {
 }
 
 export default function ComparePage() {
-  const [options,setOptions] = useState<Options | null>(null), [settings,setSettings] = useState<Settings | null>(null);
-  const [result,setResult] = useState<Result | null>(null), [error,setError] = useState(""), [running,setRunning] = useState(false), [changed,setChanged] = useState(false), [retry,setRetry] = useState(0);
+  const [options,setOptions] = useState<Options>({models:[],portfolios:[],defaults:{mode:"models",models:[],portfolio_ids:[],method:"monthly",initial:100000,monthly_contribution:0,fee_pct:0,tax_enabled:false,tax_rate:25,start:"",end:""}}), [settings,setSettings] = useState<Settings>({mode:"models",models:[],portfolio_ids:[],method:"monthly",initial:100000,monthly_contribution:0,fee_pct:0,tax_enabled:false,tax_rate:25,start:"",end:""});
+  const [result,setResult] = useState<Result | null>(null), [error,setError] = useState(""), [running,setRunning] = useState(false), [changed,setChanged] = useState(false), [loadingChoices,setLoadingChoices] = useState(false);
   const inFlight = useRef(false);
   const [search,setSearch] = useState("");
-  useEffect(()=>{
-    const controller = new AbortController(); setError("");
-    void compareRequest<Options>("/api/compare/options",{signal:controller.signal}).then(async value=>{
-      const portfolios = await savedChoices(value.portfolios, () => compareRequest<{id:string;is_default?:boolean}[]>("/api/portfolios", {signal:controller.signal}));
-      if(!controller.signal.aborted) {setOptions({...value,portfolios});setSettings(previous=>previous ?? {...value.defaults,start:"",end:""});}
-    }).catch((failure:Error)=>{if(!controller.signal.aborted) setError(failure.message);});
-    return ()=>controller.abort();
-  },[retry]);
+  async function loadChoices(kind: Mode) {
+    if (loadingChoices || (kind === "models" ? options.models.length : options.portfolios.length)) return;
+    setLoadingChoices(true); setError("");
+    try {
+      const value = await compareRequest<Partial<Options>>(`/api/compare/options?kind=${kind}`);
+      if (kind === "models") setOptions(previous => ({...previous, models:value.models ?? []}));
+      else {
+        const portfolios = await savedChoices(value.portfolios ?? [], () => compareRequest<{id:string;is_default?:boolean}[]>("/api/portfolios"));
+        setOptions(previous => ({...previous, portfolios}));
+      }
+    } catch (failure) { setError((failure as Error).message); }
+    finally { setLoadingChoices(false); }
+  }
   function change(patch: Partial<Settings>) {setSettings(value=>value && {...value,...patch}); if(result) setChanged(true); setResult(null); setError("");}
   async function run() {
     if(inFlight.current || !settings) return;
@@ -56,13 +61,13 @@ export default function ComparePage() {
     const item=result?.downloads.find(d=>d.kind===kind);
     return item && <button className="btn btn-secondary" key={kind} onClick={()=>void compareDownload(result!.cache.key,kind,item.filename).catch(()=>setError(text.downloadError))}>{item.label}</button>;
   }
-  const models=settings?.mode!=="portfolios";
-  const selected=options?.models.filter(m=>settings?.models.includes(m.label)) ?? [];
+  const models=settings.mode!=="portfolios";
+  const selected=options.models.filter(m=>settings.models.includes(m.label));
   const mismatch=new Set(selected.map(m=>m.execution_currency)).size>1;
-  const enough=(models ? settings?.models.length ?? 0 : settings?.portfolio_ids.length ?? 0)>=2;
+  const enough=(models ? settings.models.length : settings.portfolio_ids.length)>=2;
   const suffix=result?.tax_enabled ? "after" : "pre";
   const groups = new Map<string, Options["models"]>();
-  for(const model of options?.models ?? []) {
+  for(const model of options.models) {
     if(!model.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) continue;
     const family=model.strategy?.trim() || text.otherGroup;
     groups.set(family,[...(groups.get(family) ?? []),model]);
@@ -70,18 +75,17 @@ export default function ComparePage() {
   const alphabetical=(a:string,b:string)=>a.localeCompare(b,undefined,{sensitivity:"base"});
   return <main className="backtest-page compare-page"><h1>{models ? text.title : text.portfolioTitle}</h1>
     {error && <p role="alert">{error}</p>}
-    {error && options && <button className="btn btn-secondary" disabled={running} onClick={()=>void run()}>{text.retry}</button>}
-    {!options && !error && <p role="status">{text.loading}</p>}
-    {!options && error && <button className="btn btn-secondary" onClick={()=>setRetry(n=>n+1)}>{text.retry}</button>}
-    {options && settings && <>
+    {error && <button className="btn btn-secondary" disabled={running} onClick={()=>void loadChoices(models ? "models" : "portfolios")}>{text.retry}</button>}
+    <>
       <fieldset disabled={running}>
       <div className="segmented" role="radiogroup" aria-label={text.mode}>{Object.entries(text.modes).map(([key,label])=><label className="segment" key={key}><input type="radio" name="compare-mode" checked={settings.mode===key} value={key} onChange={()=>change({mode:key as Mode})}/>{label}</label>)}</div>
-      {models ? <fieldset aria-label={text.models}><legend>{text.models}</legend>
+      {models ? <details onToggle={event => { if (event.currentTarget.open) void loadChoices("models"); }}><summary>{text.models}</summary><fieldset aria-label={text.models}><legend>{text.models}</legend>
+        {loadingChoices && <p role="status">{text.loading}</p>}
         <label>{text.search}<input type="search" placeholder={text.searchPlaceholder} value={search} onChange={e=>setSearch(e.target.value)}/></label>
         <p className="compare-selection-count">{text.selectedCount.replace("{count}",String(settings.models.length))}</p>
         {[...groups].sort(([a],[b])=>alphabetical(a,b)).map(([family,entries])=><section className="compare-model-group" key={family} aria-label={family}><h3>{family}</h3><div>{entries.sort((a,b)=>alphabetical(a.label,b.label)).map(m=><label key={m.label}><input type="checkbox" checked={settings.models.includes(m.label)} onChange={e=>change({models:e.target.checked?[...settings.models,m.label]:settings.models.filter(label=>label!==m.label)})}/>{m.label}</label>)}</div></section>)}
-        </fieldset> :
-        <fieldset aria-label={text.saved}><legend>{text.saved}</legend>{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset>}
+        </fieldset></details> :
+        <details onToggle={event => { if (event.currentTarget.open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><fieldset aria-label={text.saved}><legend>{text.saved}</legend>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset></details>}
       </fieldset>
       {!enough ? <p className="signal-info">{models ? text.modelsGate : text.portfoliosGate}</p> : <>
       <p>{models ? text.modelsCaption : text.savedCaption}</p>
@@ -98,7 +102,7 @@ export default function ComparePage() {
       </fieldset><button className="btn btn-primary" disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
       </>}
-    </>}
+    </>
     {result?.gate === "selection" && <p className="signal-info">{result.reason}</p>}
     {result?.gate === "available" && <section aria-label={text.completed}>
       <p>{text.completed}</p>{result.success && <Markdown>{fmt.text(result.success ?? "")}</Markdown>}{result.source_caption && <p>{fmt.text(result.source_caption)}</p>}

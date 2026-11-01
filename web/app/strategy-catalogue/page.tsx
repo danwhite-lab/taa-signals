@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import text from "../../content/strategy-catalogue.json";
 
 type ModelRules = {
   label: string;
@@ -16,11 +17,14 @@ type ModelRules = {
   description_missing: boolean;
 };
 
-type RulesResponse = { models: ModelRules[]; implementation_notes: string; source: string };
+type RulesResponse = { models: Pick<ModelRules, "label" | "strategy" | "variant" | "implementation" | "execution_currency">[]; source: string };
+type DetailResponse = { model: ModelRules; implementation_notes: string; source: string };
 
 export default function StrategyCataloguePage() {
   const [content, setContent] = useState<RulesResponse | null>(null);
   const [selected, setSelected] = useState("");
+  const [details, setDetails] = useState<Record<string, DetailResponse>>({});
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<"plain" | "technical">("plain");
@@ -46,15 +50,14 @@ export default function StrategyCataloguePage() {
         const text = await response.text();
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`);
         const data = JSON.parse(text) as RulesResponse;
-        if (!Array.isArray(data.models) || !data.models.length || typeof data.implementation_notes !== "string"
-          || !data.models.every((model) => typeof model.label === "string"
-            && (model.markdown === null || typeof model.markdown === "string"))) {
+        if (!Array.isArray(data.models) || !data.models.length
+          || !data.models.every((model) => typeof model.label === "string")) {
           throw new Error("The rules API returned an invalid response.");
         }
         if (!controller.signal.aborted) {
           const models = [...data.models].sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" }));
           setContent({ ...data, models });
-          setSelected((previous) => models.some((model) => model.label === previous) ? previous : models[0].label);
+          setSelected((previous) => models.some((model) => model.label === previous) ? previous : "");
         }
       } catch (failure) {
         if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure));
@@ -64,8 +67,19 @@ export default function StrategyCataloguePage() {
     return () => controller.abort();
   }, [attempt]);
 
+  function select(label: string) {
+    setSelected(label);
+    if (details[label] || loadingDetail) return;
+    setLoadingDetail(true); setError("");
+    void fetch(`/api/rules?label=${encodeURIComponent(label)}`, {cache:"no-store"})
+      .then(async response => { const body = await response.text(); if (!response.ok) throw new Error(`HTTP ${response.status}: ${body}`); return JSON.parse(body) as DetailResponse; })
+      .then(value => setDetails(previous => ({...previous, [label]: value})))
+      .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)))
+      .finally(() => setLoadingDetail(false));
+  }
+
   const visible = content?.models.filter(item => filter === "All" || item.execution_currency === (filter === "Israel" ? "ILS" : "USD")) ?? [];
-  const model = visible.find(item => item.label === selected) ?? visible[0];
+  const model = selected ? details[selected]?.model : undefined;
   const plain = view === "plain" && Boolean(model?.plain_text);
   const copy = plain ? model?.plain_text : model?.markdown;
 
@@ -88,13 +102,13 @@ export default function StrategyCataloguePage() {
           {["All", "Israel", "US"].map(value => <label className="segment" key={value}><input type="radio" name="catalogue-filter" checked={filter === value} onChange={() => {
             setFilter(value);
             const first = content.models.filter(item => value === "All" || item.execution_currency === (value === "Israel" ? "ILS" : "USD"));
-            if (!first.some(item => item.label === selected)) setSelected(first[0]?.label ?? "");
+            if (!first.some(item => item.label === selected)) setSelected("");
           }} />{value}</label>)}
         </fieldset>
         <p className="assumption-hint" role="status">{visible.length} strategies</p>
         <ul className="rule-list" aria-label="Strategies">
           {visible.map((item) => <li key={item.label}>
-            <button className={`btn list-row${model?.label === item.label ? " is-selected" : ""}`} type="button" aria-pressed={model?.label === item.label} onClick={() => setSelected(item.label)}>
+            <button className={`btn list-row${selected === item.label ? " is-selected" : ""}`} type="button" aria-pressed={selected === item.label} onClick={() => select(item.label)}>
               {item.label} <span className="currency">{item.execution_currency}</span>
             </button>
           </li>)}
@@ -104,7 +118,9 @@ export default function StrategyCataloguePage() {
         <fieldset className="segmented" aria-label="Rule view"><legend>Rule view</legend>
           {(["plain", "technical"] as const).map(value => <label className="segment" key={value}><input type="radio" name="catalogue-view" checked={view === value} onChange={() => chooseView(value)} />{value === "plain" ? "Plain" : "Technical"}</label>)}
         </fieldset>
-        {!model && <p>No strategies in this filter.</p>}
+        {!selected && <p>{text.choose}</p>}
+        {selected && loadingDetail && <p role="status">{text.loadingDetail}</p>}
+        {selected && !loadingDetail && !model && <p>{text.unavailable}</p>}
         {model && <>
         <section className="rule-card" aria-labelledby="model-heading">
           <div className="rule-meta"><span>{model.execution_currency}</span><span>{model.implementation}</span></div>
@@ -123,9 +139,9 @@ export default function StrategyCataloguePage() {
         {model.risk_warning && <aside className="rule-warning" aria-label="Risk and implementation warning">
           <div className="rule-copy"><Markdown>{model.risk_warning}</Markdown></div>
         </aside>}
-        {content.implementation_notes && <details className="rule-notes">
+        {details[selected]?.implementation_notes && <details className="rule-notes">
           <summary>Implementation and data notes</summary>
-          <div className="rule-copy"><Markdown>{content.implementation_notes}</Markdown></div>
+          <div className="rule-copy"><Markdown>{details[selected].implementation_notes}</Markdown></div>
         </details>}
         </>}
         </div>

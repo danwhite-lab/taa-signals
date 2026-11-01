@@ -36,7 +36,9 @@ export default function RebalanceHoldings() {
   const [known, setKnown] = useState(""); const [market, setMarket] = useState("US"); const [identifier, setIdentifier] = useState(""); const [currency, setCurrency] = useState("");
   const [query, setQuery] = useState(""); const [marketFilter, setMarketFilter] = useState(""); const [currencyFilter, setCurrencyFilter] = useState("");
   const [active, setActive] = useState(-1);
-  const results = Object.values(state?.instruments ?? {}).filter(item => (!marketFilter || item.market === marketFilter)
+  const [catalogue, setCatalogue] = useState<Record<string, Instrument> | null>(null);
+  const [catalogueError, setCatalogueError] = useState("");
+  const results = Object.values(catalogue ?? {}).filter(item => (!marketFilter || item.market === marketFilter)
     && (!currencyFilter || item.currency === currencyFilter)
     && [item.label, item.identifier, item.market].some(value => value.toLowerCase().includes(query.toLowerCase())))
     .sort((a, b) => a.label.localeCompare(b.label, "en", { sensitivity: "base" }));
@@ -62,6 +64,12 @@ export default function RebalanceHoldings() {
   }
   async function load() {
     const value = await request<State>("/api/rebalance"); seed(value); setPaused(false); setError(""); setMessage("");
+  }
+  async function loadCatalogue() {
+    if (catalogue) return;
+    setCatalogueError("");
+    try { setCatalogue((await request<{instruments:Record<string,Instrument>}>("/api/rebalance/instruments")).instruments); }
+    catch (failure) { setCatalogueError(failure instanceof Error ? failure.message : text.error); }
   }
   useEffect(() => { void action(load); }, []);
   function edit(key: string, field: string, value: string | boolean) {
@@ -153,7 +161,9 @@ export default function RebalanceHoldings() {
           {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} role={roles[String(row.Security)]}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
-        <details><summary>{text.add}</summary>
+        <details onToggle={event => { if (event.currentTarget.open) void loadCatalogue(); }}><summary>{text.add}</summary>
+          {!catalogue && !catalogueError && <p role="status">{text.loading}</p>}
+          {catalogueError && <p role="alert">{catalogueError} <button className="btn btn-secondary" onClick={() => { setCatalogue(null); void loadCatalogue(); }}>{text.retry}</button></p>}
           <label>{text.search}<input role="combobox" aria-expanded={true} aria-controls="fund-results"
             aria-activedescendant={active >= 0 && active < results.length ? `fund-option-${active}` : undefined}
             value={query} disabled={busy} onChange={event => { setQuery(event.target.value); setActive(-1); }}
@@ -177,8 +187,8 @@ export default function RebalanceHoldings() {
             </div>)}
           </div>
           {!results.length && <p>{text.noResults}</p>}
-          {known && state.instruments[known] && <p className="chosen-fund">{text.selected}: {state.instruments[known].label}<small>{identity(state.instruments[known])}</small></p>}
-          <button className="btn btn-secondary" disabled={busy || !known} onClick={() => void action(() => add(state.instruments[known]))}>{text.addSelected}</button>
+          {known && catalogue?.[known] && <p className="chosen-fund">{text.selected}: {catalogue[known].label}<small>{identity(catalogue[known])}</small></p>}
+          <button className="btn btn-secondary" disabled={busy || !known || !catalogue?.[known]} onClick={() => { const item=catalogue?.[known]; if (item) void action(() => add(item)); }}>{text.addSelected}</button>
           <details><summary>{text.notFound}</summary>
           <p>{text.customCaption}</p><label>{text.market}<select value={market} onChange={event => setMarket(event.target.value)}>{text.markets.map(value => <option key={value}>{value}</option>)}</select></label>
           <label>{text.identifier}<input value={identifier} onChange={event => setIdentifier(event.target.value)} /></label>

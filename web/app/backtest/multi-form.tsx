@@ -38,7 +38,6 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   const daily = mode === "deep" && sleeves.some(s => s.model === "rvol_daily");
   const body = { ...form, mode, sleeves, start: form.start || null, end: form.end || null, tax_enabled: daily ? false : form.tax_enabled,
     monthly_contribution: dca ? form.monthly_contribution : 0 };
-  const serialized = JSON.stringify(body);
   useEffect(() => {
     const controller = new AbortController();
     void backtestRequest<Config>(`/api/backtest/config?mode=${mode}`, { signal: controller.signal })
@@ -46,19 +45,6 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => { controller.abort(); loadController.current?.abort(); };
   }, [mode]);
-  useEffect(() => {
-    if (mode !== "portfolio") return;
-    const controller = new AbortController();
-    void listSaved(controller.signal);
-    return () => controller.abort();
-  }, [mode]);
-  useEffect(() => {
-    const controller = new AbortController(); setValid(false); setMessage("");
-    void backtestRequest<{ valid: boolean; message: string }>("/api/backtest/validate", { method: "POST", body: serialized, signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) { setValid(value.valid); setMessage(value.message); } })
-      .catch((failure: Error) => { if (!controller.signal.aborted) setMessage(failure.message); });
-    return () => controller.abort();
-  }, [serialized]);
   function change(patch: Partial<Form>) { setValid(false); setForm(previous => ({ ...previous, ...patch })); setError(""); onChange(); }
   function edit(id: number, patch: Partial<Sleeve>) {
     setValid(false); setSleeves(previous => previous.map(s => s.id === id ? { ...s, ...patch } : s)); setWarnings([]); onChange();
@@ -76,7 +62,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     setLoadingSaved(true); setSavedError("");
     try {
       const rows = mode === "portfolio"
-        ? (await backtestRequest<{portfolios: {id: string; name: string}[]}>("/api/compare/options", {signal})).portfolios
+        ? (await backtestRequest<{portfolios: {id: string; name: string}[]}>("/api/compare/options?kind=portfolios", {signal})).portfolios
         : await backtestRequest<{id: string; name: string}[]>("/api/portfolios", {signal});
       if (signal?.aborted) return;
       const ordered = await savedChoices(rows, () => backtestRequest<{id:string;is_default?:boolean}[]>("/api/portfolios", {signal}));
@@ -109,6 +95,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     try { await load(JSON.parse(await file.text())); }
     catch { setError(mode === "deep" ? words.invalidSavedDeep : words.invalidSaved); }
   }
+  async function validateAndRun() {
+    if (running || !config) return;
+    setValid(false); setMessage(""); setError("");
+    try {
+      const value = await backtestRequest<{valid:boolean;message:string}>("/api/backtest/validate", {method:"POST", body:JSON.stringify(body)});
+      setValid(value.valid); setMessage(value.message);
+      if (value.valid) await onRun(body);
+    } catch (failure) { setMessage((failure as Error).message); }
+  }
   const options = config ? (sleeves.length === 1 ? config.single_options : config.blend_options) : [];
   return <section><p>{words.choose}</p>
     {!config && !error && <p role="status">{text.loading}</p>}
@@ -116,7 +111,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     {savedError && <p role="alert">{words.savedListError} {savedError}</p>}
     {loadingPortfolio && <p role="status">{words.loadingPortfolio}</p>}
     <fieldset disabled={running || loadingPortfolio || !config}>
-      <details onToggle={event => { if (mode === "deep" && event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
+      <details onToggle={event => { if (event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
         <summary>{words.load}</summary>
         {loadingSaved && <p role="status">{words.loadingSaved}</p>}
         <label>{words.saved}<select value={selected} disabled={loadingSaved} onChange={event => setSelected(event.target.value)}>{saved.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
@@ -174,7 +169,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} />
       </Fees>
       {dca && <p>{config?.dca_caption}</p>}<p>{words.dateHelp}</p>
-      <button className="btn btn-primary" type="button" disabled={!valid || running || !config} onClick={() => void onRun(body)}>{running ? text.running : text.run}</button>
+      <button className="btn btn-primary" type="button" disabled={running || !config} onClick={() => void validateAndRun()}>{running ? text.running : text.run}</button>
     </fieldset>
   </section>;
 }
