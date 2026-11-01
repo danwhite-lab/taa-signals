@@ -24,6 +24,7 @@ it("keeps one transfer button, hides helper lines, and opens invalid JSON rules 
   expect(JSON.parse(json.value)).toEqual(payload);
   fireEvent.click(button);expect(screen.getByLabelText("Sleeve transfer rule")).toHaveProperty("value","none");
   fireEvent.click(button);expect(screen.queryByLabelText("Sleeve transfer rule")).toBeNull();
+  fireEvent.click(screen.getByText("Add a sleeve",{selector:"summary"}));
   fireEvent.change(screen.getByLabelText("Model to add"),{target:{value:"Buy and Hold IEF"}});
   expect(JSON.parse(json.value)).toEqual(payload);
   expect(within(settings).queryByText("Buy and Hold IEF",{selector:"p"})).toBeNull();
@@ -103,6 +104,7 @@ it('sorts Model to add A-Z without choosing a model automatically',async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;
   calls.api.mockImplementation(async(path,init)=>path==='/api/backtest/config?mode=portfolio'?{models:[{label:'Zulu'},{label:'beta'},{label:'Alpha'}]}:original(path,init));
   render(<Portfolio/>);fireEvent.click(await screen.findByRole('button',{name:'Fake portfolio'}));
+  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
   const select=screen.getByLabelText('Model to add');
   await waitFor(()=>expect(within(select).getAllByRole('option')).toHaveLength(4));
   expect(within(select).getAllByRole('option').map(o=>o.textContent)).toEqual(['Choose a model','Alpha','beta','Zulu']);
@@ -296,6 +298,7 @@ it('edits name, capital, FX and weights into JSON without losing unrelated field
 
 it('uses the Backtest model list without duplicates and removes the requested row, not the last',async()=>{
   mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
   const dropdown=screen.getByLabelText('Model to add');
   await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
   expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
@@ -335,6 +338,7 @@ it('updates every editable field and available models from Advanced JSON',async(
   expect(screen.getByLabelText('ILS per USD rate')).toHaveProperty('value','3.5');
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','100.00');
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
+  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
   const dropdown=screen.getByLabelText('Model to add');
   await waitFor(()=>expect(within(dropdown).getByRole('option',{name:'Buy and Hold SPY'})).toBeTruthy());
   expect(within(dropdown).queryByRole('option',{name:'Buy and Hold IEF'})).toBeNull();
@@ -357,6 +361,7 @@ it('can build a new portfolio without inventing capital or FX',async()=>{
   fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake new'}});
   fireEvent.change(screen.getByLabelText('Total capital (ILS)'),{target:{value:'200'}});
   fireEvent.change(screen.getByLabelText('ILS per USD rate'),{target:{value:'4'}});
+  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
   const dropdown=screen.getByLabelText('Model to add');await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
   fireEvent.change(dropdown,{target:{value:'Buy and Hold SPY'}});fireEvent.click(screen.getByRole('button',{name:'Add sleeve'}));
   fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
@@ -380,7 +385,7 @@ it('does not overwrite malformed JSON through the builder or save empty/invalid 
 it('retries a failed model list without losing the editable draft',async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;let fail=true;
   calls.api.mockImplementation(async(path,init)=>{if(path==='/api/backtest/config?mode=portfolio'&&fail)throw Error('Mock failure');return original(path,init);});
-  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
+  render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
   await screen.findByText('Available models could not be loaded. Existing drafts are unchanged.');
   fireEvent.change(screen.getByLabelText('Portfolio name'),{target:{value:'Fake draft preserved'}});
   fail=false;fireEvent.click(screen.getByText('Retry model list'));
