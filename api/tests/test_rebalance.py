@@ -11,6 +11,15 @@ from haa.rebalance_holdings import (empty_account, security, make_buy_plan,
     compare_holdings, apply_purchases, fingerprint, rebalance_targets)
 
 
+def test_default_portfolio_is_used_until_the_user_explicitly_picks_another():
+    first = {"id": "older", "is_default": False}
+    default = {"id": "default", "is_default": True}
+    options, selected = page.selected_portfolio([first, default], None)
+    assert options["default"] == default and selected == default
+    _, selected = page.selected_portfolio([first, default], "older")
+    assert selected == first
+
+
 @pytest.mark.parametrize('mode',['proportional','biggest_gap_first'])
 def test_companion_value_folds_into_anchor_and_only_anchor_is_bought(book,mode):
     remote,instruments,targets,quotes,fx=book

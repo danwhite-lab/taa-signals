@@ -72,13 +72,21 @@ def known_instruments():
     return instruments, yahoo
 
 
+def selected_portfolio(portfolios, portfolio_id):
+    options = {p["id"]: p for p in portfolios}
+    default = next((item for item in portfolios if item.get("is_default") is True), None)
+    selected = portfolio_id or (default or {}).get("id")
+    return options, options.get(selected) if selected in options else default or next(iter(options.values()), None)
+
+
 def targets_for(workspace, portfolios, portfolio_id, account):
     private.checked_allocation_mode(workspace["payload"])
     instruments, yahoo = known_instruments()
     instruments.update({k: {f: row[f] for f in ("id", "identifier", "market", "currency", "label")} for k, row in account["positions"].items()})
-    options = {p["id"]: p for p in portfolios}
-    selected = portfolio_id or workspace["payload"].get("rebalance_portfolio_id")
-    portfolio = options.get(selected) if selected in options else next(iter(options.values()), None)
+    options, portfolio = selected_portfolio(portfolios, portfolio_id)
+    # The Rebalance page always opens on the saved default.  A picker change is
+    # still honoured for that request, but an obsolete workspace preference
+    # must never silently replace the user's default portfolio.
     if portfolio_id and portfolio_id not in options:
         raise HTTPException(400, "Reload and choose an available saved portfolio.")
     source = "Workspace ticker settings; uploaded replacements are not stored in the workspace and are unavailable here."
@@ -221,7 +229,7 @@ def snapshot(workspace, account, portfolios, request):
         if p.get("companion_of"):
             editor_rows[-1]["Companion of"] = p["companion_of"]
     return {"workspace_revision": workspace["revision"], "account": account, "account_hash": fingerprint(account),
-        "portfolios": [{"id": p["id"], "name": p["name"]} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
+        "portfolios": [{"id": p["id"], "name": p["name"], "is_default": p.get("is_default") is True} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
