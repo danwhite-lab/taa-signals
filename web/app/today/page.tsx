@@ -84,7 +84,6 @@ export default function TodayPage() {
           <td>{row.holding_display?.length ? names(row.holding_display) : text.unavailable}</td>
           <td>{numbers(row.holding_display)}</td>
           <td>{row.status_code === "ok" ? null : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>
-      <HistorySources sleeves={value.public_sleeves} />
       <section><h2>{text.whatToDo}</h2>{!value.has_holdings ? <p className="signal-warning"><Link href="/rebalance-holdings/">{text.noHoldings}</Link></p> : <>
         {value.moves?.map((move, index) => <p key={index}>{move}</p>)}
         {value.pot_total !== null && <p>{text.potTotal.replace("{amount}", fmt.number(value.pot_total, true))}</p>}
@@ -98,6 +97,7 @@ export default function TodayPage() {
             <td>{numbers(row.allocation_display)}</td>
             <td>{row.change === null ? text.dash : text[row.change]}</td><td>{row.price_as_of ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}</tbody></table></div>
         {value.preview_caption && <p>{fmt.text(value.preview_caption)}</p>}</details>
+      <HistorySources sleeves={value.public_sleeves} />
       {value.warnings.map((warning, i) => <p key={i} className="signal-source-note">{warning}</p>)}
       <footer>{text.footer}</footer>
     </>)}
