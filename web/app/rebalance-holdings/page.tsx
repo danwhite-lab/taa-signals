@@ -17,7 +17,7 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
-  stale?: string[]; held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; source_settings: string; seconds: number };
+  stale?: string[]; held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; target_diagnostics?: {stage:string;code:string;message:string}[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
@@ -216,7 +216,7 @@ export default function RebalanceHoldings() {
             })}>{text.generate}</button>
         </div>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
-      <section><h2>{text.comparison}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
+      <section><h2>{text.comparison}</h2>{state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}<table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
         {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td data-label={text.fund}>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td data-label={text.target}>{row.target_display}</td><td data-label={text.actual}>{row.actual_display}</td><td data-label={text.status}>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
       {plan && <section><h2>{text.buyList}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
         {plan.orders.map(order => <tr key={order.id}><td data-label={text.fund}>{state.instruments[order.id].label}{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td data-label={text.wholeUnits}>{fmt.number(order.units)}</td><td data-label={text.estimated}>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
@@ -252,7 +252,7 @@ export default function RebalanceHoldings() {
         <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(() => refresh())}>{text.refresh}</button>
         <p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
         <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre>
-        <p>{text.signalCaption}</p><p>{state.source_settings}</p>{state.errors.map((value, i) => <p key={i}>{value}</p>)}<pre>{fmt.json(state.signals)}</pre>
+        <p>{text.signalCaption}</p><p>{state.source_settings}</p><pre>{fmt.json({ diagnostics: state.target_diagnostics, signals: state.signals })}</pre>
       </details>
     </>}
     <footer>{text.neverOrders}</footer>

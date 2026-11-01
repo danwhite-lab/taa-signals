@@ -82,7 +82,7 @@ def targets_for(workspace, portfolios, portfolio_id, account):
     if portfolio_id and portfolio_id not in options:
         raise HTTPException(400, "Reload and choose an available saved portfolio.")
     source = "Workspace ticker settings; uploaded replacements are not stored in the workspace and are unavailable here."
-    rows, targets, errors = [], {}, []
+    rows, targets, errors, diagnostics = [], {}, [], []
     try:
         raw = workspace["payload"].get("ticker_text")
         skipped = []
@@ -109,7 +109,15 @@ def targets_for(workspace, portfolios, portfolio_id, account):
             sleeves = portfolio["payload"]["sleeves"]
             if len({s["model"] for s in sleeves}) != len(sleeves):
                 raise ValueError()
+            known_labels = {item.label for item in MODEL_CATALOG}
+            if any(not isinstance(s.get("model"), str) or s["model"] not in known_labels for s in sleeves):
+                safe = "The selected portfolio contains an unavailable saved strategy. Choose an available model on the Portfolio page."
+                return portfolio, instruments, rows, {}, [safe], source, [{"stage": "model", "code": "saved_model_unavailable", "message": safe}]
             signals, errors = market.load_portfolio_signals(tuple(s["model"] for s in sleeves), tuple(tickers.items()), {})
+            if errors:
+                labels = [s["model"] for s in sleeves]
+                safe = "Completed targets are unavailable for: " + ", ".join(labels) + ". Check those sleeve data and signal settings."
+                errors, diagnostics = [safe], [{"stage": "sleeve", "code": "sleeve_unavailable", "message": safe, "models": labels}]
             if not errors:
                 by_name = {s["name"]: s for s in signals}
                 rows = [{**by_name[s["model"]], "weight": s["weight"]} for s in sleeves]
@@ -118,20 +126,26 @@ def targets_for(workspace, portfolios, portfolio_id, account):
                     if key in instruments and instruments[key]["currency"] != item["currency"]:
                         raise ValueError()
                     instruments[key] = item
-    except Exception:
-        errors = ["Portfolio targets are unavailable. Check the portfolio and signal source settings."]
+    except ValueError as exc:
+        message = str(exc)
+        if "Missing Yahoo ticker mapping" in message: code, safe = "ticker_missing", "Saved ticker settings are missing a current data role. Check Yahoo Finance ticker sources."
+        elif "appears more than once" in message: code, safe = "ticker_duplicate", "Saved ticker settings repeat a current data role. Check Yahoo Finance ticker sources."
+        elif "cannot be empty" in message: code, safe = "ticker_blank", "Saved ticker settings have a blank ticker. Check Yahoo Finance ticker sources."
+        elif "ROLE=TICKER" in message: code, safe = "ticker_malformed", "Saved ticker settings contain an invalid entry. Use ROLE=TICKER lines."
+        else: code, safe = "target_validation", "Portfolio targets could not be combined. Check the selected portfolio's sleeves and weights."
+        errors, diagnostics = [safe], [{"stage": "ticker" if code.startswith("ticker_") else "targets", "code": code, "message": safe}]
         targets = {}
-    # Provider error bodies may contain request data. Keep source failure explicit,
-    # but never return raw provider exceptions on this private money page.
-    if errors:
-        errors = ["Targets are unavailable; check the portfolio and source settings."]
-    return portfolio, instruments, rows, targets, errors, source
+    except Exception:
+        safe = "A selected sleeve could not produce a completed target. Check its data and signal status."
+        errors, diagnostics = [safe], [{"stage": "sleeve", "code": "sleeve_unavailable", "message": safe}]
+        targets = {}
+    return portfolio, instruments, rows, targets, errors, source, diagnostics
 
 
 def snapshot(workspace, account, portfolios, request):
     started = perf_counter()
     mode = private.checked_allocation_mode(workspace["payload"])
-    portfolio, instruments, sources, targets, errors, source = targets_for(workspace, portfolios, request.portfolio_id, account)
+    portfolio, instruments, sources, targets, errors, source, diagnostics = targets_for(workspace, portfolios, request.portfolio_id, account)
     targets = rebalance_targets(account, targets)
     excluded = excluded_holdings(account, targets)
     visible = set(targets) | set(account["positions"])
@@ -197,7 +211,7 @@ def snapshot(workspace, account, portfolios, request):
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
-        "signals": sources, "errors": errors, "targets": targets, "eligible": eligible, "comparison": comparison,
+        "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
         "total_display": f"₪{total:,.2f}" if total is not None else "Unavailable",
@@ -282,7 +296,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
         checked(account, body.account_hash)
         if not body.cash.strip():
             raise HTTPException(400, "Enter unallocated account cash, or enter 0 if there is none.")
-        _, instruments, _, targets, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
+        _, instruments, _, targets, _, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
         seen = set()
         for row in body.rows:
             key = row["Security"]
