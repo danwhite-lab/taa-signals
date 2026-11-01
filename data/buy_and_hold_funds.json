@@ -42,5 +42,17 @@
     "trading_fees": {"ils_percent": 0.05, "ils_minimum": 2.0},
     "catalog_variant": "Japan",
     "catalog_implementation": "Israel"
+  },
+  "world_value_israel": {
+    "name": "Buy and Hold World Value Israel",
+    "holding_asset": "WORLD_VALUE_HEDGED_IL",
+    "currency": "ILS",
+    "tase_security_id": "1189596",
+    "tase_security_type": "etf",
+    "source_status": "actual",
+    "source_note": "Tachlit World Value ETF, security 1189596. Uses actual TASE prices in ILS only; the fund is USD-hedged, so shekel/dollar moves are largely removed and hedge cost is embedded in its price. Management fee 0.40% plus trustee fee 0.01% are embedded in prices and are not deducted again. Each modeled buy or sale uses 0.05% commission with a 2 ILS minimum. No index back-calculation or pre-fund history is spliced in: history is whatever the public endpoint returns within the request window.",
+    "trading_fees": {"ils_percent": 0.05, "ils_minimum": 2},
+    "catalog_variant": "World Value",
+    "catalog_implementation": "Israel"
   }
 }
