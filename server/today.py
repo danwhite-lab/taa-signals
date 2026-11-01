@@ -10,7 +10,7 @@ from haa.tase_data import plain_holding_provenance
 from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_signals import portfolio_signal, monthly_strategy_input
 from haa.portfolio import execution_security_label, total_weight
-from haa.rebalance_holdings import (combined_targets, compare_holdings, excluded_holdings,
+from haa.rebalance_holdings import (combined_targets, sleeve_target_ids, compare_holdings, excluded_holdings,
                                     rebalance_targets, number)
 from haa.signals import month_to_date_snapshot, latest_preview_signal
 from . import signals as signals_page
@@ -303,7 +303,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
                     action = f"Buy about ₪{gap:,.0f} of {row['Fund']}" if gap > 0 else f"{row['Fund']} is about ₪{abs(gap):,.0f} over target"
                     # A target may be shared by several sleeves; name every sleeve that moved into it.
                     moved_here = [s["name"] for s in valid_sleeves if s["name"] in changed_models
-                                  and row["id"] in combined_targets([s])[1]]
+                                  and row["id"] in sleeve_target_ids(s)]
                     if moved_here:
                         action += f". This month, {', '.join(moved_here)} now points here."
                     moves.append(action)

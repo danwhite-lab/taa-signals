@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from haa import data
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from haa.model_catalog import MODEL_CATALOG
+from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
     execution_security, combined_targets, rebalance_targets, compare_holdings,
     make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
@@ -59,6 +60,11 @@ def checked(account, expected):
 
 def known_instruments():
     assets = tuple(dict.fromkeys(a for m in MODEL_CATALOG for a in getattr(m.model_class, "data_assets", ASSETS)))
+    # An index is a data series, never a fund a user can hold. Keep unexpected
+    # invalid assets loud instead of broadly swallowing security() errors.
+    non_tradable = {item.holding_asset for item in BUY_AND_HOLD_FUNDS.values()
+                    if item.price_only or (item.yahoo_ticker or "").startswith("^")}
+    assets = tuple(asset for asset in assets if asset not in non_tradable)
     yahoo = tuple(a for a in assets if a not in (*TASE_ISRAEL_ASSET_IDS, *FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET))
     instruments = {}
     for item in [*(security(a, "US") for a in yahoo), *(execution_security(a, "ILS") for a in TASE_ISRAEL_ASSET_IDS)]:
@@ -214,7 +220,7 @@ def get_page(portfolio_id: str | None = None, session=Depends(private.authentica
 
 @router.get("/api/rebalance/instruments")
 def instruments(session=Depends(private.authenticated)):
-    return {"instruments": known_instruments()[0]}
+    return safe(lambda: {"instruments": known_instruments()[0]})
 
 
 @router.post("/api/rebalance/refresh")

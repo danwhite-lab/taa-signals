@@ -80,6 +80,14 @@ def combined_targets(sleeves):
     return instruments, {key: float(value) for key, value in targets.items()}
 
 
+def sleeve_target_ids(sleeve):
+    """Return one sleeve's executable security IDs without portfolio weighting."""
+    allocation = sleeve["target_weights"]
+    if abs(sum(float(w) for w in allocation.values()) - 1) > 1e-8:
+        raise ValueError("A sleeve's executable targets do not total 100%.")
+    return {execution_security(asset, sleeve["currency"])["id"] for asset, weight in allocation.items() if number(weight)}
+
+
 def empty_account():
     return {"version": 1, "revision": 0, "positions": {}, "cash_ils": "0", "last_operation_id": None}
 
