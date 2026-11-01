@@ -1,4 +1,13 @@
 {
   "settings": "Portfolio settings",
-  "invalidWeights": "Enter at least one sleeve with positive weights. No save was attempted."
+  "invalidWeights": "Enter at least one sleeve with positive weights. No save was attempted.",
+  "edit": "Edit",
+  "editSleeve": "Edit sleeve",
+  "editModel": "Model",
+  "editWeight": "Weight",
+  "apply": "Apply",
+  "cancel": "Cancel",
+  "loadingModels": "Loading available models…",
+  "modelListError": "Available models could not be loaded. Existing drafts are unchanged.",
+  "retry": "Retry model list"
 }
