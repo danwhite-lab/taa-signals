@@ -31,6 +31,7 @@ def original(monkeypatch):
     for module in (source, port):
         monkeypatch.setattr(module, "utc_now", lambda: "2026-10-16T08:00:00Z")
         module.fetch_unit_quote.clear(); module.fetch_fx_quote.clear(); module.load_portfolio_signals.clear()
+        module.LAST_AVAILABLE_QUOTES.clear(); module.LAST_AVAILABLE_FX = None
     yield source
     port.clear_rebalance_quotes()
 
@@ -114,6 +115,19 @@ def test_raw_us_currency_and_manual_override_fx_precedence(original, monkeypatch
         assert port.fx_quote(account) == original.fx_quote(account)
     port.fetch_unit_quote.clear(); fake.get_history_metadata = lambda: {"currency": "ILS"}
     assert port.unit_quote(item, {}).get("error") == original.unit_quote(item, {}).get("error")
+
+
+def test_verified_last_quote_remains_usable_when_the_next_fetch_fails(monkeypatch):
+    item = security("GLD", "US")
+    port.LAST_AVAILABLE_QUOTES.clear()
+    monkeypatch.setattr(port, "last_completed_session", lambda *a: pd.Timestamp("2026-10-15"))
+    monkeypatch.setattr(port, "fetch_unit_quote", lambda *a: {"price": "10", "as_of": "2026-10-15", "source": "Verified test close"})
+    assert port.unit_quote(item, {})["fresh"]
+    monkeypatch.setattr(port, "fetch_unit_quote", lambda *a: (_ for _ in ()).throw(RuntimeError("feed unavailable")))
+    fallback = port.unit_quote(item, {})
+    assert fallback["price"] == "10" and fallback["as_of"] == "2026-10-15"
+    assert fallback["fresh"] is False and fallback["fallback"] is True
+    assert "last available price dated 2026-10-15" in fallback["status"]
 
 
 @pytest.mark.parametrize("label", ["Buy and Hold SPY", "HAA-Simple", "HAA-Simple Israel"])
