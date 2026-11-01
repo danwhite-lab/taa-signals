@@ -19,7 +19,8 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   const missing = !quote || quote.price == null || quote.price === "" || Boolean(quote.error);
   const stale = !missing && !quote?.fresh;
   const manual = row["Manual price per unit"] != null && row["Manual price per unit"] !== "";
-  const [expanded, setExpanded] = useState(missing || stale || manual);
+  const [holdingOpen, setHoldingOpen] = useState(false);
+  const [priceEditorOpen, setPriceEditorOpen] = useState(missing || stale || manual);
   function field(key: string, caption: string) {
     return <label className="holding-field"><span>{caption}</span>
       <input id={`holding-${encodeURIComponent(security)}-${encodeURIComponent(key)}`}
@@ -29,6 +30,11 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
     </label>;
   }
   return <article className="holding-editor-row" role="listitem" aria-label={String(row.Fund)}>
+    <div className="holding-editor-details">
+      <button type="button" className="holding-editor-summary" aria-expanded={holdingOpen} aria-controls={`holding-options-${encodeURIComponent(security)}`} onClick={() => setHoldingOpen(previous => !previous)}>
+        <strong>{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</strong>{(missing || stale) && <span className="holding-summary-alert" aria-label={String(quote?.status ?? quote?.error ?? text.unavailable)}>!</span>}
+      </button>
+      <div id={`holding-options-${encodeURIComponent(security)}`} className={holdingOpen ? "holding-editor-content is-open" : "holding-editor-content"}>
     <div className="holding-main">
       <div className="holding-fund"><strong>{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</strong><small>{security.split(":").at(-1)} · {row.Currency}</small></div>
       {field("Value (₪ / $)", words.value)}
@@ -56,7 +62,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
           onClick={() => onEdit(security, "Remove", true)}>-</button>
       </div>
     </div>
-    <details className="holding-price-editor" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+    <details className="holding-price-editor" open={priceEditorOpen} onToggle={event => setPriceEditorOpen(event.currentTarget.open)}>
       <summary>{words.editPrice}</summary>
       <div className="holding-advanced">
         {field("Manual price per unit", label("Manual price per unit"))}
@@ -66,5 +72,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
       </div>
       <details className="holding-source"><summary>{words.source}</summary><p>{String(quote?.source ?? text.unavailable)}</p></details>
     </details>
+      </div>
+    </div>
   </article>;
 }
