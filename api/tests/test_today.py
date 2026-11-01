@@ -68,9 +68,9 @@ def direct_preview(label, prices):
 
 def test_lazy_main_is_identical_but_never_computes_preview(frozen,monkeypatch):
     rows=fake_portfolio(["HAA-Simple"])
-    before=page.compose(rows,"original",CLOCK)
+    before=page.compose(rows,None,"original",CLOCK)
     monkeypatch.setattr(page,"preview_for",Mock(side_effect=AssertionError("Closed preview must not calculate")))
-    after=page.compose(rows,"lazy",CLOCK,include_preview=False)
+    after=page.compose(rows,None,"lazy",CLOCK,include_preview=False)
     for key in ("signals","holdings","monthly_action","latest_caption","stale"):
         assert before[key]==after[key]
     assert after["public_sleeves"][0]["preview"] is None
@@ -89,11 +89,11 @@ def test_lazy_route_and_generic_provenance(frozen,monkeypatch):
 
 def test_shared_fund_line_only_for_shared_currency_scoped_funds(frozen,monkeypatch):
     monkeypatch.setattr(page,"public_sleeve",lambda *a:fake_public())
-    result=page.compose(fake_portfolio(["HAA-Simple","Inflation Compass Standard"]),"code",CLOCK)
+    result=page.compose(fake_portfolio(["HAA-Simple","Inflation Compass Standard"]),None,"code",CLOCK)
     assert len(result["shared_holdings"])==1
     assert result["shared_holdings"][0]["currency"]=="USD"
     assert result["shared_holdings"][0]["amount"]==result["holdings"][0]["rows"][0]["amount"]
-    result=page.compose(fake_portfolio(["HAA-Simple"]),"code",CLOCK)
+    result=page.compose(fake_portfolio(["HAA-Simple"]),None,"code",CLOCK)
     assert result["shared_holdings"]==[]
 
 
@@ -179,7 +179,7 @@ def test_two_currency_composition_uses_saved_fx_and_exact_helpers(frozen, monkey
 @pytest.mark.parametrize("delta,visible", [(0., True), (5e-10, True), (2e-9, False), (.01, False)])
 def test_exact_weight_tolerance(frozen, delta, visible):
     rows = fake_portfolio(["Buy and Hold SPY"]); rows[0]["payload"]["sleeves"][0]["weight"] += delta
-    result = page.compose(rows, "code", CLOCK)
+    result = page.compose(rows, None, "code", CLOCK)
     assert (result["holdings"] is not None) is visible
 
 
@@ -243,7 +243,7 @@ def test_today_row_status_uses_each_signal_age_without_changing_portfolio_stale(
         value["current"]["regime"] = "mock risk-on"
         return value
     monkeypatch.setattr(page, "public_sleeve", public)
-    result = page.compose(fake_portfolio(), "code", CLOCK)
+    result = page.compose(fake_portfolio(), None, "code", CLOCK)
     assert [r["status_code"] for r in result["signals"]] == ["check_data", "ok"]
     assert result["stale"] is False
     assert result["signals"][0]["regime"] == "mock risk-on"
@@ -251,7 +251,7 @@ def test_today_row_status_uses_each_signal_age_without_changing_portfolio_stale(
     value = public("HAA-Simple")
     value.update(current=None, reason="Mock unavailable")
     monkeypatch.setattr(page, "public_sleeve", lambda *a: value)
-    row = page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["signals"][0]
+    row = page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)["signals"][0]
     assert row["status_code"] == "unavailable"
     assert row["status"] == "Mock unavailable"
 
@@ -265,7 +265,7 @@ def test_today_preview_short_label_preserves_original_reason(frozen, monkeypatch
     public = fake_public(preview=False)
     public["preview_reason"] = reason
     monkeypatch.setattr(page, "public_sleeve", lambda *a: public)
-    row = page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["previews"][0]
+    row = page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)["previews"][0]
     assert row["kind"] == kind
     assert row["reason"] == reason
 
@@ -275,7 +275,7 @@ def test_change_yes_no_dash_from_exact_weights(frozen, monkeypatch, changed, pre
     public = fake_public(preview=preview)
     if changed: public["preview"]["weights"] = {"IEF": 1.}
     monkeypatch.setattr(page, "public_sleeve", lambda *a: public)
-    result = page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)
+    result = page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)
     assert result["previews"][0]["change"] == expected
 
 
@@ -283,17 +283,17 @@ def test_change_yes_no_dash_from_exact_weights(frozen, monkeypatch, changed, pre
 def test_stale_threshold_exact_boundary(frozen, monkeypatch, age, stale):
     public = fake_public(date=(AS_OF-pd.Timedelta(days=age)).date().isoformat())
     monkeypatch.setattr(page, "public_sleeve", lambda *a: public)
-    assert page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["stale"] is stale
+    assert page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)["stale"] is stale
 
 
 def test_trade_banner_and_invalid_sleeve(frozen, monkeypatch):
     public = fake_public(trade=True)
     monkeypatch.setattr(page, "public_sleeve", lambda *a: public)
-    assert page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["monthly_action"] == "changed"
+    assert page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)["monthly_action"] == "changed"
     public["current"]["decision"]["trade"] = False
-    assert page.compose(fake_portfolio(["HAA-Simple"]), "code", CLOCK)["monthly_action"] == "unchanged"
+    assert page.compose(fake_portfolio(["HAA-Simple"]), None, "code", CLOCK)["monthly_action"] == "unchanged"
     rows = fake_portfolio(); rows[0]["payload"]["sleeves"][0]["model"] = "unknown"
-    result = page.compose(rows, "code", CLOCK)
+    result = page.compose(rows, None, "code", CLOCK)
     assert result["holdings"] is None and result["monthly_action"] == "unavailable"
 
 
@@ -305,19 +305,19 @@ def test_cache_hit_revised_data_parameters_and_no_private_cache_contents(frozen,
         return actual_run(**kwargs)
     monkeypatch.setattr(page.RESULTS, "run", run)
     rows = fake_portfolio(["Buy and Hold SPY"])
-    first = page.compose(rows, "code", CLOCK); second = page.compose(rows, "code", CLOCK)
+    first = page.compose(rows, None, "code", CLOCK); second = page.compose(rows, None, "code", CLOCK)
     assert first["public_sleeves"][0]["cache"]["hit"] is None
     assert second["public_sleeves"][0]["cache"]["hit"] == "memory"
     rows[0]["payload"].update(name="ANOTHER-PRIVATE-NAME", total_ils=9999876.54, ils_per_usd=9.87654)
-    assert page.compose(rows, "code", CLOCK)["public_sleeves"][0]["cache"]["hit"] == "memory"
+    assert page.compose(rows, None, "code", CLOCK)["public_sleeves"][0]["cache"]["hit"] == "memory"
     serialized = json.dumps({"calls": calls, "cached": list(page.RESULTS.warm.values())})
     for private_value in ("PRIVATE-FAKE", "ANOTHER-PRIVATE", "1234567.89", "4.12345", "9999876.54", "9.87654", "total_ils", "ils_per_usd", "portfolio"):
         assert private_value not in serialized
     assert calls[0]["params"]["presentation"] == "today-v2"
     prices = bundles["Buy and Hold SPY"][0]
     prices.iloc[0,0] += .01
-    assert page.compose(rows, "code", CLOCK)["public_sleeves"][0]["cache"]["hit"] is None
-    assert page.compose(rows, "new-code", CLOCK)["public_sleeves"][0]["cache"]["hit"] is None
+    assert page.compose(rows, None, "code", CLOCK)["public_sleeves"][0]["cache"]["hit"] is None
+    assert page.compose(rows, None, "new-code", CLOCK)["public_sleeves"][0]["cache"]["hit"] is None
     assert page.public_sleeve("Buy and Hold SPY", "new-code", CLOCK+pd.Timedelta(days=1))["cache"]["hit"] is None
 
 

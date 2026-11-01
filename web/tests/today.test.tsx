@@ -209,10 +209,10 @@ it("shows the exact normal setup message when there is no default", async () => 
 });
 
 it("renders unavailable reasons, stale warning and provisional rows without guessing", async () => {
-  mock.response.mockResolvedValue(json({ ...payload, holdings: null, stale: true, monthly_action: "unavailable",
-    issues: ["invalid_capital_fx"], previews: [{ ...payload.previews[0], allocation: null, allocation_display:[], kind:"always_held", change: null, price_as_of: null, reason: "This sleeve is held continuously and has no next-month timing preview." }] }));
+  mock.response.mockResolvedValue(json({ ...payload, has_holdings: false, stale: true, monthly_action: "unavailable",
+    previews: [{ ...payload.previews[0], allocation: null, allocation_display:[], kind:"always_held", change: null, price_as_of: null, reason: "This sleeve is held continuously and has no next-month timing preview." }] }));
   render(<Page />); await screen.findByText(text.staleWarning);
-  expect(screen.getByText(text.combinedWarning)).toBeTruthy(); expect(screen.getByText(text.errors.invalid_capital_fx)).toBeTruthy();
+  expect(screen.getByText(text.noHoldings)).toBeTruthy();
   expect(screen.getByText(text.previewKinds.always_held)).toBeTruthy();
 });
 

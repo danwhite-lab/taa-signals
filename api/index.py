@@ -187,8 +187,17 @@ def today(request: Request, session=Depends(private_api.authenticated)):
         raise HTTPException(400, "Today reads your saved default portfolio; query parameters are not supported.")
     started = perf_counter()
     portfolios = private_api.portfolios(session)
+    account = None
+    try:
+        workspace = private_api.workspace(session)
+        from haa.rebalance_holdings import validate_account
+        account = validate_account(workspace["payload"].get("holdings_account"))
+    except Exception:
+        # Holdings are private optional context: never let a damaged or absent
+        # record hide public sleeve signals.
+        account = None
     with signals_page.input_policy(force_live=request.query_params.get("live", "false")=="true"):
-        result = today_page.compose(portfolios, _engine_code_version(), include_preview=request.query_params.get("preview", "true")=="true")
+        result = today_page.compose(portfolios, account, _engine_code_version(), include_preview=request.query_params.get("preview", "true")=="true")
     result["timing"]["request_seconds"] = round(perf_counter()-started, 6)
     return result
 

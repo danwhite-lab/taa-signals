@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import Markdown from "react-markdown";
 import text from "../../content/today.json";
 import { authorizedResponse, ApiError } from "../../lib/api";
@@ -9,12 +10,12 @@ import HistorySources, { type HistorySleeve } from "./history-sources";
 import styles from "./today.module.css";
 
 type Allocation = { name: string; security_number: string | null; weight_text: string | null };
-type Signal = { label: string | null; weight_text: string | null; holding_display: Allocation[]; regime: string | null; status_code: "ok" | "check_data" | "unavailable"; holding: string | null; status: string | null; error_code: string | null; amounts?: {holding:string;amount:number;currency:string}[] };
-type HoldingGroup = { currency: string; rows: { holding: string; weight_text: string; amount_text: string }[] };
+type Signal = { label: string | null; weight_text: string | null; holding_display: Allocation[]; regime: string | null; status_code: "ok" | "check_data" | "unavailable"; holding: string | null; status: string | null; error_code: string | null };
+type Comparison = { id: string; Fund: string; "Target %": number | null; "Actual %": number | null; "Gap (₪)": number | null; Status: string; price_as_of?: string | null; price_fresh?: boolean };
 type Preview = { label: string | null; allocation: string | null; allocation_display?: Allocation[]; kind?: keyof typeof text.previewKinds | null; change: "yes" | "no" | null; price_as_of: string | null; reason: string | null; error_code: string | null };
-type Today = { has_default: boolean; caption: string | null; issues: string[]; signals: Signal[]; holdings: HoldingGroup[] | null;
+type Today = { has_default: boolean; has_holdings: boolean; caption: string | null; issues: string[]; signals: Signal[]; comparison: Comparison[] | null; moves: string[] | null; pot_total: number | null;
   monthly_action: "changed" | "unchanged" | "unavailable"; latest_caption: string | null; stale: boolean;
-  previews: Preview[]; preview_caption: string | null; warnings: string[]; shared_holdings?: {holding:string;amount:number;currency:string}[];
+  previews: Preview[]; preview_caption: string | null; warnings: string[];
   public_sleeves: HistorySleeve[]; timing: unknown };
 
 const issue = (key: string | null) => key ? (text.errors as Record<string, string>)[key] ?? text.unavailable : null;
@@ -78,14 +79,18 @@ export default function TodayPage() {
       <section><h2>{text.monthlyAction}</h2><p className={`today-action today-action-${value.monthly_action}`}>{text.actions[value.monthly_action]}</p>
         {value.latest_caption && <p>{fmt.text(value.latest_caption)}</p>}{value.stale && <p className="signal-warning">{text.staleWarning}</p>}</section>
       <section><h2>{text.sleeveSignals}</h2><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.sleeveSignals}>
-        <thead><tr><th>{text.sleeve}</th><th>{text.weight}</th><th>{text.holding}</th><th>{text.securityNumber}</th><th>{text.amount}</th><th>{text.status}</th></tr></thead>
+        <thead><tr><th>{text.sleeve}</th><th>{text.weight}</th><th>{text.holding}</th><th>{text.securityNumber}</th><th>{text.status}</th></tr></thead>
         <tbody>{value.signals.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{sleeveName(row.label)}</td><td>{row.weight_text ?? text.dash}</td>
           <td>{row.holding_display?.length ? names(row.holding_display) : text.unavailable}</td>
-          <td>{numbers(row.holding_display)}</td><td>{row.amounts?.map((a,j)=><div key={j}>{fmt.number(a.amount,true)} {a.currency}</div>) ?? text.dash}</td>
+          <td>{numbers(row.holding_display)}</td>
           <td>{row.status_code === "ok" ? null : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>
       <HistorySources sleeves={value.public_sleeves} />
-      {!value.holdings && <p className="signal-warning">{text.combinedWarning}</p>}
-      {!!value.shared_holdings?.length && <p>{text.shared}: {value.shared_holdings.map(a=>`${a.holding}: ${fmt.number(a.amount,true)} ${a.currency}`).join("; ")}</p>}
+      <section><h2>{text.whatToDo}</h2>{!value.has_holdings ? <p className="signal-warning"><Link href="/rebalance-holdings/">{text.noHoldings}</Link></p> : <>
+        {value.moves?.map((move, index) => <p key={index}>{move}</p>)}
+        {value.pot_total !== null && <p>{text.potTotal.replace("{amount}", fmt.number(value.pot_total, true))}</p>}
+        {value.comparison && <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.whatToDo}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
+          {value.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
+        </tbody></table></div>}</>}</section>
       <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}
         <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.preview}><thead><tr><th>{text.sleeve}</th><th>{text.projectedAllocation}</th><th>{text.securityNumber}</th><th>{text.change}</th><th>{text.priceThrough}</th></tr></thead>

@@ -6,7 +6,6 @@ import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
 import words from "../../content/portfolio.json";
-import transferWords from "../../content/backtest-multi.json";
 import { byLabel, savedOrder } from "../../lib/ui-order";
 
 function numeric(value: unknown): number | null {
@@ -29,26 +28,6 @@ function totalWeight(payload: Record<string, unknown> | null): number | null {
   return weights.every(value => value !== null) ? weights.reduce((sum, value) => sum + value!, 0) : null;
 }
 
-function transferRule(payload: Record<string, unknown> | null): Record<string, unknown> | null {
-  if (payload?.transfer_rule === undefined) return { mode: "none" };
-  const value = payload.transfer_rule;
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function transferError(payload: Record<string, unknown> | null): string | null {
-  const rule = transferRule(payload);
-  if (!rule || !['none','annual_target','rvol_cap'].includes(String(rule.mode))) return 'Choose a valid sleeve transfer rule.';
-  if (rule.mode !== 'rvol_cap') return null;
-  const rows = Array.isArray(payload?.sleeves) ? payload.sleeves : [];
-  const cap = numeric(rule.cap_percent), target = numeric(rule.target_percent);
-  if (typeof rule.sleeve_model !== 'string' || !rule.sleeve_model.includes('RVol')
-    || rows.filter(row => row?.model === rule.sleeve_model).length !== 1)
-    return 'Select an existing RVol sleeve to cap. The stored selection is not changed automatically.';
-  if (cap === null || target === null || cap < 1 || cap > 99 || target < 1 || target > 98 || target >= cap)
-    return 'Enter an RVol cap from 1–99% and a reset target from 1–98%, below the cap.';
-  return null;
-}
-
 function NumberField({ label, value, disabled, decimals, onChange }: { label: string; value: number | null; disabled: boolean;
   decimals?: number; onChange: (value: number | null) => void }) {
   const format = (number: number | null) => number === null ? "" : decimals === undefined ? String(number) : number.toFixed(decimals);
@@ -64,33 +43,18 @@ function NumberField({ label, value, disabled, decimals, onChange }: { label: st
     }} />;
 }
 
-function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelModes, modelsError, reloadModels, openModels, changeName, changePayload }:
-  { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelModes: Record<string, string | undefined>; modelsError: string;
+function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelsError, reloadModels, openModels, changeName, changePayload }:
+  { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelsError: string;
     reloadModels: () => void; openModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
-  const [ruleExpanded, setRuleExpanded] = useState(false);
   const sleeves = Array.isArray(payload?.sleeves) ? payload.sleeves.map(value => {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
     return { name: typeof row.model === "string" && row.model.trim() ? row.model : "Unavailable", weight: numeric(row.weight) };
   }) : null;
-  const capital = numeric(payload?.total_ils), fx = numeric(payload?.ils_per_usd);
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
   const available = models?.filter(model => !sleeves?.some(row => row.name === model)).sort(byLabel) ?? [];
-  const rule = transferRule(payload);
-  const ruleMode = typeof rule?.mode === 'string' ? rule.mode : '';
-  const ruleError = payload ? transferError(payload) : null;
-  const rvolModels = sleeves?.filter(row => row.name.includes('RVol')).map(row => row.name) ?? [];
-  const uncertainModels = !payload || !sleeves || models === null || !!modelsError
-    || sleeves.some(row => !models.includes(row.name) || !["daily", "internal", "external"].includes(modelModes[row.name] ?? ""));
-  const hasDaily = sleeves?.some(row => modelModes[row.name] === "daily");
-  const invalidRule = !payload || !!ruleError;
-  const panelOpen = ruleExpanded || invalidRule;
-  const ruleName = invalidRule ? words.invalidRule : words.ruleNames[ruleMode as keyof typeof words.ruleNames];
-  function editRule(patch: Record<string, unknown>) {
-    if (payload) changePayload({ ...payload, transfer_rule: { ...(rule ?? {}), ...patch } });
-  }
   function editSleeves(next: unknown[]) { if (payload) changePayload({ ...payload, sleeves: next }); }
   return <section className={styles.summary} aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
@@ -109,40 +73,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
       }}>+</button>
     </div>
     </details>
-      <label>Total capital (ILS)<NumberField label="Total capital (ILS)" value={capital} disabled={disabled || !payload}
-        onChange={value => payload && changePayload({ ...payload, total_ils: value })} /></label>
-      <label className={styles.fxSetting}>ILS per USD rate<NumberField label="ILS per USD rate" value={fx} disabled={disabled || !payload}
-        onChange={value => payload && changePayload({ ...payload, ils_per_usd: value })} /></label>
-      <button className={`btn btn-secondary ${styles.transferButton}`} type="button" disabled={disabled} aria-expanded={panelOpen}
-        aria-controls="portfolio-transfer-panel" onClick={() => { if (!invalidRule) setRuleExpanded(open => !open); }}>
-        {words.transferButton}: {ruleName}
-      </button>
     </div>
-    {panelOpen && <fieldset id="portfolio-transfer-panel" className={styles.transfer} disabled={disabled || !payload}>
-      <legend>{transferWords.rule}</legend>
-      <label>{transferWords.rule}<select value={ruleMode} onChange={event => {
-        if (event.target.value === 'rvol_cap') editRule({ mode:'rvol_cap', sleeve_model: rule?.sleeve_model ?? null,
-          cap_percent: rule?.cap_percent ?? 15, target_percent: rule?.target_percent ?? 10 });
-        else editRule({ mode:event.target.value });
-      }}>
-        {!Object.hasOwn(transferWords.rules, ruleMode) && <option value={ruleMode}>Choose a valid rule</option>}
-        {Object.entries(transferWords.rules).map(([key,label]) => <option key={key} value={key}>{label}</option>)}
-      </select></label>
-      {ruleMode === 'rvol_cap' && <>
-        <label>{transferWords.capSleeve}<select value={typeof rule?.sleeve_model === 'string' ? rule.sleeve_model : ''}
-          onChange={event => editRule({ sleeve_model:event.target.value || null })}>
-          <option value="">Choose an RVol sleeve</option>
-          {typeof rule?.sleeve_model === 'string' && !rvolModels.includes(rule.sleeve_model) && <option value={rule.sleeve_model}>Stored sleeve unavailable — choose another</option>}
-          {[...new Set(rvolModels)].map(model => <option key={model} value={model}>{model}</option>)}
-        </select></label>
-        <label>{transferWords.cap}<NumberField label={transferWords.cap} value={numeric(rule?.cap_percent)} disabled={disabled || !payload}
-          onChange={value => editRule({ cap_percent:value })}/></label>
-        <label>{transferWords.target}<NumberField label={transferWords.target} value={numeric(rule?.target_percent)} disabled={disabled || !payload}
-          onChange={value => editRule({ target_percent:value })}/></label>
-      </>}
-      {!uncertainModels && !hasDaily && ["rvol_cap", "annual_target"].includes(ruleMode) && <p>{words.retainedRule}</p>}
-      {ruleError && <p role="alert">{ruleError}</p>}
-    </fieldset>}
     {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Remove</th></tr></thead>
       <tbody>{sleeves.map((row, index) => <tr key={index}><td>{row.name}</td><td>
@@ -171,7 +102,6 @@ export default function Portfolio() {
   const [email, setEmail] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [models, setModels] = useState<string[] | null>(null);
-  const [modelModes, setModelModes] = useState<Record<string, string | undefined>>({});
   const [modelsError, setModelsError] = useState("");
   const inFlight = useRef(false);
   const dirty = name !== (selected?.name ?? "") || json !== (selected ? JSON.stringify(selected.payload, null, 2) : "")
@@ -190,7 +120,6 @@ export default function Portfolio() {
     try {
       const config = await api<{ models: { label: string; signal_mode?: string }[] }>("/api/backtest/config?mode=portfolio");
       setModels([...new Set(config.models.map(model => model.label))]);
-      setModelModes(Object.fromEntries(config.models.map(model => [model.label, model.signal_mode])));
     } catch { setModelsError("Available models could not be loaded. Existing drafts are unchanged."); }
   }
   async function act(operation: () => Promise<void>, mutation = false) {
@@ -209,7 +138,7 @@ export default function Portfolio() {
   function requestChoose(item: SavedPortfolio | null) {
     if (!dirty || window.confirm("Discard unsaved portfolio edits?")) {
       choose(item);
-      if (!item) setJson(JSON.stringify({ version: 1, name: "", total_ils: null, ils_per_usd: null, sleeves: [] }, null, 2));
+      if (!item) setJson(JSON.stringify({ version: 1, name: "", sleeves: [] }, null, 2));
     }
   }
   function changeName(next: string) {
@@ -234,13 +163,7 @@ export default function Portfolio() {
     if (!Array.isArray(rows) || !rows.length || rows.some(row => numeric(row?.weight) === null || numeric(row.weight)! <= 0)) {
       setError(words.invalidWeights); return;
     }
-    if ([payload.total_ils, payload.ils_per_usd].some(value => value != null && (numeric(value) === null || numeric(value)! <= 0))) {
-      setError(words.invalidOptionalDefaults); return;
-    }
     if (new Set(rows.map(row => row.model)).size !== rows.length) { setError("Each model may appear only once. No save was attempted."); return; }
-    const ruleError = transferError(payload);
-    if (ruleError) { setError(ruleError + ' No save was attempted.'); return; }
-    if (payload.transfer_rule === undefined) payload = { ...payload, transfer_rule: { mode:'none' } };
     const unbalanced = total === null || Math.abs(total - 100) > 1e-9;
     if (unbalanced && !window.confirm("Save weights that do not total 100%? They will be saved unchanged. Signals and backtests require 100%.")) return;
     await act(async () => {
@@ -280,7 +203,7 @@ export default function Portfolio() {
         <span className="row-name" title={item.name}>{item.name}</span>{item.is_default && <span className="list-tag">Default</span>}<small className="list-date">Updated {date(item.updated_at)}</small></button></li>)}</ul>
     </section>
     {(selected || json) && <PortfolioSummary key={selected?.id ?? 'new'} name={name} json={json} isDefault={selected?.is_default ?? false}
-      defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelModes={modelModes} modelsError={modelsError} reloadModels={() => void loadModels()}
+      defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
       openModels={() => { if (models === null && !modelsError) void loadModels(); }}
       changeName={changeName} changePayload={payload => setJson(JSON.stringify(payload, null, 2))}/>}
     <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>

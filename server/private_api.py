@@ -152,7 +152,6 @@ def save_portfolio(body: PortfolioWrite, session=Depends(authenticated)):
             raise ValueError()
         backtest_portfolio_config(body.payload, {m.label: m for m in MODEL_CATALOG},
                                   require_total=not body.allow_non_100_weights, require_capital_fx=False)
-        portfolio_transfer_config(body.payload)
     except Exception:
         raise HTTPException(422, "Enter a valid named version-1 portfolio with known strategies and positive weights.") from None
     if body.id and not body.expected_updated_at:
