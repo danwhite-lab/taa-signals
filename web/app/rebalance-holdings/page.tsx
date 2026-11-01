@@ -155,9 +155,23 @@ export default function RebalanceHoldings() {
       {!!staleFunds.length && <p className="signal-warning">{text.stalePrices.replace("{funds}", staleFunds.map(key => `${state.instruments[key].label} (${staleDate(key)})`).join(", "))}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
       {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
+      <section aria-label={text.generate} className="rebalance-action-section"><h2>{text.generate}</h2>
+        <div className="rebalance-controls rebalance-controls-compact" role="group" aria-label={text.controls}>
+          <div className="rebalance-control-fields">
+            <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
+        {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                        <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
+                        <div className="allocation-mode"><span>{text.allocationMode}</span><div role="group" aria-label={text.allocationMode}>{Object.entries(text.allocationModes).map(([key, caption]) => <button type="button" className="btn btn-secondary" aria-pressed={state.allocation_mode === key} disabled={busy || paused} key={key} onClick={() => selectAllocationMode(key as AllocationMode)}>{caption}</button>)}</div></div>
+          </div>
+          {!state.portfolios.length && <p>{text.noPortfolio}</p>}
+          {changed && <p>{text.changed}</p>}
+                      <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
+              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
+            })}>{text.generate}</button>
+        </div>
+      </section>
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
-          <div className="holding-column-headings" aria-hidden="true">{[holdings.fund, holdings.value, holdings.units, holdings.price, holdings.role, holdings.remove].map(value => <span key={value}>{value}</span>)}</div>
           {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} role={roles[String(row.Security)]}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
@@ -201,20 +215,6 @@ export default function RebalanceHoldings() {
         {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
             <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
       </section>
-      <section aria-label={text.generate}><h2>{text.generate}</h2>
-        <div className="rebalance-controls" role="group" aria-label={text.controls}>
-          <div className="rebalance-control-fields">
-            <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
-        {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                        <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
-                        <div className="allocation-mode"><span>{text.allocationMode}</span><div role="group" aria-label={text.allocationMode}>{Object.entries(text.allocationModes).map(([key, caption]) => <button type="button" className="btn btn-secondary" aria-pressed={state.allocation_mode === key} disabled={busy || paused} key={key} onClick={() => selectAllocationMode(key as AllocationMode)}>{caption}</button>)}</div></div>
-          </div>
-          {!state.portfolios.length && <p>{text.noPortfolio}</p>}
-          {changed && <p>{text.changed}</p>}
-                      <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
-              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
-            })}>{text.generate}</button>
-        </div>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2>{state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}<table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
         {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td data-label={text.fund}>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td data-label={text.target}>{row.target_display}</td><td data-label={text.actual}>{row.actual_display}</td><td data-label={text.status}>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
@@ -236,7 +236,6 @@ export default function RebalanceHoldings() {
             ...args(), plan, acknowledge: ack, confirmations: plan.orders.map(order => ({ id: order.id, ...confirmed[order.id] })) }); await persist(value.account, true); })}>{text.done}</button>
           <button className="btn btn-secondary" disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
       </section>}
-      </section>
           <details><summary>{text.advanced}</summary>
             <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
             <p>{text.automaticCaption}</p>

@@ -240,9 +240,15 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-page label > input:not([type="checkbox"]) { display: block; margin-top: 7px; min-height: 38px; }
 .rebalance-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .holdings-editor { margin-top: 20px; min-width: 0; }
-.holding-column-headings, .holding-main { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr)) minmax(0, 1fr) minmax(280px, 2.4fr) 32px; gap: 14px; align-items: center; }
-.holding-column-headings { color: #687482; font-size: .8rem; padding: 10px 12px; }
-.holding-editor-row { border-top: 1px solid #dce2e8; padding: 14px 12px; min-width: 0; }
+.holding-main { display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, .8fr)) minmax(0, 1fr) minmax(280px, 2.4fr) 32px; gap: 14px; align-items: center; }
+.holding-editor-row { border: 1px solid #dce2e8; border-radius: 8px; margin: 10px 0; min-width: 0; }
+.holding-editor-summary { align-items: center; background: none; border: 0; color: inherit; cursor: pointer; display: flex; font: inherit; justify-content: space-between; gap: 10px; padding: 13px 14px; text-align: left; width: 100%; }
+.holding-editor-summary strong { font-size: .95rem; font-weight: 600; overflow-wrap: anywhere; }
+.holding-summary-alert { color: #a33434; font-weight: 700; }
+.holding-editor-content { display: none; }
+.holding-editor-content.is-open { display: block; }
+.holding-editor-content .holding-main { border-top: 1px solid #dce2e8; padding: 14px; }
+.holding-editor-content .holding-price-editor { margin-left: 14px; margin-right: 14px; }
 .holding-main > * { min-width: 0; }
 .holding-main { min-height: 68px; }
 .holding-membership { display: flex; align-items: center; gap: 8px; height: 36px; }
@@ -272,6 +278,11 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .allocation-mode > span { display: block; margin-bottom: 7px; }
 .allocation-mode [role="group"] { display: flex; flex-wrap: wrap; gap: 6px; }
 .allocation-mode button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.rebalance-action-section { border: 1px solid #dce2e8; border-radius: 8px; padding: 14px; }
+.rebalance-action-section h2 { margin-top: 0; }
+.rebalance-action-section .rebalance-controls { border: 0; padding: 0; margin-bottom: 0; }
+.rebalance-controls-compact .rebalance-control-fields { gap: 8px 12px; }
+.rebalance-controls-compact .allocation-mode { flex: 1 1 300px; }
 .preview-table th, .preview-table td { overflow-wrap: anywhere; vertical-align: top; }
 .record-order { border-top: 1px solid #dce2e8; margin-top: 14px; padding-top: 10px; }
 .record-order > p { overflow-wrap: anywhere; }
@@ -300,8 +311,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .record-order + label { overflow-wrap: anywhere; }
   .preview-table { table-layout: auto; }
   .preview-table th, .preview-table td { white-space: normal; overflow-wrap: anywhere; }
-  .holding-column-headings { display: none; }
-  .holding-editor-row { border: 1px solid #dce2e8; border-radius: 8px; margin: 14px 0; padding: 16px; }
+  .holding-editor-row { margin: 12px 0; }
   .holding-main { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
   .holding-fund, .holding-price { grid-column: 1 / -1; }
   .holding-membership { grid-column: 1 / -1; }
@@ -309,6 +319,9 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .holding-main .holding-check { display: flex; align-items: start; gap: 5px; }
   .holding-mobile-label { display: block; color: #687482; font-size: .8rem; }
   .holding-advanced { grid-template-columns: minmax(0, 1fr); }
+  .rebalance-action-section { padding: 12px; }
+  .rebalance-controls-compact .rebalance-control-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; }
+  .rebalance-controls-compact .allocation-mode { grid-column: 1 / -1; }
 }
 .today-page section, .today-page details { margin-top: 1.4rem; }
 .today-page td, .today-page th { padding: .6rem; text-align: left; }
