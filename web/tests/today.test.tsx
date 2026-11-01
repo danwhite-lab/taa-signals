@@ -87,7 +87,7 @@ it('shows the unchanged history component below Sleeve signals, only for default
   expect(intro.compareDocumentPosition(note)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(note.compareDocumentPosition(details)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByRole('table',{name:text.sleeveSignals}).compareDocumentPosition(note)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(details.compareDocumentPosition(screen.getByText(text.preview))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByText(text.preview).compareDocumentPosition(details)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   details.open=true;fireEvent(details,new Event('toggle'));
   const table=screen.getByRole('table',{name:text.historySources});
   expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
