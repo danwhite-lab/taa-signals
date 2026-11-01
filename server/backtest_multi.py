@@ -16,7 +16,7 @@ from haa.comparison import ModelInput
 from haa import deep_history as deep
 from haa.portfolio import total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
-from haa.portfolio_config import backtest_portfolio_config, deep_history_portfolio_config, portfolio_transfer_config, TRANSFER_ERROR
+from haa.portfolio_config import backtest_portfolio_config, deep_history_portfolio_config, TRANSFER_ERROR
 from haa.portfolio_signals import monthly_strategy_input
 from haa.synthetic_history import monthly_blend_input
 from . import backtest as base, signals
@@ -119,14 +119,12 @@ def load_saved(body, portfolios):
         payload = row.get("payload")
     if len(json.dumps(payload).encode()) > 100000: error("fileSize")
     try:
-        transfer = portfolio_transfer_config(payload)
-        if body.mode == "deep" and transfer["sleeve_rebalance_mode"] != "none":
-            error("savedTransferDeep")
-        sleeves, initial = (deep_history_portfolio_config(payload, MODELS, deep.ALL_DEEP_HISTORY_SPECS)
-                            if body.mode == "deep" else backtest_portfolio_config(payload, MODELS))
+        sleeves, initial = (deep_history_portfolio_config(payload, MODELS, deep.ALL_DEEP_HISTORY_SPECS, require_capital_fx=False)
+                            if body.mode == "deep" else backtest_portfolio_config(payload, MODELS, require_capital_fx=False))
         warnings = [WORDS["unavailable"].format(model=s["model"]) for s in sleeves
                     if body.mode == "portfolio" and not getattr(MODELS[s["model"]], "backtest_available", True)]
-        transfer = portfolio_transfer_config(payload, sleeves)
+        transfer = {"sleeve_rebalance_mode": "none", "rebalance_sleeve": None,
+                    "rebalance_cap": 15., "rebalance_target": 10.}
         return {"sleeves": sleeves, "initial": initial, "warnings": warnings, **transfer}
     except (ValueError, TypeError, OverflowError) as exc:
         # Do not echo untrusted portfolio contents or numeric inputs.

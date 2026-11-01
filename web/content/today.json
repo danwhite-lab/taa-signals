@@ -25,7 +25,15 @@
   },
   "portfolioWeight": "Portfolio weight",
   "allocation": "Allocation",
-  "combinedWarning": "Combined holdings are unavailable until every saved sleeve has a valid signal and the sleeve weights total 100%.",
+  "whatToDo": "What to do this month",
+  "noHoldings": "To see what to buy, add your funds on the Rebalance Holdings page.",
+  "potTotal": "Your rebalancing pot: about {amount}",
+  "fund": "Fund",
+  "target": "Target %",
+  "now": "Now %",
+  "gap": "Gap (ILS)",
+  "priceDate": "Price date",
+  "cannotPrice": "Cannot price",
   "monthlyAction": "Monthly action",
   "actions": {
     "changed": "Action required: review the changed sleeve signals below before your next trade.",
@@ -44,8 +52,6 @@
   "footer": "Edit this portfolio or choose a different default on the Portfolio page.",
   "refresh": "Refresh",
   "loading": "Loading completed sleeve signals…",
-  "amount": "Amount",
-  "shared": "Shared funds combined",
   "historySources": "Plain buy-and-hold history sources",
   "historyCsv": "Download buy-and-hold history sources CSV",
   "historyColumns": {
@@ -91,7 +97,6 @@
     "missing_sleeves": "Saved sleeves are unavailable or empty. Check the portfolio on the Portfolio page.",
     "invalid_sleeves": "The saved sleeve list is unavailable: it exceeds the supported portfolio size.",
     "invalid_weight": "Unavailable: saved sleeve weight is missing or invalid.",
-    "unknown_model": "Unavailable: saved strategy is missing or unknown.",
-    "invalid_capital_fx": "Combined currency amounts are unavailable: saved capital or the saved ILS/USD rate is missing or invalid. No live FX rate or fallback was substituted."
+    "unknown_model": "Unavailable: saved strategy is missing or unknown."
   }
 }

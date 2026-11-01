@@ -478,16 +478,10 @@ it('saves omitted capital/FX without auto-filling or adding fields',async()=>{
   expect(JSON.parse(init.body).payload).toEqual({...draft,transfer_rule:{mode:'none'}});
 });
 
-it.each(['total_ils','ils_per_usd'])('rejects a typed non-positive %s and accepts clearing it',async field=>{
+it.each(['total_ils','ils_per_usd'])('keeps legacy optional %s untouched in Advanced JSON',async field=>{
   mockLoad();render(<Portfolio/>);fireEvent.click(await screen.findByText('Fake portfolio'));
   const label=field==='total_ils'?'Total capital (ILS)':'ILS per USD rate';
-  for(const value of ['0','-1']){
-    fireEvent.change(screen.getByLabelText(label),{target:{value}});
-    fireEvent.click(screen.getByText('Save portfolio'));
-    expect(screen.getByText(words.invalidOptionalDefaults)).toBeTruthy();
-    expect(calls.api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
-  }
-  fireEvent.change(screen.getByLabelText(label),{target:{value:''}});
+  expect(screen.queryByLabelText(label)).toBeNull();
   fireEvent.click(screen.getByText('Save portfolio'));await screen.findByText('Portfolio saved.');
-  expect(JSON.parse(calls.api.mock.calls.find(([,init])=>init?.method==='POST')![1].body).payload[field]).toBeNull();
+  expect(JSON.parse(calls.api.mock.calls.find(([,init])=>init?.method==='POST')![1].body).payload[field]).toEqual(payload[field as "total_ils" | "ils_per_usd"]);
 });

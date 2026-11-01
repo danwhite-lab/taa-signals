@@ -9,12 +9,15 @@ from haa.constants import ASSETS
 from haa.tase_data import plain_holding_provenance
 from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_signals import portfolio_signal, monthly_strategy_input
-from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label, total_weight
+from haa.portfolio import execution_security_label, total_weight
+from haa.rebalance_holdings import (combined_targets, compare_holdings, excluded_holdings,
+                                    rebalance_targets, number)
 from haa.signals import month_to_date_snapshot, latest_preview_signal
 from . import signals as signals_page
 from .cache import ResultCache, data_version, digest
 from .signals_presentation import display_allocation
 from .signals_wire import clean, table
+from . import rebalance_quotes as market
 
 MODEL_OPTIONS = {m.label: m.model_class for m in MODEL_CATALOG}
 RESULTS = ResultCache()
@@ -184,14 +187,15 @@ def preview_kind(reason):
     }.get(reason)
 
 
-def compose(portfolios, code, clock=None, include_preview=True):
+def compose(portfolios, account, code, clock=None, include_preview=True):
     """Fresh private composition, never passed to ResultCache or a save helper."""
     started = perf_counter()
     clock = utc_now() if clock is None else pd.Timestamp(clock)
     defaults = [p for p in portfolios if isinstance(p, dict) and p.get("is_default") is True]
-    result = {"has_default": bool(defaults), "caption": None, "issues": [], "signals": [], "holdings": None,
+    has_holdings = bool(account and (account.get("positions") or number(account.get("cash_ils", 0))))
+    result = {"has_default": bool(defaults), "has_holdings": has_holdings, "caption": None, "issues": [], "signals": [], "comparison": None, "moves": None, "pot_total": None,
               "monthly_action": "unavailable", "latest_caption": None, "stale": False,
-              "previews": [], "preview_caption": None, "warnings": [], "public_sleeves": [], "shared_holdings": [], "timing": {}}
+              "previews": [], "preview_caption": None, "warnings": [], "public_sleeves": [], "timing": {}}
     if not defaults:
         return result
     if len(defaults) != 1:
@@ -260,32 +264,53 @@ def compose(portfolios, code, clock=None, include_preview=True):
             "reason": public["preview_reason"], "error_code": None})
     saved_total_weight = total_weight(normalized) if all_weights else None
     valid = len(valid_sleeves) == len(saved_sleeves) and saved_total_weight is not None and abs(saved_total_weight - 100.0) < 1e-9
-    if valid:
+    if valid and has_holdings:
         try:
-            total_ils = finite(payload.get("total_ils"))
-            saved_fx = finite(payload.get("ils_per_usd"), positive=True)
-            grouped_holdings = aggregate_holdings_by_currency(valid_sleeves)
-            groups = []
-            for currency, holdings in grouped_holdings.items():
-                holding_rows = []
-                for asset, values in sorted(holdings.items()):
-                    ils_allocation = total_ils * values["weight"]
-                    amount = convert_currency(ils_allocation, "ILS", currency, saved_fx)
-                    if not math.isfinite(amount):
-                        raise ValueError()
-                    holding_rows.append({"holding": execution_security_label(asset, currency), "weight": values["weight"],
-                        "amount": amount, "weight_text": f'{values["weight"]:.2%}', "amount_text": f"{amount:,.2f}"})
-                    if len(values["sleeves"]) > 1:
-                        result["shared_holdings"].append({"holding": execution_security_label(asset,currency), "currency":currency, "amount":amount})
-                groups.append({"currency": currency, "rows": holding_rows})
-            result["holdings"] = groups
-            for row, sleeve in zip(result["signals"], valid_sleeves):
-                own = aggregate_holdings_by_currency([sleeve])
-                row["amounts"] = [{"holding": execution_security_label(asset, currency), "currency": currency,
-                    "amount": convert_currency(total_ils*values["weight"], "ILS", currency, saved_fx)}
-                    for currency, holdings in own.items() for asset, values in sorted(holdings.items())]
-        except (ValueError, TypeError, OverflowError):
-            result["issues"].append("invalid_capital_fx")
+            instruments, targets = combined_targets(valid_sleeves)
+            instruments.update({key: {field: row[field] for field in ("id", "identifier", "market", "currency", "label")}
+                                for key, row in account["positions"].items()})
+            targets = rebalance_targets(account, targets)
+            excluded = excluded_holdings(account, targets)
+            visible = set(targets) | set(account["positions"])
+            relevant = set(targets) | {key for key, row in account["positions"].items() if number(row["units"])}
+            quotes = {key: market.unit_quote(instruments[key], account["positions"].get(key, {})) for key in sorted(visible)}
+            uses_usd = any(instruments[key]["currency"] == "USD" for key in relevant - excluded)
+            fx = market.fx_quote(account) if uses_usd else {"price": "1", "fresh": True}
+            missing_held = {key for key in relevant - excluded if number(account["positions"].get(key, {}).get("units", 0))
+                            and (quotes[key].get("error") or quotes[key].get("price") is None)}
+            if missing_held or fx.get("error") or fx.get("price") is None:
+                result["comparison"] = [{"id": key, "Fund": instruments[key]["label"], "Target %": targets.get(key, 0),
+                                         "Actual %": None, "Gap (₪)": None, "Status": "Cannot price",
+                                         "price_as_of": quotes[key].get("as_of"), "price_fresh": quotes[key].get("fresh")}
+                                        for key in sorted(visible - excluded) if not account["positions"].get(key, {}).get("companion_of")]
+                result["moves"] = ["Some holdings cannot be priced. Add a dated manual price on Rebalance Holdings to calculate changes."]
+            else:
+                comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"])
+                rows = []
+                for row in comparison:
+                    key = row["id"]
+                    if key in excluded or account["positions"].get(key, {}).get("companion_of"):
+                        continue
+                    row.update(price_as_of=quotes.get(key, {}).get("as_of"), price_fresh=quotes.get(key, {}).get("fresh"))
+                    rows.append(row)
+                result["comparison"], result["pot_total"] = rows, float(total)
+                threshold = float(total) * .01
+                moves = []
+                for row in sorted(rows, key=lambda item: abs(item.get("Gap (₪)") or 0), reverse=True):
+                    gap = row.get("Gap (₪)")
+                    if gap is None or abs(gap) <= threshold:
+                        continue
+                    action = f"Buy about ₪{gap:,.0f} of {row['Fund']}" if gap > 0 else f"{row['Fund']} is about ₪{abs(gap):,.0f} over target"
+                    # A target may be shared by several sleeves; name every sleeve that moved into it.
+                    moved_here = [s["name"] for s in valid_sleeves if s["name"] in changed_models
+                                  and row["id"] in combined_targets([s])[1]]
+                    if moved_here:
+                        action += f". This month, {', '.join(moved_here)} now points here."
+                    moves.append(action)
+                result["moves"] = moves or ["Nothing to do - holdings match the target."]
+        except Exception:
+            result["comparison"] = None
+            result["moves"] = ["Holdings could not be valued. Check Rebalance Holdings; sleeve signals are still shown."]
     result["monthly_action"] = "changed" if changed_models else "unchanged" if valid else "unavailable"
     if signal_dates:
         newest_signal_date = max(signal_dates)
