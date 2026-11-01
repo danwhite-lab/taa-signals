@@ -12,7 +12,7 @@ type Instrument = { id: string; identifier: string; market: string; currency: st
 type Account = { revision: number; cash_ils: string; manual_fx?: string | null; manual_fx_date?: string | null; [key: string]: unknown };
 type Quote = Record<string, unknown>;
 type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
-  portfolios: { id: string; name: string }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
+  portfolios: { id: string; name: string; is_default?: boolean }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string; companion_of?: string }[];
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
