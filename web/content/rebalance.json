@@ -72,6 +72,7 @@
   "fullTotal": "Full account value (including outside holdings + cash)",
   "fullMissing": "Full account value unavailable: a holding price or FX rate is missing.",
   "comparison": "Target / actual comparison",
+  "failedTargetsExisting": "Targets are unavailable, so these rows show existing holdings only.",
   "target": "Target %",
   "actual": "Actual %",
   "status": "Status",
