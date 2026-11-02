@@ -10,11 +10,20 @@
   "chooseCompanion": "Choose a target fund for the companion, or select Normal.",
   "companion": "Companion of",
   "none": "None",
-  "unmatchedCompanion": "Saved anchor (not a current target)",
+  "unmatchedCompanion": "Saved anchor: {fund}, not a plan target now",
   "remove": "Remove",
   "removeFund": "Remove {fund}",
   "editPrice": "Edit price",
   "source": "source",
   "stale": "Stale",
-  "missing": "Missing"
+  "missing": "Missing",
+  "inPlan": "In plan: {weight}",
+  "notInPlan": "Not in plan",
+  "companionStatus": "Companion of {fund}",
+  "notInPlanHint": "Counts toward the rebalance total, but receives no buys. A zero target can suggest a full exit on Sell; CSPX stays Keep.",
+  "outsideHint": "Outside the rebalance total; no buys or sells suggested.",
+  "companionHint": "Counts toward its current target anchor. If the anchor is not a plan target now, this holding stays outside the rebalance.",
+  "removePlanConfirm": "This fund is in your plan ({portfolio}). Removing it counts it as not held, so the Buy step will still include it. To drop it from the plan, edit the portfolio.",
+  "removeAnyway": "Remove anyway",
+  "cancelRemoval": "Cancel"
 }
