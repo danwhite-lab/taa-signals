@@ -63,7 +63,7 @@ it('selects a companion generically, clears exclusion, and groups its comparison
   const body=mock.request.mock.calls.find(([path])=>path==='/api/rebalance/editor')![1];
   expect(body.rows.find((r:Record<string,unknown>)=>r.Security===item.id)['Companion of']).toBe(other.id);
   const table=screen.getByText(text.comparison).parentElement!.querySelector('table')!;
-  const rows=within(table).getAllByRole('row');
+  const rows=within(table).getAllByRole('row', {hidden:true});
   expect(rows[1].textContent).toContain(other.label);expect(rows[2].textContent).toContain(item.label);
   expect(within(table).getAllByText(item.label)).toHaveLength(1);
   expect(within(rows[2]).getByText(text.companionNote)).toBeTruthy();
@@ -79,7 +79,7 @@ it("filters by fields, preserves a hidden selection and performs no requests whi
   mock.request.mockResolvedValue(next);
   fireEvent.click(screen.getByText(text.advanced)); fireEvent.click(screen.getByText(text.reload));
   await waitFor(()=>expect(mock.request.mock.calls.length).toBe(2));
-  fireEvent.click(screen.getByText(text.add));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
   const search=screen.getByRole("combobox",{name:text.search});
   const list=screen.getByRole("listbox");
   const market=screen.getByRole("group",{name:text.market}), currency=screen.getByRole("group",{name:text.currency});
@@ -118,7 +118,7 @@ it("minus hides the whole row but preserves removal in requests and every other 
   mock.save.mockImplementation(async()=>{savedRemoval=true;return {saved:{revision:2,payload:{holdings_account:candidate}},uncertain:false};});
   fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.reload));
   await screen.findByLabelText(text.columns.Units+" "+other.id);
-  fireEvent.click(screen.getByText(text.add));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
   fireEvent.change(screen.getByRole("combobox",{name:text.search}),{target:{value:"gld"}});
   fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
   fireEvent.click(within(screen.getByRole("group",{name:text.market})).getByRole("button",{name:"US"}));
@@ -154,7 +154,7 @@ it("re-adding a hidden holding restores its exact draft without appending a dupl
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
   expect(screen.getAllByRole("list")).toHaveLength(1);
   expect(screen.queryAllByRole("listitem")).toHaveLength(0);
-  fireEvent.click(screen.getByText(text.add));fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
   fireEvent.click(screen.getByText(text.addSelected));
   await screen.findByLabelText(text.columns.Units+" "+item.id);
   expect(screen.getAllByRole("listitem")).toHaveLength(1);
@@ -167,14 +167,14 @@ it("re-adding a hidden holding restores its exact draft without appending a dupl
 });
 
 async function ready() {
-  mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/editor" ? preview : path === "/api/rebalance/plan" ? { state, plan } : state);
+  mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/instruments" ? {instruments:state.instruments} : path === "/api/rebalance/editor" ? preview : path === "/api/rebalance/plan" ? { state, plan } : state);
   mock.save.mockResolvedValue({ saved: { revision: 2, payload: { holdings_account: candidate } }, uncertain: false });
   render(<Page />); await screen.findByText(text.holdings);
   await waitFor(() => expect(screen.getByText(text.save)).toHaveProperty("disabled", false));
 }
 
 it('sorts known securities by label and leaves the empty choice selected',async()=>{
-  await ready(); fireEvent.click(screen.getByText(text.add));
+  await ready(); fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
   expect(screen.getAllByRole("option").filter(node=>node.parentElement?.getAttribute("role")==="listbox").map(node=>node.textContent)).toEqual([other.label+"US · IEF · USD",item.label+"US · GLD · USD"]);
   expect(screen.getByRole("button",{name:text.addSelected})).toHaveProperty("disabled",true);
 });
@@ -185,11 +185,11 @@ it("requires the existing login gate before fetching holdings", async () => {
 
 it("last edited value/units wins, outside edits invalidate the plan, and draft adds preserve inputs", async () => {
   await ready();
-  fireEvent.click(screen.getByRole("button",{name:text.generate})); await screen.findByText(text.leftover+": 5.00");
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true})); await screen.findByText(text.leftover+": 5.00");
   fireEvent.change(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`), { target: { value: "125" } });
-  expect(screen.getByRole("button",{name:text.generate})).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button",{name:text.generate,hidden:true})).toHaveProperty("disabled", true);
   expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
-  fireEvent.click(screen.getByText(text.add));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
   fireEvent.click(within(screen.getByRole("listbox")).getByText(other.label));
   fireEvent.click(screen.getByText(text.addSelected)); await screen.findByLabelText(`${text.columns.Units} US:IEF`);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`)).toHaveProperty("value", "125");
@@ -235,7 +235,7 @@ it("uncertain response keeps draft paused even when readback confirmed", async (
 
 it("record appears only for orders, needs acknowledgement, and cancel does not write", async () => {
   await ready(); expect(screen.queryByText(text.record)).toBeNull();
-  fireEvent.click(screen.getByRole("button",{name:text.generate})); fireEvent.click(await screen.findByText(text.record));
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true})); fireEvent.click(await screen.findByText(text.record));
   expect(screen.getByText(text.done)).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByLabelText(text.acknowledge)); expect(screen.getByText(text.done)).toHaveProperty("disabled", false);
   fireEvent.click(screen.getByText(text.cancel)); expect(mock.save).not.toHaveBeenCalled();
@@ -251,7 +251,7 @@ it("records actual confirmations through preparation then the single workspace s
   await ready();
   const original = mock.request.getMockImplementation()!;
   mock.request.mockImplementation(async (path: string, body: unknown) => path === "/api/rebalance/record" ? { account: candidate } : original(path, body));
-  fireEvent.click(screen.getByRole("button",{name:text.generate})); fireEvent.click(await screen.findByText(text.record));
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true})); fireEvent.click(await screen.findByText(text.record));
   fireEvent.change(screen.getByLabelText(text.bought), { target: { value: "1" } });
   fireEvent.change(screen.getByLabelText(text.paid), { target: { value: "36.25" } });
   fireEvent.click(screen.getByLabelText(text.acknowledge)); fireEvent.click(screen.getByText(text.done));
@@ -263,7 +263,7 @@ it("records actual confirmations through preparation then the single workspace s
 it("empty order list does not expose the recording step", async () => {
   await ready();
   mock.request.mockResolvedValue({ state, plan: { ...plan, orders: [] } });
-  fireEvent.click(screen.getByRole("button",{name:text.generate})); await screen.findByText(text.emptyPlan);
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true})); await screen.findByText(text.emptyPlan);
   expect(screen.queryByText(text.record)).toBeNull();
 });
 
@@ -298,9 +298,9 @@ it.each(["stale","missing","manual"])("starts %s holding price controls expanded
 
 it("shows the persisted proportional default and unspent pooled shares with server-priced unit costs",async()=>{
   await ready();
-  expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("value","proportional");
+  expect(screen.getByRole("button",{name:text.allocationModes.proportional,hidden:true}).getAttribute("aria-pressed")).toBe("true");
   mock.request.mockResolvedValue({state,plan:{...plan,unspent_by_fund:{[item.id]:"12.50"},unit_costs_ils:{[item.id]:"35"}}});
-  fireEvent.click(screen.getByRole("button",{name:text.generate}));
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true}));
   await screen.findByText(text.unspentShare.replace("{fund}",item.label).replace("{unspent}","12.50").replace("{cost}","35.00"));
   expect(screen.getByText(text.pooledCash)).toBeTruthy();
   expect(screen.queryByText(text.singleOrder)).toBeNull();
@@ -308,13 +308,13 @@ it("shows the persisted proportional default and unspent pooled shares with serv
 
 it("saves a mode change through the workspace route and invalidates a pending list",async()=>{
   await ready();
-  fireEvent.click(screen.getByRole("button",{name:text.generate})); await screen.findByText(text.leftover+": 5.00");
+  fireEvent.click(screen.getByRole("button",{name:text.generate,hidden:true})); await screen.findByText(text.leftover+": 5.00");
   mock.mode.mockResolvedValue({revision:2,payload:{rebalance_allocation_mode:"biggest_gap_first"}});
   mock.request.mockResolvedValue({...state,workspace_revision:2,allocation_mode:"biggest_gap_first"});
-  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
-  await waitFor(()=>expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("disabled",false));
+  fireEvent.click(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true}));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true})).toHaveProperty("disabled",false));
   expect(mock.mode).toHaveBeenCalledWith(1,"biggest_gap_first");
-  expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("value","biggest_gap_first");
+  expect(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true}).getAttribute("aria-pressed")).toBe("true");
   expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
   expect(mock.save).not.toHaveBeenCalled();
 });
@@ -324,7 +324,7 @@ it("mode changes preserve dirty holdings and failed preference writes pause safe
   const input=screen.getByLabelText(text.columns.Units+" "+item.id);
   fireEvent.change(input,{target:{value:"7"}});
   mock.mode.mockRejectedValue(new RebalanceError(409,text.uncertain));
-  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
+  fireEvent.click(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true}));
   await screen.findByText(text.uncertain);
   expect(input).toHaveProperty("value","7");
   expect(screen.getByText(text.save)).toHaveProperty("disabled",true);
@@ -337,8 +337,8 @@ it("a successful mode save and display refresh preserve unsaved units and cash",
   fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"17"}});
   mock.mode.mockResolvedValue({revision:2,payload:{rebalance_allocation_mode:"biggest_gap_first"}});
   mock.request.mockResolvedValue({...state,workspace_revision:2,allocation_mode:"biggest_gap_first"});
-  fireEvent.change(screen.getByLabelText(text.allocationMode),{target:{value:"biggest_gap_first"}});
-  await waitFor(()=>expect(screen.getByLabelText(text.allocationMode)).toHaveProperty("disabled",false));
+  fireEvent.click(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true}));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.allocationModes.biggest_gap_first,hidden:true})).toHaveProperty("disabled",false));
   expect(screen.getByLabelText(text.columns.Units+" "+item.id)).toHaveProperty("value","7");
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
   expect(mock.save).not.toHaveBeenCalled();
@@ -346,7 +346,7 @@ it("a successful mode save and display refresh preserve unsaved units and cash",
 
 it("groups holdings before buying and keeps Advanced closed initially",async()=>{
   await ready();
-  const controls=screen.getByRole("group",{name:text.controls});
+  const controls=screen.getByRole("group",{name:text.controls,hidden:true});
   const editor=screen.getByRole("list",{name:text.holdings});
   expect(editor.compareDocumentPosition(controls)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   for(const caption of [text.newMoney,text.allocationMode]){
@@ -354,8 +354,8 @@ it("groups holdings before buying and keeps Advanced closed initially",async()=>
     expect(within(controls).getByLabelText(caption)).toBeTruthy();
   }
   for(const caption of [text.save,text.generate]){
-    expect(screen.getAllByRole("button",{name:caption})).toHaveLength(1);
-    expect(screen.getByRole("button",{name:caption}).classList.contains("btn-primary")).toBe(true);
+    expect(screen.getAllByRole("button",{name:caption,hidden:true})).toHaveLength(1);
+    expect(screen.getByRole("button",{name:caption,hidden:true}).classList.contains("btn-primary")).toBe(true);
   }
   const advanced=screen.getByText(text.advanced).closest("details")!;
   expect(advanced.open).toBe(false);
@@ -380,9 +380,45 @@ it("Advanced retains the existing unsaved reload confirmation and preview flow",
   fireEvent.click(screen.getByText(text.reload));
   expect(confirm).toHaveBeenCalledWith(text.reloadConfirm);
   expect(mock.request.mock.calls).toHaveLength(before);
-  expect(screen.getByRole("button",{name:text.generate})).toHaveProperty("disabled",true);
+  expect(screen.getByRole("button",{name:text.generate,hidden:true})).toHaveProperty("disabled",true);
   fireEvent.click(screen.getByText(text.previewAction));
   await screen.findByText(text.preview);
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
   expect(mock.save).not.toHaveBeenCalled();
+});
+
+
+it("shows one step at a time, preserves drafts, and keeps a stale plan chip after edits", async () => {
+  await ready();
+  expect(screen.getByRole("list", {name:text.holdings})).toBeTruthy();
+  expect(screen.queryByRole("button", {name:text.generate})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name:text.steps.sell}));
+  expect(screen.getByRole("heading", {name:text.sellTitle})).toBeTruthy();
+  expect(screen.queryByRole("list", {name:text.holdings})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name:text.nextBuy}));
+  fireEvent.click(screen.getByRole("button", {name:text.generate}));
+  await screen.findByText(text.planChip+" · "+text.currentChip);
+  fireEvent.click(screen.getByRole("button", {name:text.steps.holdings}));
+  fireEvent.change(screen.getByLabelText(text.cash), {target:{value:"17"}});
+  expect(screen.getByText(text.planChip+" · "+text.staleChip)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:text.steps.buy}));
+  expect(screen.getByRole("button", {name:text.generate})).toHaveProperty("disabled",true);
+  expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name:text.steps.holdings}));
+  expect(screen.getByLabelText(text.cash)).toHaveProperty("value","17");
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
+it("reviews full exits without recording trades or funding buys from sales", async () => {
+  mock.request.mockResolvedValue({...state, sell_review:[{id:item.id,action:"sell",before_units:"2",after_units:"0"}]});
+  render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button", {name:text.steps.sell}));
+  expect(screen.getByRole("cell", {name:text.sellAction})).toBeTruthy();
+  expect(screen.getByRole("cell", {name:"0"})).toBeTruthy();
+  expect(mock.save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", {name:text.nextBuy}));
+  mock.request.mockResolvedValue({state,plan});
+  fireEvent.click(screen.getByRole("button", {name:text.generate}));
+  await screen.findByText(text.planChip+" · "+text.currentChip);
+  expect(mock.request.mock.calls.find(([path])=>path==="/api/rebalance/plan")![1]).toEqual({portfolio_id:state.portfolio_id,account_hash:state.account_hash,new_money:"0"});
 });
