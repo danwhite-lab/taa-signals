@@ -332,3 +332,16 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .today-sleeve-table th, .today-sleeve-table td { white-space: normal; overflow-wrap: normal; word-break: normal; }
 .today-action-changed { color: #8a5200; }
 .today-action-unchanged { color: #17645f; }
+
+.rebalance-workflow { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.rebalance-steps { display: flex; flex-direction: column; gap: .5rem; position: sticky; top: 1rem; }
+.rebalance-steps button { padding: .8rem; border: 1px solid #cbd5e1; border-radius: .5rem; background: transparent; text-align: left; cursor: pointer; color: inherit; }
+.rebalance-steps button[aria-current="step"] { background: #17645f; color: white; }
+.rebalance-plan-chip { border: 1px solid #cbd5e1; border-radius: 2rem; padding: .35rem .7rem; background: transparent; color: inherit; cursor: pointer; }
+.rebalance-step-content { min-width: 0; }
+.rebalance-step-content [hidden] { display: none !important; }
+@media (max-width: 700px) {
+  .rebalance-workflow { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+  .rebalance-steps { flex-direction: row; position: static; }
+  .rebalance-steps button { flex: 1; text-align: center; padding: .65rem .3rem; }
+}

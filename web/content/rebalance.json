@@ -104,5 +104,27 @@
   "portfolio": "Compare against portfolio",
   "noPortfolio": "Save a portfolio on the Portfolio page to compare targets. You can still enter your shared holdings below.",
   "signalCaption": "Signal dates identify actionable decisions supplying targets; provisional previews are never targets. These dates do not schedule broker orders.",
-  "neverOrders": "This page never places orders. Display and record-keeping only; you trade manually at your broker."
+  "neverOrders": "This page never places orders. Display and record-keeping only; you trade manually at your broker.",
+  "steps": {
+    "holdings": "1 Holdings",
+    "sell": "2 Sell",
+    "buy": "3 Buy"
+  },
+  "stepNavigation": "Rebalance steps",
+  "sellTitle": "Review sells",
+  "sellCaption": "Full exits only. CSPX stays Keep. Trade manually at your broker, then update holdings and cash before generating buys.",
+  "sellUnavailable": "Save your holdings and resolve target errors before reviewing sells.",
+  "noSells": "No held positions to review.",
+  "sellAction": "Sell all",
+  "keepAction": "Keep",
+  "beforeUnits": "Units before",
+  "afterUnits": "Units after",
+  "action": "Action",
+  "buyCaption": "Buys use entered cash and new money only. Expected sale proceeds are not included.",
+  "planChip": "Buy plan",
+  "staleChip": "Needs regeneration",
+  "currentChip": "Current",
+  "nextSell": "Continue to Sell",
+  "nextBuy": "Continue to Buy",
+  "backHoldings": "Update holdings and cash"
 }

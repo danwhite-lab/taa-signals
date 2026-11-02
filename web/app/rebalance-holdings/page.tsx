@@ -14,6 +14,7 @@ type Quote = Record<string, unknown>;
 type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
   portfolios: { id: string; name: string; is_default?: boolean }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string; companion_of?: string }[];
+  sell_review?: { id: string; action: "sell" | "keep"; before_units: string; after_units: string }[];
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
   total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
@@ -23,6 +24,8 @@ type Preview = { account: Account | null; preview: Record<string, unknown>[]; er
 const show = (value: unknown, context="") => fmt.cell(value, context);
 
 export default function RebalanceHoldings() {
+  const [step, setStep] = useState<"holdings" | "sell" | "buy">("holdings");
+  const [planId, setPlanId] = useState("");
   const [state, setState] = useState<State | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [roles,setRoles] = useState<Record<string,string>>({});
@@ -53,7 +56,7 @@ export default function RebalanceHoldings() {
   function seed(value: State) {
     setRoles({});
     setState(value); setRows(value.rows); setCash(value.account.cash_ils); setFx(value.account.manual_fx ?? ""); setFxDate(value.account.manual_fx_date ?? "");
-    setPortfolio(value.portfolio_id); setDirty(false); setPlan(null); setRecording(false); setPreview(null); setChanged(false); setConfirmed({});
+    setPortfolio(value.portfolio_id); setDirty(false); setPlan(null); setRecording(false); setPreview(null); setChanged(Boolean(planId)); setConfirmed({});
   }
   async function action(operation: () => Promise<void>) {
     if (inFlight.current) return;
@@ -155,21 +158,16 @@ export default function RebalanceHoldings() {
       {!!staleFunds.length && <p className="signal-warning">{text.stalePrices.replace("{funds}", staleFunds.map(key => `${state.instruments[key].label} (${staleDate(key)})`).join(", "))}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
       {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
-      <section aria-label={text.generate} className="rebalance-action-section"><h2>{text.generate}</h2>
-        <div className="rebalance-controls rebalance-controls-compact" role="group" aria-label={text.controls}>
-          <div className="rebalance-control-fields">
-            <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
+      {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+      <div className="rebalance-workflow">
+      <nav className="rebalance-steps" aria-label={text.stepNavigation}>
+        {(["holdings", "sell", "buy"] as const).map(value => <button type="button" key={value} aria-current={step === value ? "step" : undefined} onClick={() => setStep(value)}>{text.steps[value]}</button>)}
+      </nav>
+      <div className="rebalance-step-content">
+      {planId && <button type="button" className="rebalance-plan-chip" onClick={() => setStep("buy")}>{text.planChip} · {changed ? text.staleChip : text.currentChip}</button>}
+      <div hidden={step !== "holdings"}>
+      <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
         {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-                        <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
-                        <div className="allocation-mode"><span>{text.allocationMode}</span><div role="group" aria-label={text.allocationMode}>{Object.entries(text.allocationModes).map(([key, caption]) => <button type="button" className="btn btn-secondary" aria-pressed={state.allocation_mode === key} disabled={busy || paused} key={key} onClick={() => selectAllocationMode(key as AllocationMode)}>{caption}</button>)}</div></div>
-          </div>
-          {!state.portfolios.length && <p>{text.noPortfolio}</p>}
-          {changed && <p>{text.changed}</p>}
-                      <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
-              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setChanged(false);
-            })}>{text.generate}</button>
-        </div>
-      </section>
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
           {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} role={roles[String(row.Security)]}
@@ -212,8 +210,37 @@ export default function RebalanceHoldings() {
         </details>
             <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
         {dirty && <p>{text.unsaved}</p>}
-        {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+
             <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+      </section>
+      <button type="button" className="btn btn-secondary" onClick={() => setStep("sell")}>{text.nextSell}</button>
+      </div>
+      <div hidden={step !== "sell"}>
+        <section><h2>{text.sellTitle}</h2><p>{text.sellCaption}</p>
+        {dirty || !state.portfolio_id || state.errors.length > 0 ? <p role="status">{text.sellUnavailable}</p> : <>
+          {!state.sell_review?.length && <p>{text.noSells}</p>}
+          {!!state.sell_review?.length && <table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.beforeUnits}</th><th>{text.afterUnits}</th></tr></thead><tbody>
+            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}>{state.instruments[row.id].label}</td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
+          </tbody></table>}
+        </>}
+        <button type="button" className="btn btn-secondary" onClick={() => setStep("holdings")}>{text.backHoldings}</button>
+        <button type="button" className="btn btn-primary" onClick={() => setStep("buy")}>{text.nextBuy}</button>
+        </section>
+      </div>
+      <div hidden={step !== "buy"}>
+      <p>{text.buyCaption}</p>
+      <section aria-label={text.generate} className="rebalance-action-section"><h2>{text.generate}</h2>
+        <div className="rebalance-controls rebalance-controls-compact" role="group" aria-label={text.controls}>
+          <div className="rebalance-control-fields">
+            <label>{text.newMoney}<input value={money} inputMode="decimal" disabled={busy} onChange={event => { invalidate(); setMoney(event.target.value); }} /></label>
+            <div className="allocation-mode"><span>{text.allocationMode}</span><div role="group" aria-label={text.allocationMode}>{Object.entries(text.allocationModes).map(([key, caption]) => <button type="button" className="btn btn-secondary" aria-pressed={state.allocation_mode === key} disabled={busy || paused} key={key} onClick={() => selectAllocationMode(key as AllocationMode)}>{caption}</button>)}</div></div>
+          </div>
+          {!state.portfolios.length && <p>{text.noPortfolio}</p>}
+          {changed && <p>{text.changed}</p>}
+          <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
+              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setPlanId(value.plan.id); setChanged(false);
+            })}>{text.generate}</button>
+        </div>
       </section>
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2>{state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}<table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
@@ -236,6 +263,8 @@ export default function RebalanceHoldings() {
             ...args(), plan, acknowledge: ack, confirmations: plan.orders.map(order => ({ id: order.id, ...confirmed[order.id] })) }); await persist(value.account, true); })}>{text.done}</button>
           <button className="btn btn-secondary" disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
       </section>}
+      </div>
+      <div hidden={step !== "holdings"}>
           <details><summary>{text.advanced}</summary>
             <button className="btn btn-secondary" disabled={busy} onClick={() => { if (!dirty || window.confirm(text.reloadConfirm)) void action(load); }}>{text.reload}</button>
             <p>{text.automaticCaption}</p>
@@ -253,6 +282,7 @@ export default function RebalanceHoldings() {
         <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre>
         <p>{text.signalCaption}</p><p>{state.source_settings}</p><pre>{fmt.json({ diagnostics: state.target_diagnostics, signals: state.signals })}</pre>
       </details>
+      </div></div></div>
     </>}
     <footer>{text.neverOrders}</footer>
   </main>;
