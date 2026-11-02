@@ -345,3 +345,9 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .rebalance-steps { flex-direction: row; position: static; }
   .rebalance-steps button { flex: 1; text-align: center; padding: .65rem .3rem; }
 }
+
+.holding-plan-status { display: inline-block; border: 1px solid #dce2e8; border-radius: 1rem; padding: .15rem .5rem; margin: .25rem; font-size: .75rem; font-weight: normal; }
+.holding-remove-confirm { border: 1px solid #dce2e8; border-radius: .5rem; padding: .75rem; margin-block: .5rem; }
+.compare-plan-picker { margin-block: .75rem; }
+.compare-plan-picker [role="group"] { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.compare-plan-picker [role="group"] p { flex-basis: 100%; }

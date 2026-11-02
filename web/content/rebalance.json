@@ -126,5 +126,9 @@
   "currentChip": "Current",
   "nextSell": "Continue to Sell",
   "nextBuy": "Continue to Buy",
-  "backHoldings": "Update holdings and cash"
+  "backHoldings": "Update holdings and cash",
+  "comparePlan": "Compare plan: {name}",
+  "choosePlan": "Choose a comparison plan",
+  "morePlans": "Add more plans on the Portfolio page",
+  "noPlan": "None"
 }

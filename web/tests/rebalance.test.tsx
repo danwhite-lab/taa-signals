@@ -422,3 +422,30 @@ it("reviews full exits without recording trades or funding buys from sales", asy
   await screen.findByText(text.planChip+" · "+text.currentChip);
   expect(mock.request.mock.calls.find(([path])=>path==="/api/rebalance/plan")![1]).toEqual({portfolio_id:state.portfolio_id,account_hash:state.account_hash,new_money:"0"});
 });
+
+it('opens the compare-plan chip, shows the single-plan hint, and picks and collapses without changing holdings', async()=>{
+  await ready();
+  const caption=text.comparePlan.replace('{name}','Fake portfolio');
+  const chip=screen.getByRole('button',{name:caption});
+  expect(chip.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(chip);
+  expect(chip.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByText(text.morePlans)).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole('group',{name:text.choosePlan}),{key:'Escape'});
+  expect(chip.getAttribute('aria-expanded')).toBe('false');
+  const next={...state,portfolios:[...state.portfolios,{id:'second',name:'Another plan'}],portfolio_id:'second'};
+  mock.request.mockResolvedValue(next);
+  // Refresh the saved portfolio list through the existing reload flow.
+  fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.reload));
+  const updated=await screen.findByRole('button',{name:text.comparePlan.replace('{name}','Another plan')});
+  fireEvent.change(screen.getByLabelText(text.cash),{target:{value:'17'}});
+  fireEvent.click(updated);
+  expect(screen.queryByText(text.morePlans)).toBeNull();
+  mock.request.mockResolvedValue({...next,portfolio_id:'fake-portfolio'});
+  fireEvent.click(screen.getByRole('button',{name:'Fake portfolio'}));
+  await waitFor(()=>expect(mock.request).toHaveBeenCalledWith('/api/rebalance?portfolio_id=fake-portfolio'));
+  expect((await screen.findByRole('button',{name:caption})).getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('group',{name:text.choosePlan})).toBeNull();
+  expect(screen.getByLabelText(text.cash)).toHaveProperty('value','17');
+  expect(mock.save).not.toHaveBeenCalled();
+});

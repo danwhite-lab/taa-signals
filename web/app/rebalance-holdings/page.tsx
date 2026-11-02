@@ -24,6 +24,8 @@ type Preview = { account: Account | null; preview: Record<string, unknown>[]; er
 const show = (value: unknown, context="") => fmt.cell(value, context);
 
 export default function RebalanceHoldings() {
+  const [planPickerOpen, setPlanPickerOpen] = useState(false);
+  const planPickerButton = useRef<HTMLButtonElement>(null);
   const [step, setStep] = useState<"holdings" | "sell" | "buy">("holdings");
   const [planId, setPlanId] = useState("");
   const [state, setState] = useState<State | null>(null);
@@ -137,7 +139,11 @@ export default function RebalanceHoldings() {
       await refresh(portfolio, false);
     });
   }
-  const targetFunds=state?.target_funds ?? Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id].label || id}));
+  const targetFunds=(state?.target_funds ?? Object.keys(state?.targets ?? {}).map(id=>({id,label:state!.instruments[id]?.label || id}))).map(item => ({...item,
+    weight: state?.targets?.[item.id] != null ? new Intl.NumberFormat("en", {style:"percent", maximumFractionDigits:2}).format(state.targets[item.id])
+      : state?.comparison.find(row => row.id === item.id)?.target_display,
+  }));
+  const portfolioName = state?.portfolios.find(item => item.id === portfolio)?.name ?? text.noPlan;
   const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
     row,...state.comparison.filter(child=>child.companion_of===row.id),
   ]).concat(state.comparison.filter(row=>row.companion_of&&!state.comparison.some(anchor=>anchor.id===row.companion_of))) : [];
@@ -166,11 +172,19 @@ export default function RebalanceHoldings() {
       <div className="rebalance-step-content">
       {planId && <button type="button" className="rebalance-plan-chip" onClick={() => setStep("buy")}>{text.planChip} · {changed ? text.staleChip : text.currentChip}</button>}
       <div hidden={step !== "holdings"}>
-      <label>{text.portfolio}<select value={portfolio ?? ""} disabled={busy || paused} onChange={event => void action(() => refresh(event.target.value, false))}>
-        {!state.portfolios.length && <option value="">—</option>}{state.portfolios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <div className="compare-plan-picker">
+        <button type="button" ref={planPickerButton} className="rebalance-plan-chip" aria-expanded={planPickerOpen} aria-controls="compare-plan-options" disabled={busy || paused}
+          onClick={() => setPlanPickerOpen(previous => !previous)}>{text.comparePlan.replace("{name}", portfolioName)}</button>
+        {planPickerOpen && <div id="compare-plan-options" role="group" aria-label={text.choosePlan} onKeyDown={event => { if (event.key === "Escape") {setPlanPickerOpen(false); planPickerButton.current?.focus();} }}>
+          {state.portfolios.map(item => <button type="button" className="btn btn-secondary" key={item.id} aria-pressed={portfolio === item.id} disabled={busy || paused} onClick={() => {
+            setPlanPickerOpen(false); planPickerButton.current?.focus(); void action(() => refresh(item.id, false));
+          }}>{item.name}</button>)}
+          {state.portfolios.length <= 1 && <p className="holding-hint">{text.morePlans}</p>}
+        </div>}
+      </div>
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
         <div className="holdings-editor" role="list" aria-label={text.holdings}>
-          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} role={roles[String(row.Security)]}
+          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} instruments={state.instruments} portfolioName={portfolioName} role={roles[String(row.Security)]}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
         </div>
         <details onToggle={event => { if (event.currentTarget.open) void loadCatalogue(); }}><summary>{text.add}</summary>
