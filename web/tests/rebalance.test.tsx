@@ -30,15 +30,64 @@ const preview = { account: candidate, preview: [{ Fund: item.label, "Units to sa
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
 function roleButton(id:string,name:string){return within(screen.getByRole('group',{name:holdings.role+' '+id})).getByRole('button',{name});}
 
-it("shows the selected plan's current holdings and cash as a chart after What to buy", async () => {
-  const valued = { ...state, total_ils: "75", comparison: [{ id: item.id, Fund: item.label, target_display: "100.00%", actual_display: "93.33%", "Actual %": 70 / 75, Status: "Underweight" }] };
-  mock.request.mockResolvedValue(valued); render(<Page />);
+const chartRows = [
+  {...row, Units:"2"},
+  {...row, Security:other.id, Fund:other.label, Units:"3"},
+  {...row, Security:"TASE:OUTSIDE", Fund:"Outside holding", Currency:"ILS", Units:"10"},
+  {...row, Security:"US:COMPANION", Fund:"Companion holding", Units:"1"},
+];
+const chartState = {
+  ...state,
+  account:{...state.account,cash_ils:"40"}, rows:chartRows,
+  instruments:{...state.instruments,
+    "TASE:OUTSIDE":{id:"TASE:OUTSIDE",identifier:"1234567",market:"TASE",currency:"ILS",label:"Outside holding"},
+    "US:COMPANION":{id:"US:COMPANION",identifier:"COMP",market:"US",currency:"USD",label:"Companion holding"},
+  },
+  quotes:{[item.id]:{price:"10"},[other.id]:{price:"5"},"TASE:OUTSIDE":{price:"10"},"US:COMPANION":{price:"5"}}, fx:{price:"4",fresh:true},
+  comparison:[
+    {id:item.id,Fund:item.label,target_display:"",actual_display:"",Status:"On target"},
+    {id:other.id,Fund:other.label,target_display:"",actual_display:"",Status:"On target"},
+    {id:"TASE:OUTSIDE",Fund:"Outside holding",target_display:"",actual_display:"",Status:"Outside the rebalance"},
+    {id:"US:COMPANION",Fund:"Companion holding",target_display:"",actual_display:"",Status:"Companion",companion_of:item.id},
+  ],
+};
+const allocationButton = (label:string) => screen.getByRole("button", {name:text.allocationToggle.replace("{holding}",label)});
+
+it("shows every physical holding and cash once, largest first, in the full-account chart", async () => {
+  mock.request.mockResolvedValue(chartState); render(<Page />);
   await screen.findByText(text.holdings);
   fireEvent.click(screen.getByRole("button", { name: text.steps.buy }));
   const chart = await screen.findByRole("img", { name: new RegExp(text.currentAllocation) });
-  expect(chart.getAttribute("aria-label")).toContain("Fake gold 93.3%");
-  expect(chart.getAttribute("aria-label")).toContain(`${text.allocationCash} 6.7%`);
+  expect(screen.getAllByRole("button", {name:/Show or hide/}).map(button => button.getAttribute("aria-label"))).toEqual([
+    text.allocationToggle.replace("{holding}","Outside holding"), text.allocationToggle.replace("{holding}",item.label),
+    text.allocationToggle.replace("{holding}",other.label), text.allocationToggle.replace("{holding}",text.allocationCash),
+    text.allocationToggle.replace("{holding}","Companion holding"),
+  ]);
+  expect(chart.getAttribute("aria-label")).toContain("Outside holding 33.3%");
+  expect(chart.getAttribute("aria-label")).toContain("Companion holding 6.7%");
+  expect(screen.getByText(text.allocationOutsidePlan)).toBeTruthy();
   expect(screen.getByText(text.currentAllocation).compareDocumentPosition(screen.getByText(text.rebalanceTotal)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it("recalculates visible allocation percentages and restores the full account", async () => {
+  mock.request.mockResolvedValue(chartState); render(<Page />); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button", {name:text.steps.buy})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
+  fireEvent.click(allocationButton("Outside holding"));
+  expect(allocationButton("Outside holding").getAttribute("aria-pressed")).toBe("false");
+  expect(screen.getByText(text.allocationVisibleOnly)).toBeTruthy();
+  expect(allocationButton(item.label).textContent).toContain("40%");
+  fireEvent.click(screen.getByRole("button", {name:text.allocationShowAll}));
+  expect(screen.queryByText(text.allocationVisibleOnly)).toBeNull();
+  expect(allocationButton(item.label).textContent).toContain("26.7%");
+});
+
+it("names an unpriceable held position instead of putting it in the chart", async () => {
+  const unpriced = {...chartState, rows:[...chartRows,{...row,Security:"US:MISSING",Fund:"Missing price",Units:"2"}],instruments:{...chartState.instruments,"US:MISSING":{id:"US:MISSING",identifier:"MISS",market:"US",currency:"USD",label:"Missing price"}}};
+  mock.request.mockResolvedValue(unpriced); render(<Page />); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button", {name:text.steps.buy}));
+  await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
+  expect(screen.getByText(text.allocationMissing.replace("{holdings}","Missing price"))).toBeTruthy();
+  expect(screen.queryByRole("button", {name:text.allocationToggle.replace("{holding}","Missing price")})).toBeNull();
 });
 
 it('shows an unmatched companion as outside, with no target and the exclusion explanation',async()=>{
