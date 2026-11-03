@@ -15,7 +15,7 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   portfolios: { id: string; name: string; is_default?: boolean }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; "Actual %"?: number | null; Status: string; companion_of?: string }[];
   replacement_review?: { from: string; to: string; from_label: string; to_label: string }[];
-  sell_review?: { id: string; action: "sell" | "keep"; before_units: string; after_units: string }[];
+  sell_review?: { id: string; action: "sell" | "keep" | "pending"; before_units: string; after_units: string }[];
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
   total_display: string; total_ils?: string | null; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
@@ -295,7 +295,7 @@ export default function RebalanceHoldings() {
         {dirty || !state.portfolio_id || state.errors.length > 0 ? <p role="status">{text.sellUnavailable}</p> : <>
           {!state.sell_review?.length && <p>{text.noSells}</p>}
           {!!state.sell_review?.length && <table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.beforeUnits}</th><th>{text.afterUnits}</th></tr></thead><tbody>
-            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}>{state.instruments[row.id].label}</td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
+            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}>{state.instruments[row.id].label}</td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : row.action === "pending" ? text.pendingReplacement : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
           </tbody></table>}
         </>}
         <button type="button" className="btn btn-secondary" onClick={() => setStep("holdings")}>{text.backHoldings}</button>
