@@ -24,6 +24,7 @@ MAYA_ILS_UNIT_FUNDS = {
     "5117700": {"isin": "IL0051177009", "fund_type_id": 1},
     "5131792": {"isin": "IL0051317928", "fund_type_id": 4},
     "5140850": {"isin": "IL0051408503", "fund_type_id": 4},
+    "5141627": {"isin": "IL0051416274", "fund_type_id": 4},
 }
 
 # These are process-local, dated observations that have already passed the
