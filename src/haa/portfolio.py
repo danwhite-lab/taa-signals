@@ -8,10 +8,14 @@ from .buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 
 
 SUPPORTED_CURRENCIES = ("USD", "ILS")
+# Explicit, opt-in holding transitions.  They are not data substitutions: the
+# source security remains a separately valued physical holding until a user
+# confirms it as a companion of the replacement target.
+EXECUTION_REPLACEMENTS = {("TASE", "1147875"): ("TASE", "5141627")}
 # Execution labels are deliberately separate from canonical strategy asset
 # codes.  The latter remain stable for data retrieval and signal calculation.
 EXECUTION_SECURITY_LABELS = {
-    ("ILS", "GOLD_IL"): "Gold — 1147875",
+    ("ILS", "GOLD_IL"): "Tachlit TTF LBMA Gold AM currency hedged — 5141627",
     ("ILS", "HAREL_GOV_BONDS_IL"): "Harel government bonds — 5131792",
     ("ILS", "RVOL_3X_IL"): "MTF Nasdaq-100 x3 monthly — 1187079",
     ("ILS", "RVOL_QQQ_IL"): "Harel Nasdaq-100 — 1149038",
