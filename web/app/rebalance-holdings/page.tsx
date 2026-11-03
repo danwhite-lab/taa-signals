@@ -13,15 +13,47 @@ type Account = { revision: number; cash_ils: string; manual_fx?: string | null; 
 type Quote = Record<string, unknown>;
 type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
   portfolios: { id: string; name: string; is_default?: boolean }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
-  comparison: { id: string; Fund: string; target_display: string; actual_display: string; Status: string; companion_of?: string }[];
+  comparison: { id: string; Fund: string; target_display: string; actual_display: string; "Actual %"?: number | null; Status: string; companion_of?: string }[];
   sell_review?: { id: string; action: "sell" | "keep"; before_units: string; after_units: string }[];
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
-  total_display: string; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
+  total_display: string; total_ils?: string | null; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
   stale?: string[]; held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; target_diagnostics?: {stage:string;code:string;message:string}[]; source_settings: string; seconds: number };
 type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
+const allocationColours = ["#17645f", "#3b82a0", "#d28b34", "#7a5ba6", "#bf5b5b", "#5b8c59", "#6b7280"];
+
+function CurrentAllocation({ state }: { state: State }) {
+  const total = Number(state.total_ils);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  const slices = state.comparison
+    .filter(row => typeof row["Actual %"] === "number" && row["Actual %"] > 0 && !row.companion_of && row.Status !== "Outside the rebalance")
+    .map(row => ({ label: row.Fund, share: row["Actual %"] as number }));
+  const cash = Number(state.account.cash_ils);
+  if (Number.isFinite(cash) && cash > 0) slices.push({ label: text.allocationCash, share: cash / total });
+  if (!slices.length) return null;
+  const size = slices.reduce((sum, slice) => sum + slice.share, 0);
+  const normalized = slices.map(slice => ({ ...slice, share: slice.share / size }));
+  let cursor = 0;
+  const stops = normalized.map((slice, index) => {
+    const start = cursor * 100;
+    cursor += slice.share;
+    return `${allocationColours[index % allocationColours.length]} ${start}% ${cursor * 100}%`;
+  }).join(", ");
+  const percent = new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 });
+  const summary = normalized.map(slice => `${slice.label} ${percent.format(slice.share)}`).join(", ");
+  return <section className="holdings-allocation" aria-labelledby="current-allocation-heading">
+    <div><h2 id="current-allocation-heading">{text.currentAllocation}</h2><p>{text.currentAllocationCaption}</p></div>
+    <div className="holdings-allocation-layout">
+      <div className="holdings-allocation-chart" role="img" aria-label={`${text.currentAllocation}: ${summary}`} style={{ background: `conic-gradient(${stops})` }} />
+      <ul className="holdings-allocation-legend">{normalized.map((slice, index) => <li key={slice.label}>
+        <span className="holdings-allocation-swatch" style={{ backgroundColor: allocationColours[index % allocationColours.length] }} />
+        <span>{slice.label}</span><strong>{percent.format(slice.share)}</strong>
+      </li>)}</ul>
+    </div>
+  </section>;
+}
 
 export default function RebalanceHoldings() {
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
@@ -256,6 +288,7 @@ export default function RebalanceHoldings() {
             })}>{text.generate}</button>
         </div>
       </section>
+      <CurrentAllocation state={state} />
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
       <section><h2>{text.comparison}</h2>{state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}<table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
         {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td data-label={text.fund}>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td data-label={text.target}>{row.target_display}</td><td data-label={text.actual}>{row.actual_display}</td><td data-label={text.status}>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>

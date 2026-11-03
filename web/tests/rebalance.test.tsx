@@ -30,6 +30,17 @@ const preview = { account: candidate, preview: [{ Fund: item.label, "Units to sa
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
 function roleButton(id:string,name:string){return within(screen.getByRole('group',{name:holdings.role+' '+id})).getByRole('button',{name});}
 
+it("shows the selected plan's current holdings and cash as a chart after What to buy", async () => {
+  const valued = { ...state, total_ils: "75", comparison: [{ id: item.id, Fund: item.label, target_display: "100.00%", actual_display: "93.33%", "Actual %": 70 / 75, Status: "Underweight" }] };
+  mock.request.mockResolvedValue(valued); render(<Page />);
+  await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button", { name: text.steps.buy }));
+  const chart = await screen.findByRole("img", { name: new RegExp(text.currentAllocation) });
+  expect(chart.getAttribute("aria-label")).toContain("Fake gold 93.3%");
+  expect(chart.getAttribute("aria-label")).toContain(`${text.allocationCash} 6.7%`);
+  expect(screen.getByText(text.currentAllocation).compareDocumentPosition(screen.getByText(text.rebalanceTotal)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
 it('shows an unmatched companion as outside, with no target and the exclusion explanation',async()=>{
   const next={...state,targets:{[other.id]:1},comparison:[
     {id:item.id,Fund:item.label,target_display:'—',actual_display:'—',Status:'Outside the rebalance',companion_of:'US:OTHER'},
