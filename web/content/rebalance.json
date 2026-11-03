@@ -15,6 +15,7 @@
   "allocationOutsidePlan": "(outside plan)",
   "allocationMissing": "Not shown in this chart because no current price is available: {holdings}.",
   "allocationVisibleOnly": "Percentages now describe only the visible portion of the account.",
+  "allocationHidden": "Hidden",
   "allocationShowAll": "Show all",
   "allocationToggle": "Show or hide {holding}",
   "allocationNoneVisible": "No holdings are visible",
