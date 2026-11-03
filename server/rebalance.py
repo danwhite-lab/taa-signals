@@ -164,9 +164,9 @@ def targets_for(workspace, portfolios, portfolio_id, account):
     return portfolio, instruments, rows, targets, errors, source, diagnostics
 
 
-def sell_review(account, targets, instruments, available=True):
+def sell_review(account, targets, instruments, available=True, withheld=()):
     """Review full exits only; never change holdings or finance buy orders."""
-    excluded = excluded_holdings(account, targets)
+    excluded, withheld = excluded_holdings(account, targets), set(withheld)
     result = []
     for key, position in sorted(account["positions"].items()):
         units = number(position["units"])
@@ -174,9 +174,10 @@ def sell_review(account, targets, instruments, available=True):
             continue
         identifier = instruments[key]["identifier"].upper()
         protected = identifier == "1159250" or identifier.split(".")[0] == "CSPX"
-        sell = (available and not protected and key not in excluded
+        pending = key in withheld
+        sell = (available and not pending and not protected and key not in excluded
                 and not position.get("companion_of") and number(targets.get(key, 0)) == 0)
-        result.append({"id": key, "action": "sell" if sell else "keep",
+        result.append({"id": key, "action": "pending" if pending else "sell" if sell else "keep",
                        "before_units": str(units), "after_units": "0" if sell else str(units)})
     return result
 
@@ -271,7 +272,7 @@ def snapshot(workspace, account, portfolios, request):
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
-        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors and not replacements)),
+        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}),
         "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
