@@ -191,7 +191,7 @@ class BuyAndHoldGlobalIsrael(BuyAndHoldSPY):
 
 
 class BuyAndHoldGoldIsrael(BuyAndHoldSPY):
-    """Plain holding of gold security 1147875, not GLD/GLDM proxy returns."""
+    """Historical 1147875 data, with new purchases executed through 5141627."""
 
     name = "Buy and Hold Gold Israel"
     holding_asset = "GOLD_IL"
@@ -202,10 +202,10 @@ class BuyAndHoldGoldIsrael(BuyAndHoldSPY):
     validation_profile = replace(
         BuyAndHoldSPY.validation_profile,
         profile_id="buy-and-hold-gold-israel",
-        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold gold security 1147875 continuously in ILS."),),
-        execution=ExecutionSpec("continuous", "Gold security 1147875 remains continuously invested", (0,), (0,)),
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Historical results use gold fund 1147875; new Israeli execution uses currency-hedged Tachlit 5141627."),),
+        execution=ExecutionSpec("continuous", "Current purchases use Tachlit gold fund 5141627; no timing rule", (0,), (0,)),
         data_confidence="moderate",
-        notes="Actual TASE security 1147875 history only. No GLD, GLDM, futures or pre-fund history is spliced in. Expenses embedded in fund prices are not deducted again. Uploaded replacement history is unverified and must be labelled separately.",
+        notes="Historical results use actual TASE security 1147875, the older unhedged gold-plus-USD/ILS fund. Current execution uses separate currency-hedged Tachlit 5141627. No 5141627 history is spliced, backfilled or reported as 1147875 returns. Expenses embedded in fund prices are not deducted again.",
     )
 
 
