@@ -10,7 +10,7 @@ import re
 from uuid import uuid4
 
 from .portfolio import execution_security_label
-from .tase_data import TASE_ISRAEL_ASSET_IDS
+from .tase_data import TASE_EXECUTION_ASSET_IDS
 from .allocation_mode import validate_allocation_mode
 
 
@@ -52,7 +52,7 @@ def security(identifier, market, currency=None, label=None):
 def execution_security(asset, currency):
     label = execution_security_label(asset, currency)
     matches = re.findall(r"\b\d{7}\b", label)
-    identifier = TASE_ISRAEL_ASSET_IDS.get(asset) or (matches[-1] if matches else None)
+    identifier = TASE_EXECUTION_ASSET_IDS.get(asset) or (matches[-1] if matches else None)
     if currency == "ILS" and not identifier:
         raise ValueError(f"{asset}: no verified executable TASE security mapping.")
     return security(identifier or asset, "TASE" if identifier else "US", currency, label)

@@ -17,7 +17,7 @@ from haa.rebalance_holdings import (empty_account, validate_account, number, sec
     execution_security, combined_targets, rebalance_targets, compare_holdings,
     make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
-from haa.portfolio import EXECUTION_SECURITY_LABELS
+from haa.portfolio import EXECUTION_SECURITY_LABELS, EXECUTION_REPLACEMENTS
 from . import private_api as private, rebalance_quotes as market
 from .rebalance_editor import _preview_positions
 
@@ -164,9 +164,9 @@ def targets_for(workspace, portfolios, portfolio_id, account):
     return portfolio, instruments, rows, targets, errors, source, diagnostics
 
 
-def sell_review(account, targets, instruments, available=True):
+def sell_review(account, targets, instruments, available=True, withheld=()):
     """Review full exits only; never change holdings or finance buy orders."""
-    excluded = excluded_holdings(account, targets)
+    excluded, withheld = excluded_holdings(account, targets), set(withheld)
     result = []
     for key, position in sorted(account["positions"].items()):
         units = number(position["units"])
@@ -174,10 +174,26 @@ def sell_review(account, targets, instruments, available=True):
             continue
         identifier = instruments[key]["identifier"].upper()
         protected = identifier == "1159250" or identifier.split(".")[0] == "CSPX"
-        sell = (available and not protected and key not in excluded
+        pending = key in withheld
+        sell = (available and not pending and not protected and key not in excluded
                 and not position.get("companion_of") and number(targets.get(key, 0)) == 0)
-        result.append({"id": key, "action": "sell" if sell else "keep",
+        result.append({"id": key, "action": "pending" if pending else "sell" if sell else "keep",
                        "before_units": str(units), "after_units": "0" if sell else str(units)})
+    return result
+
+
+def replacement_review(account, targets, instruments):
+    """Require an explicit companion choice before an execution replacement."""
+    result = []
+    for key, position in account["positions"].items():
+        if not number(position.get("units", 0)) or position.get("outside_rebalance") or position.get("companion_of"):
+            continue
+        replacement = EXECUTION_REPLACEMENTS.get((position.get("market"), position.get("identifier")))
+        if not replacement:
+            continue
+        target = f"{replacement[0]}:{replacement[1]}"
+        if target in targets:
+            result.append({"from": key, "to": target, "from_label": instruments[key]["label"], "to_label": instruments[target]["label"]})
     return result
 
 
@@ -185,7 +201,13 @@ def snapshot(workspace, account, portfolios, request):
     started = perf_counter()
     mode = private.checked_allocation_mode(workspace["payload"])
     portfolio, instruments, sources, targets, errors, source, diagnostics = targets_for(workspace, portfolios, request.portfolio_id, account)
+    # Saved, historical execution IDs remain independently resolvable and
+    # valued; reading a workspace never rewrites the account record.
+    for key, position in account["positions"].items():
+        if key not in instruments:
+            instruments[key] = security(position["identifier"], position["market"], position["currency"], position.get("label"))
     targets = rebalance_targets(account, targets)
+    replacements = replacement_review(account, targets, instruments)
     excluded = excluded_holdings(account, targets)
     visible = set(targets) | set(account["positions"])
     quotes = {k: market.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(visible)}
@@ -230,7 +252,7 @@ def snapshot(workspace, account, portfolios, request):
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible)
+    ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
     context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account)}
@@ -250,14 +272,14 @@ def snapshot(workspace, account, portfolios, request):
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
-        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors)),
+        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}),
         "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
         "total_display": f"₪{total:,.2f}" if total is not None else "Unavailable",
         "full_total_display": f"₪{full_total:,.2f}" if full_total is not None else "Unavailable",
         "blocked": sorted(blocked), "stale": sorted(stale), "held_blocked": sorted(held_blocked), "partial": bool(blocked-excluded),
-        "ready": ready, "context": context, "rebalance_fx": rebalance_fx,
+        "ready": ready, "replacement_review": replacements, "context": context, "rebalance_fx": rebalance_fx,
         "overweight": any(r["Status"] == "Overweight" for r in comparison),
         "seconds": round(perf_counter()-started, 6)}
 

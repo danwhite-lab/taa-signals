@@ -6,6 +6,7 @@ from haa.strategies import BuyAndHoldQQQ, BuyAndHoldQQQIsrael, BuyAndHoldSPY, Bu
 from haa.engine import run_backtest
 from haa.model_catalog import resolve
 from haa.portfolio import execution_security_label
+from haa.rebalance_holdings import execution_security
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
@@ -109,7 +110,14 @@ def test_plain_local_holdings_have_no_signals_or_proxy_splice(cls, asset, securi
     assert TASE_ISRAEL_ASSET_IDS[asset] == security
     definition = resolve("Buy and Hold", variant, implementation)
     assert definition.model_class is cls and definition.execution_currency == "ILS"
-    assert security in execution_security_label(asset, "ILS")
+    if asset == "GOLD_IL":
+        # The published strategy retains its actual unhedged history, while
+        # future Israeli execution uses the separately identified Tachlit fund.
+        assert TASE_ISRAEL_ASSET_IDS[asset] == "1147875"
+        assert execution_security(asset, "ILS")["id"] == "TASE:5141627"
+        assert "5141627" in execution_security_label(asset, "ILS")
+    else:
+        assert security in execution_security_label(asset, "ILS")
     result = run_backtest(decisions, prices, 1000, tax_enabled=True, benchmark_asset=asset)
     assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1210.)
     assert result.monthly.after_tax_value.equals(result.monthly.pre_tax_value)
