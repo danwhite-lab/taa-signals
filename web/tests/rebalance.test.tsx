@@ -52,6 +52,13 @@ const chartState = {
   ],
 };
 const allocationButton = (label:string) => screen.getByRole("button", {name:text.allocationToggle.replace("{holding}",label)});
+const extraChartRows = ["Extra one", "Extra two", "Extra three", "Extra four"].map((Fund, index) => ({...row, Security:`TASE:EXTRA-${index}`, Fund, Currency:"ILS", Units:String(index + 2)}));
+const manyChartState = {
+  ...chartState, rows:[...chartRows,...extraChartRows],
+  instruments:{...chartState.instruments,...Object.fromEntries(extraChartRows.map((row, index) => [row.Security,{id:row.Security,identifier:String(1234500 + index),market:"TASE",currency:"ILS",label:row.Fund}]))},
+  quotes:{...chartState.quotes,...Object.fromEntries(extraChartRows.map((row, index) => [row.Security,{price:String(7 + index)}]))},
+  comparison:[...chartState.comparison,...extraChartRows.map(row => ({id:row.Security,Fund:row.Fund,target_display:"",actual_display:"",Status:"On target"}))],
+};
 
 it("shows every physical holding and cash once, largest first, in the full-account chart", async () => {
   mock.request.mockResolvedValue(chartState); render(<Page />);
@@ -74,11 +81,24 @@ it("recalculates visible allocation percentages and restores the full account", 
   fireEvent.click(screen.getByRole("button", {name:text.steps.buy})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
   fireEvent.click(allocationButton("Outside holding"));
   expect(allocationButton("Outside holding").getAttribute("aria-pressed")).toBe("false");
+  expect(allocationButton("Outside holding").textContent).toContain(text.allocationHidden);
+  expect(allocationButton("Outside holding").textContent).not.toContain(text.unavailable);
   expect(screen.getByText(text.allocationVisibleOnly)).toBeTruthy();
   expect(allocationButton(item.label).textContent).toContain("40%");
   fireEvent.click(screen.getByRole("button", {name:text.allocationShowAll}));
   expect(screen.queryByText(text.allocationVisibleOnly)).toBeNull();
   expect(allocationButton(item.label).textContent).toContain("26.7%");
+});
+
+it("gives nine slices distinct stable colours", async () => {
+  mock.request.mockResolvedValue(manyChartState); render(<Page />); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button", {name:text.steps.buy})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
+  const swatch = (label:string) => allocationButton(label).querySelector(".holdings-allocation-swatch") as HTMLElement;
+  const colours = [...document.querySelectorAll<HTMLElement>(".holdings-allocation-swatch")].map(node => node.style.backgroundColor);
+  expect(colours).toHaveLength(9); expect(new Set(colours).size).toBe(9);
+  const gold = swatch(item.label).style.backgroundColor;
+  fireEvent.click(allocationButton("Extra one"));
+  expect(swatch(item.label).style.backgroundColor).toBe(gold);
 });
 
 it("names an unpriceable held position instead of putting it in the chart", async () => {
