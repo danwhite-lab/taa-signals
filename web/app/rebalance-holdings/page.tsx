@@ -23,6 +23,9 @@ type Plan = { id: string; orders: { id: string; units: number; estimated_ils: st
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
 const allocationColours = ["#17645f", "#3b82a0", "#d28b34", "#7a5ba6", "#bf5b5b", "#5b8c59", "#6b7280"];
+const extraAllocationColours = ["#8b6f47", "#db4c77", "#3f7cac", "#8c6bb1", "#2a9d8f"];
+const allocationColour = (index: number) => allocationColours[index] ?? extraAllocationColours[index - allocationColours.length]
+  ?? `hsl(${Math.round((index * 137.508) % 360)} 58% 42%)`;
 
 function CurrentAllocation({ state }: { state: State }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
@@ -44,7 +47,7 @@ function CurrentAllocation({ state }: { state: State }) {
   const cash = Number(state.account.cash_ils);
   if (Number.isFinite(cash) && cash > 0) slices.push({ id: "cash", label: text.allocationCash, value: cash, outside: false });
   if (!slices.length && !missing.length) return null;
-  const ordered = slices.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label)).map((slice, index) => ({ ...slice, colour: allocationColours[index % allocationColours.length] }));
+  const ordered = slices.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label)).map((slice, index) => ({ ...slice, colour: allocationColour(index) }));
   const visible = ordered.filter(slice => !hidden.has(slice.id));
   const visibleTotal = visible.reduce((sum, slice) => sum + slice.value, 0);
   let cursor = 0;
@@ -68,7 +71,7 @@ function CurrentAllocation({ state }: { state: State }) {
             const next = new Set(previous); if (next.has(slice.id)) next.delete(slice.id); else next.add(slice.id); return next;
           })}>
             <span className="holdings-allocation-swatch" style={{ backgroundColor: slice.colour }} />
-            <span>{slice.label} {slice.outside && <small>{text.allocationOutsidePlan}</small>}</span><strong>{included && visibleTotal ? percent.format(slice.value / visibleTotal) : text.unavailable}</strong>
+            <span>{slice.label} {slice.outside && <small>{text.allocationOutsidePlan}</small>}</span><strong>{included && visibleTotal ? percent.format(slice.value / visibleTotal) : text.allocationHidden}</strong>
           </button>
         </li>;
       })}</ul>{hidden.size > 0 && <button type="button" className="btn btn-secondary holdings-allocation-show-all" onClick={() => setHidden(new Set())}>{text.allocationShowAll}</button>}</div>
