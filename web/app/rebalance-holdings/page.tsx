@@ -14,6 +14,7 @@ type Quote = Record<string, unknown>;
 type State = { workspace_revision: number; account: Account; account_hash: string; portfolio_id: string | null; allocation_mode: AllocationMode;
   portfolios: { id: string; name: string; is_default?: boolean }[]; rows: Row[]; instruments: Record<string, Instrument>; quotes: Record<string, Quote>;
   comparison: { id: string; Fund: string; target_display: string; actual_display: string; "Actual %"?: number | null; Status: string; companion_of?: string }[];
+  replacement_review?: { from: string; to: string; from_label: string; to_label: string }[];
   sell_review?: { id: string; action: "sell" | "keep"; before_units: string; after_units: string }[];
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
@@ -219,6 +220,10 @@ export default function RebalanceHoldings() {
       {!!state.blocked.length && <p className="signal-warning">{text.missing} {state.blocked.map(key => state.instruments[key].label).join(", ")}</p>}
       {!!staleFunds.length && <p className="signal-warning">{text.stalePrices.replace("{funds}", staleFunds.map(key => `${state.instruments[key].label} (${staleDate(key)})`).join(", "))}</p>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
+      {!!state.replacement_review?.length && <div className="signal-warning"><p>{text.replacementReview}</p>{state.replacement_review.map(item => <button type="button" className="btn btn-secondary" key={item.from} disabled={busy || paused} onClick={() => {
+        setRoles(previous => ({...previous, [item.from]: "companion"}));
+        invalidate(true); setRows(previous => previous.map(row => row.Security === item.from ? {...row, "Outside the rebalance": false, "Companion of": item.to} : row));
+      }}>{text.replacementConfirm.replace("{old}", item.from_label).replace("{new}", item.to_label)}</button>)}</div>}
       {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
       {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
       <div className="rebalance-workflow">
