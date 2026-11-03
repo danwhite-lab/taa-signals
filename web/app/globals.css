@@ -340,6 +340,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
   .rebalance-controls-compact .rebalance-control-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; }
   .rebalance-controls-compact .allocation-mode { grid-column: 1 / -1; }
   .holdings-allocation-layout { align-items: center; flex-direction: column; gap: 14px; }
+  .holdings-allocation { box-sizing: border-box; max-width: calc(100vw - 32px); width: 100%; }
   .holdings-allocation-chart { flex-basis: 160px; height: 160px; width: 160px; }
   .holdings-allocation-chart::after { inset: 38px; }
   .holdings-allocation-legend-wrap { margin: 0 auto; max-width: 420px; width: 100%; }
