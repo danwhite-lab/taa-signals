@@ -25,32 +25,53 @@ const show = (value: unknown, context="") => fmt.cell(value, context);
 const allocationColours = ["#17645f", "#3b82a0", "#d28b34", "#7a5ba6", "#bf5b5b", "#5b8c59", "#6b7280"];
 
 function CurrentAllocation({ state }: { state: State }) {
-  const total = Number(state.total_ils);
-  if (!Number.isFinite(total) || total <= 0) return null;
-  const slices = state.comparison
-    .filter(row => typeof row["Actual %"] === "number" && row["Actual %"] > 0 && !row.companion_of && row.Status !== "Outside the rebalance")
-    .map(row => ({ label: row.Fund, share: row["Actual %"] as number }));
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const outside = new Map(state.comparison.map(row => [row.id, row.Status === "Outside the rebalance"]));
+  const missing: string[] = [];
+  const slices = state.rows.flatMap(row => {
+    if (row.Remove === true || Number(row.Units) <= 0) return [];
+    const id = String(row.Security);
+    const instrument = state.instruments[id];
+    const quote = state.quotes[id];
+    const price = Number(quote?.price);
+    const fx = instrument?.currency === "USD" ? Number(state.fx.price) : 1;
+    if (!instrument || quote?.error || !Number.isFinite(price) || price <= 0 || !Number.isFinite(fx) || fx <= 0) {
+      missing.push(String(row.Fund || instrument?.label || id));
+      return [];
+    }
+    return [{ id, label: String(row.Fund || instrument.label), value: Number(row.Units) * price * fx, outside: outside.get(id) === true || !outside.has(id) }];
+  });
   const cash = Number(state.account.cash_ils);
-  if (Number.isFinite(cash) && cash > 0) slices.push({ label: text.allocationCash, share: cash / total });
-  if (!slices.length) return null;
-  const size = slices.reduce((sum, slice) => sum + slice.share, 0);
-  const normalized = slices.map(slice => ({ ...slice, share: slice.share / size }));
+  if (Number.isFinite(cash) && cash > 0) slices.push({ id: "cash", label: text.allocationCash, value: cash, outside: false });
+  if (!slices.length && !missing.length) return null;
+  const ordered = slices.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label)).map((slice, index) => ({ ...slice, colour: allocationColours[index % allocationColours.length] }));
+  const visible = ordered.filter(slice => !hidden.has(slice.id));
+  const visibleTotal = visible.reduce((sum, slice) => sum + slice.value, 0);
   let cursor = 0;
-  const stops = normalized.map((slice, index) => {
+  const stops = visible.map(slice => {
     const start = cursor * 100;
-    cursor += slice.share;
-    return `${allocationColours[index % allocationColours.length]} ${start}% ${cursor * 100}%`;
+    cursor += slice.value / visibleTotal;
+    return `${slice.colour} ${start}% ${cursor * 100}%`;
   }).join(", ");
   const percent = new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 });
-  const summary = normalized.map(slice => `${slice.label} ${percent.format(slice.share)}`).join(", ");
+  const summary = visible.map(slice => `${slice.label} ${percent.format(slice.value / visibleTotal)}`).join(", ");
   return <section className="holdings-allocation" aria-labelledby="current-allocation-heading">
     <div><h2 id="current-allocation-heading">{text.currentAllocation}</h2><p>{text.currentAllocationCaption}</p></div>
+    {!!missing.length && <p className="signal-warning">{text.allocationMissing.replace("{holdings}", missing.join(", "))}</p>}
+    {hidden.size > 0 && <p className="holding-hint">{text.allocationVisibleOnly}</p>}
     <div className="holdings-allocation-layout">
-      <div className="holdings-allocation-chart" role="img" aria-label={`${text.currentAllocation}: ${summary}`} style={{ background: `conic-gradient(${stops})` }} />
-      <ul className="holdings-allocation-legend">{normalized.map((slice, index) => <li key={slice.label}>
-        <span className="holdings-allocation-swatch" style={{ backgroundColor: allocationColours[index % allocationColours.length] }} />
-        <span>{slice.label}</span><strong>{percent.format(slice.share)}</strong>
-      </li>)}</ul>
+      <div className="holdings-allocation-chart" role="img" aria-label={`${text.currentAllocation}: ${summary || text.allocationNoneVisible}`} style={{ background: stops ? `conic-gradient(${stops})` : "#eef2f5" }} />
+      <div className="holdings-allocation-legend-wrap"><ul className="holdings-allocation-legend">{ordered.map(slice => {
+        const included = !hidden.has(slice.id);
+        return <li key={slice.id} className={included ? undefined : "is-hidden"}>
+          <button type="button" aria-pressed={included} aria-label={text.allocationToggle.replace("{holding}", slice.label)} onClick={() => setHidden(previous => {
+            const next = new Set(previous); if (next.has(slice.id)) next.delete(slice.id); else next.add(slice.id); return next;
+          })}>
+            <span className="holdings-allocation-swatch" style={{ backgroundColor: slice.colour }} />
+            <span>{slice.label} {slice.outside && <small>{text.allocationOutsidePlan}</small>}</span><strong>{included && visibleTotal ? percent.format(slice.value / visibleTotal) : text.unavailable}</strong>
+          </button>
+        </li>;
+      })}</ul>{hidden.size > 0 && <button type="button" className="btn btn-secondary holdings-allocation-show-all" onClick={() => setHidden(new Set())}>{text.allocationShowAll}</button>}</div>
     </div>
   </section>;
 }
