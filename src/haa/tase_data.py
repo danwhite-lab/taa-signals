@@ -42,6 +42,10 @@ TASE_ISRAEL_ASSET_IDS = {
     "HAREL_GOV_BONDS_IL": "5131792",
     **tase_asset_ids(),
 }
+# Historical data identifiers remain deliberately separate from current
+# execution choices.  GOLD_IL's research/backtest history is 1147875; new
+# purchases for that existing sleeve use the hedged Tachlit mutual fund below.
+TASE_EXECUTION_ASSET_IDS = {**TASE_ISRAEL_ASSET_IDS, "GOLD_IL": "5141627"}
 TASE_ETF_ASSETS = frozenset({"DAX_X3_MONTHLY_IL", "NASDAQ_X3_MONTHLY_IL", "RVOL_3X_IL", "RVOL_QQQ_IL", "RVOL_SPY_IL", "RVOL_LQD_IL", "RVOL_HYG_IL", "CSPX_IL", "FTSE_ALL_WORLD_IL", "QQQ_IL", "IEF_IL", "SPMO_IL", "XLE_IL", "XLK_IL", "XLV_IL", "XLP_IL", "XLU_IL", "GOLD_IL"}) | tase_etf_assets()
 PUBLIC_HISTORY_YEARS = 5
 INFLATION_COMPASS_HISTORY_YEARS = 8
