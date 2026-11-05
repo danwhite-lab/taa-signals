@@ -150,7 +150,7 @@
     "balance": "Portfolio balance",
     "sell": "Sell list",
     "buy": "Buy list",
-    "details": "Details"
+    "details": "Data & Signals"
   },
   "nextAction": "Continue to Action",
   "buyEmpty": "Generate a buy list using your saved holdings and entered cash.",
