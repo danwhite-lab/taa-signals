@@ -8,15 +8,19 @@ import {UsdToggle,UsdBanner,useUsdAvailability,fitDates} from "../../components/
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
+import DisplayTable from "../../components/DisplayTable";
 
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
 type Sleeve = { id: number; model: string; weight: number };
 type Config = { dca_caption: string; models: Model[]; proxies: { key: string; label: string; caveat: string }[]; single_options: string[]; blend_options: string[];
   benchmarks: { key: string; label: string; caveat: string }[] };
+type Table = { columns: string[]; rows: Record<string, unknown>[] };
+type SingleOptions = { currency: string; bounds: { start_min: string; start_max: string; end_min: string; end_max: string }; captions: string[]; warnings: string[];
+  data_validation: Table; reference_replay_available: boolean; reference_caption: string };
 type Form = { usd_equivalents:boolean; initial: number; start: string; end: string; fee_type: "percentage" | "fixed"; fee_value: number; tax_enabled: boolean; tax_rate: number;
-  monthly_contribution: number; benchmark: string; sleeve_rebalance_mode: string; rebalance_sleeve: number | null; rebalance_cap: number; rebalance_target: number } & FeeAssumptions;
+  monthly_contribution: number; reference_replay: boolean; benchmark: string; sleeve_rebalance_mode: string; rebalance_sleeve: number | null; rebalance_cap: number; rebalance_target: number } & FeeAssumptions;
 const defaults: Form = { ...defaultFees, usd_equivalents:false, initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
-  monthly_contribution: 1000, benchmark: "sp500", sleeve_rebalance_mode: "none", rebalance_sleeve: null, rebalance_cap: 15, rebalance_target: 10 };
+  monthly_contribution: 1000, reference_replay: false, benchmark: "sp500", sleeve_rebalance_mode: "none", rebalance_sleeve: null, rebalance_cap: 15, rebalance_target: 10 };
 
 export default function MultiForm({ mode, running, onRun, onChange }: { mode: "portfolio" | "deep"; running: boolean;
   onRun: (body: Record<string, unknown>) => Promise<void>; onChange: () => void }) {
@@ -34,11 +38,14 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [savedError, setSavedError] = useState("");
   const [loadingPortfolio, setLoadingPortfolio] = useState(false);
+  const [singleOptions, setSingleOptions] = useState<SingleOptions | null>(null);
+  const [singleOptionsError, setSingleOptionsError] = useState("");
   const loadController = useRef<AbortController | null>(null);
   const loadInFlight = useRef(false);
   const nextId = useRef(2);
   const daily = mode === "deep" && sleeves.some(s => s.model === "rvol_daily");
-  const body = { ...form, mode, sleeves, start: form.start || null, end: form.end || null, tax_enabled: daily ? false : form.tax_enabled,
+  const {reference_replay: _referenceReplay, ...multiForm} = form;
+  const body = { ...multiForm, mode, sleeves, start: form.start || null, end: form.end || null, tax_enabled: daily ? false : form.tax_enabled,
     monthly_contribution: dca ? form.monthly_contribution : 0 };
   useEffect(() => {
     const controller = new AbortController();
@@ -47,6 +54,16 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => { controller.abort(); loadController.current?.abort(); };
   }, [mode]);
+  const legacySingle = mode === "portfolio" && sleeves.length === 1 && form.sleeve_rebalance_mode === "none";
+  useEffect(() => {
+    if (!legacySingle) { setSingleOptions(null); setSingleOptionsError(""); return; }
+    const controller = new AbortController();
+    setSingleOptions(null); setSingleOptionsError("");
+    void backtestRequest<SingleOptions>(`/api/backtest/options?label=${encodeURIComponent(sleeves[0].model)}${form.usd_equivalents ? "&usd_equivalents=true" : ""}`, {signal: controller.signal})
+      .then(value => { if (!controller.signal.aborted && value.bounds) { setSingleOptions(value); setForm(previous => ({...previous, ...fitDates(previous,value.bounds), reference_replay: value.reference_replay_available ? previous.reference_replay : false})); } })
+      .catch((failure: Error) => { if (!controller.signal.aborted) setSingleOptionsError(failure.message); });
+    return () => controller.abort();
+  }, [legacySingle, sleeves, form.usd_equivalents]);
   function change(patch: Partial<Form>) { setValid(false); setMessage(""); setForm(previous => ({ ...previous, ...patch })); setError(""); onChange(); }
   function edit(id: number, patch: Partial<Sleeve>) {
     setValid(false); setMessage(""); setSleeves(previous => previous.map(s => s.id === id ? { ...s, ...patch } : s)); setWarnings([]); onChange();
@@ -108,7 +125,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       // is selected. Adding a sleeve keeps the existing portfolio path.
       const runBody = mode === "portfolio" && sleeves.length === 1 && form.sleeve_rebalance_mode === "none"
         ? (({mode: _mode, sleeves: chosen, sleeve_rebalance_mode: _rule, rebalance_sleeve: _sleeve,
-            rebalance_cap: _cap, rebalance_target: _target, benchmark: _benchmark, ...single}) => ({...single, label: chosen[0].model}))(body)
+            rebalance_cap: _cap, rebalance_target: _target, benchmark: _benchmark, ...single}) => ({...single, label: chosen[0].model, reference_replay: form.reference_replay}))(body)
         : body;
       if (value.valid) await onRun(runBody);
     } catch (failure) { setMessage((failure as Error).message); }
@@ -133,6 +150,9 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   const allocationValid = Number.isFinite(total) && Math.abs(total - 100) < 1e-8 && sleeves.every(s => Number.isFinite(s.weight) && s.weight > 0);
   const footerSummary = words.footerSummary.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel)
     .replace("{initial}", new Intl.NumberFormat("en", {style:"currency",currency:"USD",maximumFractionDigits:0}).format(Number.isFinite(form.initial) ? form.initial : 0));
+  const advancedSummary = mode === "deep"
+    ? `${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`
+    : `${words.rebalancingTitle}: ${words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · ${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`;
   return <section className={compact ? "portfolio-compact" : undefined}>{!compact && <p>{words.choose}</p>}
     {!config && !error && <p role="status">{text.loading}</p>}
 
@@ -156,6 +176,11 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       </header>
       {warnings.map((warning, i) => <p role="alert" key={i}>{warning}</p>)}
       {mode === "portfolio" ? <details className="portfolio-help"><summary>{words.allocationHelp}</summary><p>{words.sleeveCaption}</p></details> : <p>{words.proxyCaption}</p>}
+      {mode === "deep" && <div className="proxy-caveats">
+        {sleeves.map(s => <p className="signal-warning" key={s.id}>{config?.proxies.find(proxy => proxy.key === s.model)?.caveat}</p>)}
+        <p>{daily ? words.dailyCaption : words.proxyTax.replace("{benchmark}", config?.benchmarks.find(item => item.key === form.benchmark)?.label ?? "")}</p>
+        {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}
+      </div>}
       {mode === "deep" && <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.extendedAllocationTitle}><thead><tr>
         <th scope="col">{words.proxyStrategy}</th><th scope="col" className="numeric">{words.weight}</th><th scope="col"><span className="visually-hidden">{words.actions}</span></th>
       </tr></thead><tbody>{sleeves.map((s, index) => <tr key={s.id}><td><label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
@@ -205,10 +230,16 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         }}>{mode === "deep" ? words.add : words.addSleeve}</button>
 {compact && <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>}</div>
       </section>
-      <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
+      {legacySingle && <section className="single-context">
+        {singleOptions && <><p className="assumption-hint">{text.currency}: {singleOptions.currency}</p>{singleOptions.captions.map((caption,index) => <p key={index}>{caption}</p>)}{singleOptions.warnings.map((warning,index) => <p className="signal-warning" key={index}>{warning}</p>)}
+          <details><summary>{text.validation}</summary><DisplayTable value={singleOptions.data_validation} label={text.sources}/></details></>}
+        {singleOptionsError && <p role="alert">{singleOptionsError}</p>}
+      </section>}
+      <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" min={singleOptions?.bounds.start_min} max={singleOptions?.bounds.start_max} value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" min={singleOptions?.bounds.end_min} max={singleOptions?.bounds.end_max} value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
         dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
       {dca && <p className="portfolio-dca-caption">{config?.dca_caption}</p>}
-      {compact ? <details className="portfolio-advanced"><summary><strong>{words.advancedTitle}</strong><span>{words.rebalancingTitle}: {words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · {words.feesTitle}: {form.fees_enabled ? words.on : words.off} · {words.taxTitle}: {form.tax_enabled ? `${form.tax_rate}%` : words.off}</span></summary>
+      {legacySingle && singleOptions?.reference_replay_available && <><label>{text.reference}<input type="checkbox" checked={form.reference_replay} onChange={event => change({reference_replay:event.target.checked})} /></label><p>{singleOptions.reference_caption}</p></>}
+      {compact ? <details className="portfolio-advanced"><summary><strong>{words.advancedTitle}</strong><span>{advancedSummary}</span></summary>
         <div className="portfolio-advanced-grid"><section><h3>{mode === "deep" ? words.benchmark : words.rebalancingTitle}</h3>
           {mode === "deep" ? <><label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
             {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : transferControls}
