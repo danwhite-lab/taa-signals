@@ -135,5 +135,21 @@
   "downloads": {
     "portfolio_nav": "Download daily portfolio NAV", "sleeve_nav": "Download daily sleeve NAV", "executions": "Download sleeve executions", "sleeve_tax": "Download sleeve tax events",
     "proxy_tax": "Download portfolio tax ledger", "proxy_audit": "Download modeled portfolio transactions", "synthetic_tax": "Download modeled tax ledger", "synthetic_nav": "Download daily pre-tax / after-tax NAV", "synthetic_audit": "Download modeled transactions", "synthetic_source": "Download synthetic daily history", "daily_source": "Download supplied daily signal history"
-  }
+  },
+  "allocationTitle": "Portfolio allocation",
+  "investmentTitle": "Investment & period",
+  "advancedTitle": "Advanced settings",
+  "rebalancingTitle": "Rebalancing",
+  "feesTitle": "Trading fees",
+  "taxTitle": "Taxes",
+  "on": "On",
+  "off": "Off",
+  "total": "Total: {total}%",
+  "footerSummary": "{count} sleeves \u00b7 {total}% allocated \u00b7 {initial} initial capital",
+  "addSleeve": "Add sleeve",
+  "allocationHelp": "Allocation help",
+  "loadingHelp": "Loading help",
+  "settingsHelp": "Settings help",
+  "actions": "Actions",
+  "removeSleeve": "Remove sleeve {number}"
 }
