@@ -16,6 +16,7 @@ function setup(mode: "portfolio" | "deep", defaultId?: string) {
   const run = vi.fn(async (_body: Record<string, unknown>) => {}); const changed = vi.fn();
   mock.request.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path.startsWith("/api/backtest/config")) return config;
+    if (path.startsWith("/api/backtest/options")) return {currency:'USD',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:false,reference_caption:''};
     if (path === "/api/portfolios") return defaultId ? [{id:'fake-id',is_default:defaultId==='fake-id'},{id:'fake-second',is_default:defaultId==='fake-second'}] : [{ id: "fake-id", name: "Fake portfolio" }];
     if (path === "/api/compare/options?kind=portfolios") return {portfolios:[{ id: "fake-id", name: "Fake portfolio" },{id:"fake-second",name:"Fake second"}]};
     if (path === "/api/backtest/load") return { sleeves: [{ id: 1, model: mode === "deep" ? "haa_simple" : "HAA-Simple", weight: 100 }], initial: 3000, warnings: [] };
@@ -236,7 +237,23 @@ it('keeps DCA and import payloads unchanged and shows execution errors at the fo
  fireEvent.click(screen.getByRole('button',{name:text.run}));
  await screen.findByText('Mock execution failed');
  expect(screen.getByText('Mock execution failed').closest('footer')).toBeTruthy();
- expect(run.mock.calls[0][0]).toMatchObject({monthly_contribution:250,initial:3000,start:null,end:null});
+ expect(run.mock.calls[0][0]).toMatchObject({monthly_contribution:250,initial:3000,start:'2020-01-31',end:'2025-12-31'});
  fireEvent.change(screen.getByLabelText(words.weight),{target:{value:'99'}});
  expect(screen.queryByText(words.weightSuccess)).toBeNull();
+});
+
+it('restores reference replay only for a legacy one-sleeve request',async()=>{
+ const run=vi.fn(async(_body:Record<string,unknown>)=>{});
+ mock.request.mockImplementation(async(path:string)=>{
+  if(path.startsWith('/api/backtest/config'))return config;
+  if(path.startsWith('/api/backtest/options'))return {currency:'USD',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:true,reference_caption:'Mock replay context'};
+  return {valid:true,message:words.weightSuccess};
+ });
+ render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+ await screen.findByLabelText(text.reference);
+ fireEvent.click(screen.getByLabelText(text.reference));
+ fireEvent.click(screen.getByRole('button',{name:text.run}));
+ await waitFor(()=>expect(run).toHaveBeenCalled());
+ expect(run.mock.calls[0][0]).toMatchObject({label:'HAA-Simple',reference_replay:true});
+ expect(run.mock.calls[0][0]).not.toHaveProperty('mode');
 });
