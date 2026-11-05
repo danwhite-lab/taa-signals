@@ -14,7 +14,7 @@ from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from haa.model_catalog import MODEL_CATALOG
 from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
-    execution_security, combined_targets, rebalance_targets, compare_holdings,
+    execution_security, combined_targets, companion_anchor_map, rebalance_targets, compare_holdings,
     make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.portfolio import EXECUTION_SECURITY_LABELS, EXECUTION_REPLACEMENTS
@@ -164,9 +164,9 @@ def targets_for(workspace, portfolios, portfolio_id, account):
     return portfolio, instruments, rows, targets, errors, source, diagnostics
 
 
-def sell_review(account, targets, instruments, available=True, withheld=()):
+def sell_review(account, targets, instruments, available=True, withheld=(), anchor_map=None):
     """Review full exits only; never change holdings or finance buy orders."""
-    excluded, withheld = excluded_holdings(account, targets), set(withheld)
+    excluded, withheld = excluded_holdings(account, targets, anchor_map), set(withheld)
     result = []
     for key, position in sorted(account["positions"].items()):
         units = number(position["units"])
@@ -206,9 +206,10 @@ def snapshot(workspace, account, portfolios, request):
     for key, position in account["positions"].items():
         if key not in instruments:
             instruments[key] = security(position["identifier"], position["market"], position["currency"], position.get("label"))
-    targets = rebalance_targets(account, targets)
+    anchor_map = companion_anchor_map(sources)
+    targets = rebalance_targets(account, targets, anchor_map)
     replacements = replacement_review(account, targets, instruments)
-    excluded = excluded_holdings(account, targets)
+    excluded = excluded_holdings(account, targets, anchor_map)
     visible = set(targets) | set(account["positions"])
     quotes = {k: market.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(visible)}
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
@@ -225,7 +226,7 @@ def snapshot(workspace, account, portfolios, request):
     comparison, total, full_total = [], None, None
     if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
-            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"])
+            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"], anchor_map)
         except (ValueError, KeyError, TypeError):
             pass
     try:
@@ -247,7 +248,7 @@ def snapshot(workspace, account, portfolios, request):
             row.update({"Target %": None, "Actual %": None, "Status": "Outside the rebalance"})
         anchor = account["positions"].get(row["id"], {}).get("companion_of")
         if anchor:
-            row.update(companion_of=anchor, **{"Target %": None, "Actual %": None,
+            row.update(companion_of=anchor_map.get(anchor, anchor) if anchor not in targets else anchor, **{"Target %": None, "Actual %": None,
                 "Status": "Outside the rebalance" if row["id"] in excluded else "Companion"})
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
@@ -255,7 +256,7 @@ def snapshot(workspace, account, portfolios, request):
     ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
     context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
-               "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account)}
+               "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account), "companion_anchor_map": anchor_map}
     editor_rows = []
     for key in sorted(visible):
         p, q = account["positions"].get(key, {}), quotes[key]
@@ -272,7 +273,7 @@ def snapshot(workspace, account, portfolios, request):
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
-        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}),
+        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}, anchor_map),
         "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
@@ -358,7 +359,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
         checked(account, body.account_hash)
         if not body.cash.strip():
             raise HTTPException(400, "Enter unallocated account cash, or enter 0 if there is none.")
-        _, instruments, _, targets, _, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
+        _, instruments, sources, targets, _, _, _ = targets_for(workspace, portfolios, body.portfolio_id, account)
         seen = set()
         for row in body.rows:
             key = row["Security"]
@@ -389,7 +390,7 @@ def editor(body: Editor, session=Depends(private.authenticated)):
                          manual_fx=str(number(body.manual_fx, positive=True)) if body.manual_fx and number(body.manual_fx) else None,
                          manual_fx_date=body.manual_fx_date if body.manual_fx and number(body.manual_fx) else None)
         validate_account(candidate)
-        rebalance_targets(candidate, targets)
+        rebalance_targets(candidate, targets, companion_anchor_map(sources))
         if account.get("last_operation_id") and semantic(candidate) == semantic(account):
             candidate = account
         else:
@@ -408,7 +409,7 @@ def planned(state, request):
     if not state["ready"]:
         raise HTTPException(400, "A valuation is required. Check the missing price and FX details.")
     return make_buy_plan(state["account"], state["instruments"], state["eligible"], state["quotes"],
-                         state["rebalance_fx"]["price"], request.new_money, state["context"], state["allocation_mode"])
+                         state["rebalance_fx"]["price"], request.new_money, state["context"], state["allocation_mode"], state["context"].get("companion_anchor_map"))
 
 
 @router.post("/api/rebalance/plan")

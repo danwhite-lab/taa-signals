@@ -22,7 +22,7 @@
   "companionStatus": "Companion of {fund}",
   "notInPlanHint": "Counts toward the rebalance total, but receives no buys. A zero target can suggest a full exit on Sell; CSPX stays Keep.",
   "outsideHint": "Outside the rebalance total; no buys or sells suggested.",
-  "companionHint": "Counts toward its current target anchor. If the anchor is not a plan target now, this holding stays outside the rebalance.",
+  "companionHint": "Counts toward its anchor’s strategy sleeve while that sleeve is in the plan. If the sleeve is not in the plan, this holding stays outside the rebalance.",
   "removePlanConfirm": "This fund is in your plan ({portfolio}). Removing it counts it as not held, so the Buy step will still include it. To drop it from the plan, edit the portfolio.",
   "removeAnyway": "Remove anyway",
   "cancelRemoval": "Cancel"

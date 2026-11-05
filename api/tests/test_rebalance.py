@@ -433,3 +433,36 @@ def test_mode_change_invalidates_plan_context_and_recording(book):
         apply_purchases(remote["payload"]["holdings_account"],original["plan"],[],changed["state"]["context"])
     result=post("record",request(remote,plan=original["plan"],confirmations=[],acknowledge=True))
     assert result.status_code==409
+
+
+@pytest.mark.parametrize('mode',['proportional','biggest_gap_first'])
+def test_rotated_sleeve_keeps_companion_value_and_never_orders_it(book, monkeypatch, mode):
+    remote,instruments,targets,quotes,fx=book
+    cash=security('5117700','TASE'); anchor=security('5140850','TASE'); legacy='US:GLD'
+    instruments.update({cash['id']:cash,anchor['id']:anchor})
+    quotes[cash['id']]={'price':'10','fresh':True,'as_of':'2026-10-15'}
+    targets.clear();targets[cash['id']]=1.
+    account=remote['payload']['holdings_account']
+    account['positions']={legacy:{**instruments[legacy],'units':'20','companion_of':anchor['id']}}
+    remote['payload']['rebalance_allocation_mode']=mode
+    original=deepcopy(account)
+    sources=[{'name':'Century Momentum Move to Cash Israel','weight':100,'currency':'ILS','target_weights':{'RVOL_CASH_IL':1}}]
+    previous=page.targets_for
+    def with_sources(*args):
+        portfolio,items,_,weights,errors,source,diagnostics=previous(*args)
+        return portfolio,items,sources,weights,errors,source,diagnostics
+    monkeypatch.setattr(page,'targets_for',with_sources)
+    state=client.get('/api/rebalance',headers=HEADERS).json()
+    assert state['total_ils']=='350.0'
+    legacy_row=next(row for row in state['comparison'] if row['id']==legacy)
+    assert legacy_row['Status']=='Companion'
+    assert legacy_row['companion_of']==cash['id']
+    assert next(row for row in state['comparison'] if row['id']==cash['id'])['Actual %']==1.
+    assert next(row for row in state['sell_review'] if row['id']==legacy)['action']=='keep'
+    result=post('plan',request(remote,new_money='100')).json()
+    assert [(row['id'],row['units']) for row in result['plan']['orders']]==[(cash['id'],10)]
+    assert remote['payload']['holdings_account']==original
+    sources.clear()
+    unmatched=client.get('/api/rebalance',headers=HEADERS).json()
+    assert next(row for row in unmatched['comparison'] if row['id']==legacy)['Status']=='Outside the rebalance'
+    assert next(row for row in unmatched['sell_review'] if row['id']==legacy)['action']=='keep'

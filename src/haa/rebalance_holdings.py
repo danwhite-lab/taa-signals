@@ -143,16 +143,52 @@ def validate_account(account):
     return deepcopy(account)
 
 
-def excluded_holdings(account, targets):
+def companion_anchor_map(sleeves):
+    """Alias unambiguous candidate holdings only for single-target sleeves."""
+    from .model_catalog import MODEL_CATALOG
+    models = {item.label: item.model_class for item in MODEL_CATALOG}
+    owners, current = {}, {}
+    for index, sleeve in enumerate(sleeves):
+        model = models.get(sleeve.get("name", sleeve.get("model")))
+        proxies = getattr(model, "execution_proxies", None)
+        assets = proxies.values() if proxies else sleeve["target_weights"]
+        candidates = set()
+        for asset in assets:
+            try:
+                candidates.add(execution_security(asset, sleeve["currency"])["id"])
+            except (ValueError, KeyError, TypeError):
+                continue
+        try:
+            targets = sleeve_target_ids(sleeve)
+        except (ValueError, KeyError, TypeError):
+            # Failed target construction must retain the caller's error state,
+            # never turn a partially mapped split allocation into one target.
+            targets = set()
+        for candidate in candidates:
+            owners.setdefault(candidate, set()).add(index)
+        if len(targets) == 1:
+            current[index] = next(iter(targets))
+    return {candidate: current[next(iter(indices))] for candidate, indices in owners.items()
+            if len(indices) == 1 and next(iter(indices)) in current}
+
+
+def _companion_target(anchor, targets, anchor_map):
+    # An exact match always wins, including when an alias is ambiguous.
+    return anchor if anchor in targets else (anchor_map or {}).get(anchor)
+
+
+def excluded_holdings(account, targets, anchor_map=None):
     """Unmatched companions act exactly like explicitly outside holdings."""
     outside = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
     return outside | {k for k, row in account["positions"].items() if row.get("companion_of")
-                      and (row["companion_of"] not in targets or row["companion_of"] in outside)}
+                      and (_companion_target(row["companion_of"], targets, anchor_map) not in targets
+                           or row["companion_of"] in outside
+                           or _companion_target(row["companion_of"], targets, anchor_map) in outside)}
 
 
-def rebalance_targets(account, targets):
+def rebalance_targets(account, targets, anchor_map=None):
     """Remove explicitly excluded funds, retaining relative included targets."""
-    excluded = excluded_holdings(account, targets)
+    excluded = excluded_holdings(account, targets, anchor_map)
     if any(row.get("companion_of") and k in targets for k, row in account["positions"].items()):
         raise CompanionError("A target fund cannot also be a companion. Clear its companion selection first.")
     if not excluded.intersection(targets):
@@ -162,10 +198,10 @@ def rebalance_targets(account, targets):
     return {k: float(w / weight) for k, w in included.items()} if weight else {}
 
 
-def compare_holdings(account, instruments, targets, quotes, fx):
+def compare_holdings(account, instruments, targets, quotes, fx, anchor_map=None):
     validate_account(account)
-    targets = rebalance_targets(account, targets)
-    excluded = excluded_holdings(account, targets)
+    targets = rebalance_targets(account, targets, anchor_map)
+    excluded = excluded_holdings(account, targets, anchor_map)
     values = {}
     for key in set(targets) | set(account["positions"]):
         if key in excluded:
@@ -178,9 +214,9 @@ def compare_holdings(account, instruments, targets, quotes, fx):
         values[key] = units * number(quote["price"], positive=True) * rate if units else Decimal(0)
     total = sum(values.values()) + number(account["cash_ils"])
     combined = dict(values)
-    companions = {k: p["companion_of"] for k, p in account["positions"].items() if p.get("companion_of")}
+    companions = {k: _companion_target(p["companion_of"], targets, anchor_map) or p["companion_of"] for k, p in account["positions"].items() if p.get("companion_of")}
     for key, anchor in companions.items():
-        if anchor in targets:
+        if anchor in targets and key in values:
             combined[anchor] = combined.get(anchor, Decimal(0)) + values[key]
     rows = []
     for key in sorted(values):
@@ -203,15 +239,15 @@ def compare_holdings(account, instruments, targets, quotes, fx):
     return rows, combined, total
 
 
-def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context, allocation_mode):
+def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context, allocation_mode, anchor_map=None):
     """Buy whole units within gaps; proportional shares are never redistributed."""
     allocation_mode = validate_allocation_mode(allocation_mode)
-    targets = rebalance_targets(account, targets)
+    targets = rebalance_targets(account, targets, anchor_map)
     # A skipped, unpriced anchor is still a selected target. Its companion must
     # not become "unmatched" just because this partial plan cannot buy it.
     valuation_targets = context.get("targets", targets) if any(p.get("companion_of") for p in account["positions"].values()) else targets
-    rows, values, total = compare_holdings(account, instruments, valuation_targets, quotes, fx)
-    excluded = excluded_holdings(account, valuation_targets)
+    rows, values, total = compare_holdings(account, instruments, valuation_targets, quotes, fx, anchor_map)
+    excluded = excluded_holdings(account, valuation_targets, anchor_map)
     new_money = number(new_money)
     budget = number(account["cash_ils"]) + new_money
     gaps, costs, minimums = {}, {}, {}

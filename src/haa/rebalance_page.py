@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from .allocation_mode import DEFAULT_ALLOCATION_MODE, validate_allocation_mode
 
-from .rebalance_holdings import (apply_purchases, combined_targets, compare_holdings, empty_account,
+from .rebalance_holdings import (apply_purchases, combined_targets, companion_anchor_map, excluded_holdings, compare_holdings, empty_account,
                                  fingerprint, make_buy_plan, number, rebalance_targets, security, validate_account)
 from . import rebalance_market as market_data
 from .rebalance_market import utc_now
@@ -352,8 +352,9 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         warning_box = st.container()
         editor_state, unsaved = _render_editor(account, instruments, targets, commit_account) or ("", True)
 
-    excluded = {k for k, row in account["positions"].items() if row.get("outside_rebalance", False)}
-    targets = rebalance_targets(account, targets)
+    anchor_map = companion_anchor_map(source_rows)
+    excluded = excluded_holdings(account, targets, anchor_map)
+    targets = rebalance_targets(account, targets, anchor_map)
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
     quotes = {k: market_data.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(relevant)}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
@@ -406,7 +407,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     comparison, total = [], None
     if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
-            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"])
+            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"], anchor_map)
         except (ValueError, KeyError, TypeError):
             pass
     full_total = None
@@ -443,7 +444,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible and not unsaved)
     allocation_mode = validate_allocation_mode(st.session_state.get("rebalance_allocation_mode", DEFAULT_ALLOCATION_MODE))
     context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx, "allocation_mode": allocation_mode,
-               "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state}
+               "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state, "companion_anchor_map": anchor_map}
     pending = st.session_state.get("rebalance_pending")
     if pending and (pending["account_hash"] != fingerprint(account) or pending["context_hash"] != fingerprint(context)):
         st.session_state.pop("rebalance_pending", None)
@@ -453,7 +454,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
         generate = st.button("What to buy", key="rebalance_generate", disabled=not ready)
     if generate:
         try:
-            pending = make_buy_plan(account, instruments, eligible, quotes, rebalance_fx["price"], new_money, context, allocation_mode)
+            pending = make_buy_plan(account, instruments, eligible, quotes, rebalance_fx["price"], new_money, context, allocation_mode, anchor_map)
             st.session_state["rebalance_pending"] = pending
             st.session_state.pop("rebalance_inputs_changed", None)
         except (ValueError, KeyError, TypeError):

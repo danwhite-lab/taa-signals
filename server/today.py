@@ -10,7 +10,7 @@ from haa.tase_data import plain_holding_provenance
 from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_signals import portfolio_signal, monthly_strategy_input
 from haa.portfolio import execution_security_label, total_weight
-from haa.rebalance_holdings import (combined_targets, sleeve_target_ids, compare_holdings, excluded_holdings,
+from haa.rebalance_holdings import (combined_targets, companion_anchor_map, sleeve_target_ids, compare_holdings, excluded_holdings,
                                     rebalance_targets, number)
 from haa.signals import month_to_date_snapshot, latest_preview_signal
 from . import signals as signals_page
@@ -269,8 +269,9 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
             instruments, targets = combined_targets(valid_sleeves)
             instruments.update({key: {field: row[field] for field in ("id", "identifier", "market", "currency", "label")}
                                 for key, row in account["positions"].items()})
-            targets = rebalance_targets(account, targets)
-            excluded = excluded_holdings(account, targets)
+            anchor_map = companion_anchor_map(valid_sleeves)
+            targets = rebalance_targets(account, targets, anchor_map)
+            excluded = excluded_holdings(account, targets, anchor_map)
             visible = set(targets) | set(account["positions"])
             relevant = set(targets) | {key for key, row in account["positions"].items() if number(row["units"])}
             quotes = {key: market.unit_quote(instruments[key], account["positions"].get(key, {})) for key in sorted(visible)}
@@ -285,7 +286,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
                                         for key in sorted(visible - excluded) if not account["positions"].get(key, {}).get("companion_of")]
                 result["moves"] = ["Some holdings cannot be priced. Add a dated manual price on Rebalance Holdings to calculate changes."]
             else:
-                comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"])
+                comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"], anchor_map)
                 rows = []
                 for row in comparison:
                     key = row["id"]
