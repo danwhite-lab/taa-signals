@@ -66,7 +66,7 @@ function DataSignals({state,plan,paused}:{state:State;plan:Plan|null;paused:bool
     <details><summary>Price sources ({entries.length})</summary><div className="data-signals-table"><table className="rebalance-data-table"><thead><tr><th>Holding</th><th>Price</th><th>Observation date</th><th>Source</th><th>Status</th></tr></thead><tbody>
       {entries.map(([id,q])=>{const item=state.instruments[id],missing=!!q.error||q.price==null;return <tr key={id}>
         <td data-label="Holding">{item?.label??id}{q.valuation_kind==="fund_nav"&&<small className="companion-note">Published fund valuation</small>}</td>
-        <td data-label="Price">{missing?"—":`${item?.currency==="USD"?"$":"₪"}${fmt.number(Number(q.price),true)}`}</td>
+        <td data-label="Price">{missing?"—":`${item?.currency==="USD"?"$":"₪"}${new Intl.NumberFormat("en",{maximumFractionDigits:6,minimumFractionDigits:2}).format(Number(q.price))}`}</td>
         <td data-label="Observation date">{date(q.as_of as string|undefined)}</td><td data-label="Source">{isManual(q)?"Manual":"Automatic"}</td>
         <td data-label="Status">{missing?"Unavailable":q.fresh?"Current":"Stale"}</td></tr>})}
     </tbody></table></div><p className="holding-hint">Exchange prices are delayed observations; mutual funds use published valuations. Neither is a guaranteed broker price.</p></details>
