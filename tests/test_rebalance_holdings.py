@@ -391,3 +391,71 @@ def test_proportional_full_fills_keep_pooled_leftover_and_mode_context(allocatio
     assert Decimal(updated["cash_ils"])==Decimal("4772.36")
     following=make_buy_plan(updated,instruments,targets,quotes,fx,Decimal("1000"),context,"proportional")
     assert Decimal(following["available_ils"])==Decimal("4772.36")+Decimal("1000")
+
+
+def test_candidate_map_tracks_single_target_sleeves_and_omits_ambiguity():
+    from haa.rebalance_holdings import companion_anchor_map
+    sleeve = {'name':'Century Momentum Move to Cash Israel','currency':'ILS','weight':100,
+              'target_weights':{'RVOL_CASH_IL':1}}
+    aliases = companion_anchor_map([sleeve])
+    assert aliases['TASE:5140850'] == 'TASE:5117700'
+    assert aliases['TASE:5117700'] == 'TASE:5117700'
+    # Another sleeve claiming a candidate makes that candidate ambiguous.
+    other = {'name':'unknown plain holding','currency':'ILS','weight':50,'target_weights':{'SPMO_IL':1}}
+    assert 'TASE:5140850' not in companion_anchor_map([sleeve, other])
+    split = {'name':'Inflation Compass Steady (80-day) Israel','currency':'ILS','weight':100,
+             'target_weights':{'XLP_IL':.5,'IEF_IL':.5}}
+    assert companion_anchor_map([split]) == {}
+
+
+@pytest.mark.parametrize('mode',['proportional','biggest_gap_first'])
+def test_alias_companion_combines_value_without_orders_and_keeps_exact_match(mode):
+    from haa.rebalance_holdings import excluded_holdings
+    account,instruments,quotes,targets=setup_book(units=(10,0),cash=10)
+    legacy,current=list(targets)
+    old='US:OLD'
+    account['positions'][legacy]['companion_of']=old
+    targets={current:1.}
+    aliases={old:current}
+    original=deepcopy(account)
+    rows,values,total=compare_holdings(account,instruments,targets,quotes,1,aliases)
+    assert next(row for row in rows if row['id']==legacy)['Status']=='Companion'
+    assert values[current] == values[legacy]
+    assert total == values[legacy]+10
+    assert not excluded_holdings(account,targets,aliases)
+    plan=make_buy_plan(account,instruments,targets,quotes,1,100,{'targets':targets},mode,aliases)
+    assert all(order['id']==current for order in plan['orders'])
+    assert account==original
+    # Without a selected sleeve match, retain the previous outside behaviour.
+    assert legacy in excluded_holdings(account,targets)
+    # Exact anchor equality wins even if its alias points elsewhere.
+    account['positions'][legacy]['companion_of']=current
+    assert legacy not in excluded_holdings(account,targets,{current:old})
+
+
+def test_alias_does_not_bypass_companion_validations():
+    from haa.rebalance_holdings import CompanionError
+    account,instruments,quotes,targets=setup_book()
+    legacy,current=list(targets)
+    account['positions'][legacy]['companion_of']='US:OLD'
+    with pytest.raises(CompanionError):
+        rebalance_targets(account,targets,{'US:OLD':current})
+    account['positions'][legacy]['outside_rebalance']=True
+    with pytest.raises(CompanionError):
+        validate_account(account)
+
+
+def test_alias_respects_explicit_anchor_exclusion_without_changing_account():
+    from haa.rebalance_holdings import excluded_holdings
+    account,instruments,quotes,targets=setup_book(units=(10,0))
+    legacy,current=list(targets)
+    old=security('OLD','US')
+    account['positions'][old['id']]={**old,'units':'0','outside_rebalance':True}
+    instruments[old['id']]=old
+    account['positions'][legacy]['companion_of']=old['id']
+    targets={current:1.}
+    aliases={old['id']:current}
+    assert legacy in excluded_holdings(account,targets,aliases)
+    rows,_,total=compare_holdings(account,instruments,targets,quotes,1,aliases)
+    assert next(row for row in rows if row['id']==legacy)['Status']=='Outside the rebalance'
+    assert total == Decimal(account['cash_ils'])
