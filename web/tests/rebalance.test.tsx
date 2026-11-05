@@ -615,3 +615,41 @@ it('saves compact row edits through the existing single global save', async()=>{
  const submitted=mock.request.mock.calls.filter(([path])=>path==='/api/rebalance/editor').at(-1)![1];
  expect(submitted.rows[0]).toMatchObject({Units:'7','Value (₪ / $)':'125','Enter as':'Units','Units edited':true,'Manual price per unit':'11.125','Price date':'2026-11-03','Minimum order (₪)':'50','Outside the rebalance':true});
 });
+
+it("shows compact data and signals with correct percentage-point sleeve weights and hidden technical data",async()=>{
+  mock.request.mockResolvedValue({...state,
+    signals:[{name:"Century Momentum",weight:45,target_weights:{SPMO:1},signal_date:"2026-10-15"},
+      {name:"Inflation Compass",weight:20,target_weights:{GLD:.25,IEF:.75},signal_date:"2026-10-14"}],
+    target_diagnostics:[{stage:"ticker",code:"ticker_defaulted",message:"Used built-in default tickers for missing roles: SOXX. Saved settings were not changed."}]
+  });
+  await ready();
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab",{name:"Data & Signals"}));
+  const panel=screen.getByRole("tabpanel");
+  expect(within(panel).getByText("45.00% sleeve",{exact:false})).toBeTruthy();
+  expect(within(panel).getByText("20.00% sleeve",{exact:false})).toBeTruthy();
+  expect(within(panel).getByText("SPMO 100.00%")).toBeTruthy();
+  expect(within(panel).getByText(/Built-in ticker used for missing saved setting: SOXX/)).toBeTruthy();
+  const technical=within(panel).getByText("Technical details").closest("details")!;
+  expect(technical.open).toBe(false);
+  expect(within(technical).getByText(/"workspace_revision"/)).toBeTruthy();
+  expect(within(panel).getByText("Price sources (1)").closest("details")!.open).toBe(false);
+});
+
+it("summarizes manual, stale and unavailable prices without exposing raw JSON by default",async()=>{
+  mock.request.mockResolvedValue({...state,
+    quotes:{[item.id]:{price:"10",as_of:"2026-10-15",source:"Manual dated per-unit override",field:"Manual per-unit price",fresh:false},
+      [other.id]:{error:"unavailable",fresh:false}},
+    stale:[item.id],blocked:[other.id]
+  });
+  await ready();
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab",{name:"Data & Signals"}));
+  const panel=screen.getByRole("tabpanel");
+  expect(within(panel).getByText("0 automatic · 1 manual")).toBeTruthy();
+  expect(within(panel).getByText(/Older price: Fake gold/)).toBeTruthy();
+  expect(within(panel).getByText(/Unavailable price: Fake bonds/)).toBeTruthy();
+  fireEvent.click(within(panel).getByText("Price sources (2)"));
+  expect(within(panel).getByText("Manual")).toBeTruthy();
+  expect(within(panel).getByText("Unavailable",{selector:"td"})).toBeTruthy();
+});

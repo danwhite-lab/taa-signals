@@ -480,3 +480,21 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .usd-mapping-scroll { overflow-x: auto; max-width: 100%; }
 .usd-mapping-scroll table { min-width: 620px; width: 100%; border-collapse: collapse; }
 .usd-mapping-scroll td, .usd-mapping-scroll th { padding: .4rem; text-align: left; vertical-align: top; border-bottom: 1px solid #dce2e8; white-space: normal; }
+
+/* Compact holdings data and signal diagnostics */
+.data-signals-dashboard { display: grid; gap: 14px; }
+.data-signals-dashboard h3 { margin: 4px 0 6px; font-size: 1rem; }
+.data-signals-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.data-signals-summary > div { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid #dce2e8; border-radius: 8px; }
+.data-signals-summary small { color: #52606d; }
+.data-signals-summary strong { font-size: .98rem; overflow-wrap: anywhere; }
+.data-signals-summary .signal-warning { margin: 0; padding: 5px 8px; font-size: .8rem; }
+.data-signals-dashboard ul { margin: 4px 0; padding-left: 20px; }
+.data-signals-dashboard li.signal-warning { margin: 4px 0; padding: 6px 9px; line-height: 1.4; }
+.data-signals-dashboard details { border: 1px solid #dce2e8; padding: 10px 12px; border-radius: 8px; }
+.data-signals-dashboard summary { cursor: pointer; font-weight: 600; }
+.data-signals-dashboard details > *:not(summary) { margin-top: 12px; }
+.data-signals-dashboard .companion-note { display: block; }
+.data-signals-table { overflow-x: auto; }
+.data-signals-table table { width: 100%; }
+@media (max-width: 650px) { .data-signals-summary { grid-template-columns: 1fr; } .data-signals-summary > div { padding: 9px 11px; } }
