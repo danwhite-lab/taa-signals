@@ -103,7 +103,14 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     try {
       const value = await backtestRequest<{valid:boolean;message:string}>("/api/backtest/validate", {method:"POST", body:JSON.stringify(body)});
       setValid(value.valid); setMessage(value.message);
-      if (value.valid) await onRun(body);
+      // A default one-sleeve configuration remains the established
+      // single-strategy calculation whenever no portfolio-only transfer rule
+      // is selected. Adding a sleeve keeps the existing portfolio path.
+      const runBody = mode === "portfolio" && sleeves.length === 1 && form.sleeve_rebalance_mode === "none"
+        ? (({mode: _mode, sleeves: chosen, sleeve_rebalance_mode: _rule, rebalance_sleeve: _sleeve,
+            rebalance_cap: _cap, rebalance_target: _target, benchmark: _benchmark, ...single}) => ({...single, label: chosen[0].model}))(body)
+        : body;
+      if (value.valid) await onRun(runBody);
     } catch (failure) { setMessage((failure as Error).message); }
   }
   const availability=useUsdAvailability(mode === "portfolio" && form.usd_equivalents,{mode:"portfolio",models:sleeves.map(s=>s.model)},bounds=>setForm(previous=>fitDates(previous,bounds)));
@@ -117,7 +124,9 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           <label>{words.cap}<input type="number" min="1" max="99" value={form.rebalance_cap} onChange={event => change({ rebalance_cap: event.target.valueAsNumber })} /></label>
           <label>{words.target}<input type="number" min="1" max="98" value={form.rebalance_target} onChange={event => change({ rebalance_target: event.target.valueAsNumber })} /></label></>}
         <details><summary>{words.settingsHelp}</summary><p>{words.mixedCaption}</p><p>{words.taxCaption}</p></details></>;
-  const compact = mode === "portfolio";
+  // Both visible modes use the same compact configuration rhythm. The API
+  // mode remains distinct so proxy calculations never enter the live engine.
+  const compact = true;
   let total = 0;
   for (const sleeve of sleeves) total += sleeve.weight;
   const totalLabel = Number.isFinite(total) ? new Intl.NumberFormat("en", {maximumFractionDigits:2}).format(total) : "—";
@@ -132,7 +141,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     {mode === "portfolio" && <><UsdToggle checked={form.usd_equivalents} disabled={running || loadingPortfolio} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}</>}
     <fieldset disabled={running || loadingPortfolio || !config}>
       <section className={compact ? "portfolio-allocation" : undefined}>
-      <header className={compact ? "portfolio-allocation-header" : undefined}>{compact && <h2>{words.allocationTitle}</h2>}
+      <header className={compact ? "portfolio-allocation-header" : undefined}>{compact && <h2>{mode === "deep" ? words.extendedAllocationTitle : words.allocationTitle}</h2>}
       <details className="portfolio-saved-loader" onToggle={event => { if (event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
         <summary>{words.load}</summary>
         {loadingSaved && <p role="status">{words.loadingSaved}</p>}
@@ -146,8 +155,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       </details>
       </header>
       {warnings.map((warning, i) => <p role="alert" key={i}>{warning}</p>)}
-      {compact ? <details className="portfolio-help"><summary>{words.allocationHelp}</summary><p>{words.sleeveCaption}</p></details> : <><h2>{words.proxySleeves}</h2><p>{words.proxyCaption}</p></>}
-      {compact ? <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead><tr>
+      {mode === "portfolio" ? <details className="portfolio-help"><summary>{words.allocationHelp}</summary><p>{words.sleeveCaption}</p></details> : <p>{words.proxyCaption}</p>}
+      {mode === "deep" && <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.extendedAllocationTitle}><thead><tr>
+        <th scope="col">{words.proxyStrategy}</th><th scope="col" className="numeric">{words.weight}</th><th scope="col"><span className="visually-hidden">{words.actions}</span></th>
+      </tr></thead><tbody>{sleeves.map((s, index) => <tr key={s.id}><td><label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
+        {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label></td>
+        <td className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"} onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label></td>
+        <td><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove} disabled={sleeves.length === 1} onClick={() => { setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>×</button></td>
+      </tr>)}</tbody></table></div>}
+      {mode === "portfolio" ? <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead><tr>
         <th scope="col">{text.strategy}</th><th scope="col">{text.variant}</th><th scope="col">{text.implementation}</th><th scope="col" className="numeric">{words.weight}</th><th scope="col"><span className="visually-hidden">{words.actions}</span></th>
       </tr></thead><tbody>{sleeves.map((s, index) => {
         const current = config?.models.find(m => m.label === s.model);
@@ -161,7 +177,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
             onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
 </td><td><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove}
           disabled={sleeves.length === 1} onClick={() => {setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange();}}>×</button></td></tr>;
-      })}</tbody></table></div> : <>      {sleeves.map(s => {
+      })}</tbody></table></div> : <>      {mode !== "deep" && sleeves.map(s => {
         const current = config?.models.find(m => m.label === s.model);
         const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
         return <div className="backtest-sleeve" key={s.id}>
@@ -186,14 +202,16 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         disabled={daily || (mode === "deep" ? sleeves.length >= (config?.blend_options.length ?? 0) : sleeves.length >= 100)} onClick={() => {
           const model = mode === "deep" ? config?.blend_options.find(key => !sleeves.some(s => s.model === key)) : "HAA-Simple";
           if (!model) return; setValid(false); setMessage(""); setSleeves(previous => [...previous, { id: nextId.current++, model, weight: 0 }]); onChange();
-        }}>{compact ? words.addSleeve : words.add}</button>
+        }}>{mode === "deep" ? words.add : words.addSleeve}</button>
 {compact && <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>}</div>
       </section>
       <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
         dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
       {dca && <p className="portfolio-dca-caption">{config?.dca_caption}</p>}
       {compact ? <details className="portfolio-advanced"><summary><strong>{words.advancedTitle}</strong><span>{words.rebalancingTitle}: {words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · {words.feesTitle}: {form.fees_enabled ? words.on : words.off} · {words.taxTitle}: {form.tax_enabled ? `${form.tax_rate}%` : words.off}</span></summary>
-        <div className="portfolio-advanced-grid"><section><h3>{words.rebalancingTitle}</h3>      {transferControls}
+        <div className="portfolio-advanced-grid"><section><h3>{mode === "deep" ? words.benchmark : words.rebalancingTitle}</h3>
+          {mode === "deep" ? <><label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
+            {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : transferControls}
 </section>
         <section><h3>{words.feesTitle}</h3><Fees compact value={form} onChange={change} /></section><section><h3>{words.taxTitle}</h3>        <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
           onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} /></section></div>
