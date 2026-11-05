@@ -13,17 +13,17 @@ export function Toggle({ checked, onChange, disabled, children }: { checked: boo
   return <label className="toggle-label"><input className="toggle-switch" type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />{children}</label>;
 }
 
-export function AmountAndDates({ initial, start, end, dca, contribution }: {
-  initial: ReactNode; start: ReactNode; end: ReactNode; dca?: ReactNode; contribution?: ReactNode;
+export function AmountAndDates({ initial, start, end, dca, contribution, title = "Amount and dates" }: {
+  initial: ReactNode; start: ReactNode; end: ReactNode; dca?: ReactNode; contribution?: ReactNode; title?: string;
 }) {
-  return <section className="amount-dates"><h3>Amount and dates</h3>
+  return <section className="amount-dates"><h3>{title}</h3>
     <div className="amount-date-grid">{initial}{contribution}{start}{end}</div>
     {dca && <div className="dca-row">{dca}</div>}
   </section>;
 }
 
 export function DateField({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
-  return <div className="date-field"><label>{label}{children}</label><small className="assumption-hint">{hint}</small></div>;
+  return <div className="date-field" title={hint}><label>{label}{children}</label><small className="assumption-hint">{hint}</small></div>;
 }
 
 export function CostsAndTax({ children }: { children: ReactNode }) {
@@ -40,8 +40,8 @@ export function TaxControls({ enabled, rate, onEnabled, onRate, label = text.tax
   </AssumptionRow>;
 }
 
-export function Fees({ value, onChange, children }: { value: FeeAssumptions; onChange: (patch: Partial<FeeAssumptions>) => void; children?: ReactNode }) {
-  return <CostsAndTax><div className="fee-controls">
+export function Fees({ value, onChange, children, compact = false }: { value: FeeAssumptions; onChange: (patch: Partial<FeeAssumptions>) => void; children?: ReactNode; compact?: boolean }) {
+  const controls = <div className="fee-controls">
     <AssumptionRow>
       <Toggle checked={value.fees_enabled} onChange={fees_enabled => onChange({ fees_enabled })}>Trading fees</Toggle>
       <label>TASE fee %<input aria-label={text.ilsFeePercent} type="number" min="0" max="10" step="0.01" disabled={!value.fees_enabled} value={value.ils_fee_percent} onChange={e => onChange({ ils_fee_percent: e.target.valueAsNumber })} /></label>
@@ -50,5 +50,6 @@ export function Fees({ value, onChange, children }: { value: FeeAssumptions; onC
     </AssumptionRow>
     {children}
     <details><summary>How fees work</summary><p>{text.feeHelp}</p></details>
-  </div></CostsAndTax>;
+  </div>;
+  return compact ? controls : <CostsAndTax>{controls}</CostsAndTax>;
 }
