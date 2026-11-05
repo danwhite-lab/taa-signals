@@ -251,10 +251,14 @@ export default function RebalanceHoldings() {
         </div>}
       </div>
       <section aria-label={text.holdings}><h2 ref={holdingsHeading} tabIndex={-1}>{text.holdings}</h2><p className="holding-hint">{text.editorCaption}</p>
-        <div className="holdings-editor" role="list" aria-label={text.holdings}>
-          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} instruments={state.instruments} portfolioName={portfolioName} role={roles[String(row.Security)]}
+        <div className="compact-holdings-scroll" role="region" aria-label={text.holdings} tabIndex={0}>
+        <table className="compact-holdings-table" aria-label={text.holdings}><thead><tr>
+          <th scope="col">{holdings.fund}</th><th scope="col" className="numeric">{holdings.value}</th><th scope="col" className="numeric">{holdings.units}</th>
+          <th scope="col" className="numeric">{holdings.allocation}</th><th scope="col">{holdings.type}</th><th scope="col"><span className="visually-hidden">{holdings.rowActions}</span></th>
+        </tr></thead><tbody>
+          {rows.filter(row => !row.Remove).map(row => <HoldingEditorRow key={String(row.Security)} row={row} quote={state.quotes[String(row.Security)]} busy={busy} onEdit={edit} targets={targetFunds} instruments={state.instruments} portfolioName={portfolioName} allocation={state.comparison.find(item => item.id === row.Security)?.actual_display ?? "—"} role={roles[String(row.Security)]}
             onBlur={() => { const at = generation.current; void convert().catch(() => { if (at === generation.current) setError(text.validation); }); }} />)}
-        </div>
+        </tbody></table></div>
         <details onToggle={event => { if (event.currentTarget.open) void loadCatalogue(); }}><summary>{text.add}</summary>
           {!catalogue && !catalogueError && <p role="status">{text.loading}</p>}
           {catalogueError && <p role="alert">{catalogueError} <button className="btn btn-secondary" onClick={() => { setCatalogue(null); void loadCatalogue(); }}>{text.retry}</button></p>}

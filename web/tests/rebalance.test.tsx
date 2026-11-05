@@ -28,7 +28,10 @@ const state = { workspace_revision: 1, allocation_mode: "proportional", account_
 const candidate = { ...state.account, last_operation_id: "fake-operation", revision: 1 };
 const preview = { account: candidate, preview: [{ Fund: item.label, "Units to save": "2.00" }], errors: [] };
 const plan = { id: "fake-plan", orders: [{ id: item.id, units: 2, estimated_ils: "70" }], leftover_ils: "5" };
-function roleButton(id:string,name:string){return within(screen.getByRole('group',{name:holdings.role+' '+id})).getByRole('button',{name});}
+function chooseRole(id:string,name:string){fireEvent.change(screen.getByRole('combobox',{name:holdings.role+' '+id}),{target:{value:Object.entries(holdings.roles).find(([,label])=>label===name)![0]}});}
+function priceDetails(id:string){return document.getElementById('holding-options-'+encodeURIComponent(id))!;}
+function expandHolding(id:string){const fund=screen.getByLabelText(text.columns.Units+' '+id).closest('tr')!;fireEvent.click(within(fund).getByRole('button',{name:/Details for/}));}
+
 
 const chartRows = [
   {...row, Units:"2"},
@@ -131,13 +134,13 @@ it('selects a companion generically, clears exclusion, and groups its comparison
     {id:other.id,Fund:other.label,target_display:'100.00%',actual_display:'100.00%',Status:'On target'},
   ]};
   mock.request.mockImplementation(async(path:string)=>path==='/api/rebalance/editor'?preview:next);
-  render(<Page/>);await screen.findByRole('group',{name:holdings.role+' '+item.id});
-  fireEvent.click(roleButton(item.id,holdings.roles.companion));
+  render(<Page/>);await screen.findByRole('combobox',{name:holdings.role+' '+item.id});
+  chooseRole(item.id,holdings.roles.companion);
   const select=screen.getByRole('combobox',{name:holdings.companion+' '+item.id});
   expect(within(select).getByRole('option',{name:other.label})).toBeTruthy();
   expect(within(select).queryByRole('option',{name:item.label})).toBeNull();
   fireEvent.change(select,{target:{value:other.id}});
-  expect(roleButton(item.id,holdings.roles.outside).getAttribute('aria-pressed')).toBe('false');
+  expect(screen.getByRole('combobox',{name:holdings.role+' '+item.id})).toHaveProperty('value','companion');
   fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(()=>expect(mock.request.mock.calls.some(([path])=>path==='/api/rebalance/editor')).toBe(true));
   const body=mock.request.mock.calls.find(([path])=>path==='/api/rebalance/editor')![1];
@@ -147,7 +150,7 @@ it('selects a companion generically, clears exclusion, and groups its comparison
   expect(rows[1].textContent).toContain(other.label);expect(rows[2].textContent).toContain(item.label);
   expect(within(table).getAllByText(item.label)).toHaveLength(1);
   expect(within(rows[2]).getByText(text.companionNote)).toBeTruthy();
-  fireEvent.click(roleButton(item.id,holdings.roles.outside));
+  chooseRole(item.id,holdings.roles.outside);
   expect(screen.queryByRole('combobox',{name:holdings.companion+' '+item.id})).toBeNull();
 });
 
@@ -183,7 +186,7 @@ it("filters by fields, preserves a hidden selection and performs no requests whi
   expect(mock.request.mock.calls.length).toBe(before); expect(mock.save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText(text.addSelected));
   await screen.findByLabelText(text.columns.Units+" "+local.id);
-  expect(screen.getByLabelText(text.columns.Units+" "+local.id).closest("article")?.textContent).toContain("USD");
+  expect(screen.getByLabelText(text.columns.Units+" "+local.id).closest("tr")?.textContent).toContain("USD");
   fireEvent.click(screen.getByText(text.notFound));
   expect(screen.getByRole("combobox",{name:text.market})).toHaveProperty("value","US");
   expect(screen.getByRole("combobox",{name:text.currency})).toHaveProperty("value","");
@@ -204,16 +207,17 @@ it("minus hides the whole row but preserves removal in requests and every other 
   fireEvent.click(within(screen.getByRole("group",{name:text.market})).getByRole("button",{name:"US"}));
   fireEvent.change(screen.getByLabelText(text.columns.Units+" "+other.id),{target:{value:"9"}});
   fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"13"}});
-  fireEvent.click(roleButton(other.id,holdings.roles.outside));
+  chooseRole(other.id,holdings.roles.outside);
+  fireEvent.click(screen.getByLabelText(holdings.actionsFund.replace("{fund}",item.label)));
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
-  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
+  expect(screen.queryByRole("row",{name:item.label})).toBeNull();
   for(const key of ["Units","Manual price per unit","Price date"] as const) expect(screen.queryByLabelText(text.columns[key]+" "+item.id)).toBeNull();
   expect(screen.queryByText("Removed when you save")).toBeNull();expect(screen.queryByRole("button",{name:/Undo removal/})).toBeNull();
   expect(document.activeElement).toBe(screen.getByRole("heading",{name:text.holdings}));
   expect(screen.getByText(text.unsaved)).toBeTruthy(); expect(mock.save).not.toHaveBeenCalled();
   expect(screen.getByLabelText(text.columns.Units+" "+other.id)).toHaveProperty("value","9");
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","13");
-  expect(roleButton(other.id,holdings.roles.outside).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('combobox',{name:holdings.role+' '+other.id})).toHaveProperty('value','outside');
   expect(screen.getByRole("combobox",{name:text.search})).toHaveProperty("value","gld");
   expect(screen.getByText(text.selected+": "+item.label)).toBeTruthy();
   fireEvent.click(screen.getByText(text.previewAction));
@@ -223,21 +227,22 @@ it("minus hides the whole row but preserves removal in requests and every other 
   expect(drafts.at(-1)![1]).toMatchObject({cash:"13",rows:[{...row,Remove:true},{...extra,Units:"9","Units edited":true,"Outside the rebalance":true}]});
   expect(mock.save).toHaveBeenCalledWith(state.workspace_revision,candidate);
   await waitFor(()=>expect(screen.getByText(text.save)).toHaveProperty("disabled",false));
-  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
+  expect(screen.queryByRole("row",{name:item.label})).toBeNull();
   fireEvent.click(screen.getByText(text.reload));
   await waitFor(()=>expect(screen.getByText(text.save)).toHaveProperty("disabled",false));
-  expect(screen.queryByRole("listitem",{name:item.label})).toBeNull();
+  expect(screen.queryByRole("row",{name:item.label})).toBeNull();
 });
 
 it("re-adding a hidden holding restores its exact draft without appending a duplicate",async()=>{
   await ready();fireEvent.change(screen.getByLabelText(text.columns.Units+" "+item.id),{target:{value:"7"}});
+  fireEvent.click(screen.getByLabelText(holdings.actionsFund.replace("{fund}",item.label)));
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
-  expect(screen.getAllByRole("list")).toHaveLength(1);
-  expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+  expect(screen.getByRole("table",{name:text.holdings})).toBeTruthy();
+  expect(within(screen.getByRole("table",{name:text.holdings})).queryAllByRole("row").filter(node=>node.hasAttribute("aria-label"))).toHaveLength(0);
   fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
   fireEvent.click(screen.getByText(text.addSelected));
   await screen.findByLabelText(text.columns.Units+" "+item.id);
-  expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  expect(within(screen.getByRole("table",{name:text.holdings})).getAllByRole("row").filter(node=>node.hasAttribute("aria-label"))).toHaveLength(1);
   expect(screen.getByLabelText(text.columns.Units+" "+item.id)).toHaveProperty("value","7");
   fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(()=>expect(mock.request.mock.calls.some(([p])=>p==="/api/rebalance/editor")).toBe(true));
@@ -273,7 +278,7 @@ it("last edited value/units wins, outside edits invalidate the plan, and draft a
   fireEvent.click(within(screen.getByRole("listbox")).getByText(other.label));
   fireEvent.click(screen.getByText(text.addSelected)); await screen.findByLabelText(`${text.columns.Units} US:IEF`);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`)).toHaveProperty("value", "125");
-  fireEvent.click(roleButton(item.id,holdings.roles.outside));
+  chooseRole(item.id,holdings.roles.outside);
   fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(() => expect(mock.request.mock.calls.some(([p]) => p === "/api/rebalance/editor")).toBe(true));
   const body = mock.request.mock.calls.find(([p]) => p === "/api/rebalance/editor")![1];
@@ -349,13 +354,14 @@ it("empty order list does not expose the recording step", async () => {
 
 it("starts current rows collapsed, retains edits across price disclosure toggles, and sends the same fields", async () => {
   await ready();
-  const holding = screen.getByRole("listitem", {name:item.label});
-  const details = within(holding).getByText("Edit price").closest("details")!;
-  expect(details.open).toBe(false);
+  const toggle = screen.getByRole("button",{name:holdings.detailsFund.replace("{fund}",item.label)});
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
   fireEvent.change(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} ${item.id}`), {target:{value:"125"}});
-  fireEvent.click(within(holding).getByText("Edit price"));
+  fireEvent.click(toggle);
+  const edit=within(priceDetails(item.id)).getByRole("button",{name:holdings.editPrice});
+  expect(edit.getAttribute("aria-expanded")).toBe("false");fireEvent.click(edit);
   fireEvent.change(screen.getByLabelText(`${text.columns["Manual price per unit"]} ${item.id}`), {target:{value:"11"}});
-  fireEvent.click(within(holding).getByText("Edit price"));
+  fireEvent.click(edit); fireEvent.click(toggle); fireEvent.click(toggle); fireEvent.click(edit);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} ${item.id}`)).toHaveProperty("value","125");
   expect(screen.getByLabelText(`${text.columns["Manual price per unit"]} ${item.id}`)).toHaveProperty("value","11");
   fireEvent.click(screen.getByText(text.previewAction));
@@ -366,14 +372,14 @@ it("starts current rows collapsed, retains edits across price disclosure toggles
   expect(screen.getByRole("button",{name:text.save}).classList.contains("btn-primary")).toBe(true);
 });
 
-it.each(["stale","missing","manual"])("starts %s holding price controls expanded",async kind=>{
+it.each(["stale","missing","manual"])("keeps %s price controls compact until explicitly opened",async kind=>{
   const modified = {...state, rows:[{...row,"Manual price per unit":kind==="manual"?"11":null}],
     quotes:kind==="missing"?{}:{[item.id]:{...state.quotes[item.id],fresh:kind!=="stale"}}};
-  mock.request.mockResolvedValue(modified);
-  render(<Page/>);
-  const holding=await screen.findByRole("listitem",{name:item.label});
-  expect(within(holding).getByText("Edit price").closest("details")).toHaveProperty("open",true);
-  if(kind!=="missing")expect(within(holding).getByText("Mock raw")).toBeTruthy();
+  mock.request.mockResolvedValue(modified);render(<Page/>);
+  const toggle=await screen.findByRole("button",{name:holdings.detailsFund.replace("{fund}",item.label)});
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");fireEvent.click(toggle);
+  expect(within(priceDetails(item.id)).getByRole("button",{name:holdings.editPrice}).getAttribute("aria-expanded")).toBe("false");
+  if(kind!=="missing")expect(within(priceDetails(item.id)).getByTitle("Mock raw")).toBeTruthy();
 });
 
 it("shows the persisted proportional default and unspent pooled shares with server-priced unit costs",async()=>{
@@ -427,7 +433,7 @@ it("a successful mode save and display refresh preserve unsaved units and cash",
 it("groups holdings before buying and keeps Advanced closed initially",async()=>{
   await ready();
   const controls=screen.getByRole("group",{name:text.controls,hidden:true});
-  const editor=screen.getByRole("list",{name:text.holdings});
+  const editor=screen.getByRole("table",{name:text.holdings});
   expect(editor.compareDocumentPosition(controls)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   for(const caption of [text.newMoney,text.allocationMode]){
     expect(screen.getAllByLabelText(caption)).toHaveLength(1);
@@ -447,9 +453,8 @@ it("groups holdings before buying and keeps Advanced closed initially",async()=>
   expect(within(advanced).getByText(text.automaticCaption)).toBeTruthy();
   fireEvent.click(screen.getByText(text.advanced));
   expect(advanced.open).toBe(true);
-  const holding=screen.getByRole("listitem",{name:item.label});
-  expect(within(holding).getByText(text.manualCaption).closest(".holding-price-editor")).toBeTruthy();
-  expect(screen.getAllByText(text.manualCaption)).toHaveLength(1);
+  expect(screen.queryByText(text.manualCaption)).toBeNull();
+  expect(screen.getByRole("button",{name:holdings.detailsFund.replace("{fund}",item.label)}).getAttribute("aria-expanded")).toBe("false");
 });
 
 it("Advanced retains the existing unsaved reload confirmation and preview flow",async()=>{
@@ -470,12 +475,12 @@ it("Advanced retains the existing unsaved reload confirmation and preview flow",
 
 it("shows one step at a time, preserves drafts, and keeps a stale plan chip after edits", async () => {
   await ready();
-  expect(screen.getByRole("list", {name:text.holdings})).toBeTruthy();
+  expect(screen.getByRole("table", {name:text.holdings})).toBeTruthy();
   expect(screen.queryByRole("button", {name:text.generate})).toBeNull();
   fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
   fireEvent.click(screen.getByRole("tab", {name:text.actionTabs.sell}));
   expect(screen.getByRole("heading", {name:text.sellTitle})).toBeTruthy();
-  expect(screen.queryByRole("list", {name:text.holdings})).toBeNull();
+  expect(screen.queryByRole("table", {name:text.holdings})).toBeNull();
   fireEvent.click(screen.getByRole("button", {name:text.nextBuy}));
   fireEvent.click(screen.getByRole("button", {name:text.generate}));
   await screen.findByText(text.planChip+" · "+text.currentChip);
@@ -592,4 +597,21 @@ it('keeps blocking errors and data warnings visible across all Action tabs',asyn
     expect(screen.getByText(text.stalePrices.replace('{funds}',item.label+' (2026-10-15)')).closest('[role="tabpanel"]')).toBeNull();
     expect(screen.getByRole('button',{name:text.generate})).toHaveProperty('disabled',true);
   }
+});
+
+it('saves compact row edits through the existing single global save', async()=>{
+ await ready();
+ fireEvent.change(screen.getByLabelText(text.columns['Value (₪ / $)']+' '+item.id),{target:{value:'125'}});
+ fireEvent.change(screen.getByLabelText(text.columns.Units+' '+item.id),{target:{value:'7'}});
+ expandHolding(item.id);
+ fireEvent.click(within(priceDetails(item.id)).getByRole('button',{name:holdings.editPrice}));
+ fireEvent.change(screen.getByLabelText(text.columns['Manual price per unit']+' '+item.id),{target:{value:'11.125'}});
+ fireEvent.change(screen.getByLabelText(text.columns['Price date']+' '+item.id),{target:{value:'2026-11-03'}});
+ fireEvent.change(screen.getByLabelText(text.columns['Minimum order (₪)']+' '+item.id),{target:{value:'50'}});
+ chooseRole(item.id,holdings.roles.outside);
+ expect(mock.save).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:text.save}));
+ await waitFor(()=>expect(mock.save).toHaveBeenCalledExactlyOnceWith(1,candidate));
+ const submitted=mock.request.mock.calls.filter(([path])=>path==='/api/rebalance/editor').at(-1)![1];
+ expect(submitted.rows[0]).toMatchObject({Units:'7','Value (₪ / $)':'125','Enter as':'Units','Units edited':true,'Manual price per unit':'11.125','Price date':'2026-11-03','Minimum order (₪)':'50','Outside the rebalance':true});
 });
