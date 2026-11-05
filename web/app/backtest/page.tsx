@@ -49,7 +49,7 @@ const initialForm: Form = { ...defaultFees, usd_equivalents:false, label: "", st
   tax_enabled: true, tax_rate: 25, monthly_contribution: 1000, reference_replay: false };
 
 export default function BacktestPage() {
-  const [mode, setMode] = useState<"single" | "portfolio" | "deep">("single");
+  const [mode, setMode] = useState<"single" | "portfolio" | "deep">("portfolio");
   const [rollingYears, setRollingYears] = useState(5);
   const [form, setForm] = useState<Form>(initialForm);
   const [dca, setDca] = useState(false);
@@ -139,8 +139,8 @@ export default function BacktestPage() {
   const implementations = models?.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
     <fieldset className="segmented" role="radiogroup" aria-label={text.mode} disabled={running}><legend>{text.mode}</legend>
-      {(["single", "portfolio", "deep"] as const).map(value => <label className="segment" key={value}>
-        <input type="radio" name="backtest-mode" value={value} checked={mode === value} onChange={() => { setMode(value); update({}); }} />{text[value]}
+      {(["portfolio", "deep"] as const).map(value => <label className="segment" key={value}>
+        <input type="radio" name="backtest-mode" value={value} checked={mode === value} onChange={() => { setMode(value); update({}); }} />{value === "portfolio" ? text.backtest : text.extendedHistory}
       </label>)}
     </fieldset>
     {mode === "single" && <UsdToggle checked={form.usd_equivalents} disabled={running} onChange={usd_equivalents=>update({usd_equivalents})}/> }
