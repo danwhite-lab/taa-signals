@@ -28,6 +28,56 @@ const extraAllocationColours = ["#8b6f47", "#db4c77", "#3f7cac", "#8c6bb1", "#2a
 const allocationColour = (index: number) => allocationColours[index] ?? extraAllocationColours[index - allocationColours.length]
   ?? `hsl(${Math.round((index * 137.508) % 360)} 58% 42%)`;
 
+
+type SignalRow = {name?:string;weight?:number;target_weights?:Record<string,number>;signal_date?:string};
+function DataSignals({state,plan,paused}:{state:State;plan:Plan|null;paused:boolean}) {
+  const entries=Object.entries(state.quotes);
+  const valid=entries.filter(([,q])=>!q.error&&q.price!=null);
+  const isManual=(q:Quote)=>q.field==="Manual per-unit price"||String(q.source??"").toLowerCase().includes("manual");
+  const manual=valid.filter(([,q])=>isManual(q)).length;
+  const recent=valid.map(([,q])=>String(q.as_of??"")).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort().at(-1);
+  const signals=(state.signals??[]) as SignalRow[];
+  const signalDates=signals.map(s=>s.signal_date).filter((d):d is string=>!!d).sort();
+  const fallback=(state.target_diagnostics??[]).find(d=>d.code==="ticker_defaulted");
+  const stale=entries.filter(([,q])=>q.price!=null&&!q.error&&q.fresh===false);
+  const warnings=[
+    ...entries.filter(([,q])=>q.error||q.price==null).map(([id])=>`Unavailable price: ${state.instruments[id]?.label??id}. Enter a dated manual price if necessary.`),
+    ...stale.map(([id,q])=>`Older price: ${state.instruments[id]?.label??id} (${String(q.as_of??"unknown date")}).`),
+    ...(state.fx.error?["USD/ILS exchange rate unavailable."]:state.fx.fresh===false?[`Older USD/ILS exchange rate (${String(state.fx.as_of??"unknown date")}).`]:[]),
+    ...state.errors,
+    ...(state.target_diagnostics??[]).filter(d=>d.code!=="ticker_defaulted"&&!state.errors.includes(d.message)).map(d=>d.message),
+    ...(fallback?[`Built-in ticker used for missing saved setting: ${fallback.message.match(/roles: (.*?)(?:\.|$)/)?.[1]??"see Technical details"}. Saved settings were not changed; check only if you expected a custom ticker.`]:[])
+  ];
+  const date=(v?:string)=>v?fmt.date(v):"Unavailable";
+  const raw=JSON.stringify({quotes:state.quotes,fx:state.fx,seconds:state.seconds,workspace_revision:state.workspace_revision,account_revision:state.account.revision,source_settings:state.source_settings,diagnostics:state.target_diagnostics,signals:state.signals,errors:state.errors,blocked:state.blocked,stale:state.stale,held_blocked:state.held_blocked,targets:state.targets,plan,allocation_mode:state.allocation_mode},null,2);
+  return <section className="data-signals-dashboard" aria-label="Data and signals">
+    <div className="data-signals-summary">
+      <div><small>Price data</small><strong>{valid.length-manual} automatic · {manual} manual</strong></div>
+      <div><small>Latest price date</small><strong>{date(recent)}</strong>{stale.length>0&&<span className="signal-warning">Some prices are older</span>}</div>
+      <div><small>Strategy signals</small><strong>{signalDates.length?(signalDates[0]===signalDates[signalDates.length-1]?date(signalDates[0]):`${date(signalDates[0])} – ${date(signalDates[signalDates.length-1])}`):"Unavailable"}</strong></div>
+    </div>
+    {warnings.length>0&&<section aria-label="Data warnings"><h3>Data warnings</h3><ul>{warnings.map((w,i)=><li key={i} className="signal-warning">{w}</li>)}</ul></section>}
+    {paused&&<p className="signal-warning" role="alert">Workspace revision conflict. Reload before saving.</p>}
+    <h3>Strategy signals</h3>
+    {signals.length?<div className="data-signals-table"><table className="rebalance-data-table"><thead><tr><th>Strategy</th><th>Current target / selected asset</th><th>Signal date</th></tr></thead><tbody>{signals.map((s,i)=><tr key={s.name??i}>
+      <td data-label="Strategy">{s.name??"Strategy"}{typeof s.weight==="number"&&<small className="companion-note"> · {fmt.percent(s.weight/100)} sleeve</small>}</td>
+      <td data-label="Current target">{Object.entries(s.target_weights??{}).filter(([,w])=>w>0).map(([asset,w])=>`${asset} ${fmt.percent(w)}`).join(", ")||"Unavailable"}</td>
+      <td data-label="Signal date">{date(s.signal_date)}</td></tr>)}</tbody></table></div>:<p>No strategy signals available.</p>}
+    <details><summary>Price sources ({entries.length})</summary><div className="data-signals-table"><table className="rebalance-data-table"><thead><tr><th>Holding</th><th>Price</th><th>Observation date</th><th>Source</th><th>Status</th></tr></thead><tbody>
+      {entries.map(([id,q])=>{const item=state.instruments[id],missing=!!q.error||q.price==null;return <tr key={id}>
+        <td data-label="Holding">{item?.label??id}{q.valuation_kind==="fund_nav"&&<small className="companion-note">Published fund valuation</small>}</td>
+        <td data-label="Price">{missing?"—":`${item?.currency==="USD"?"$":"₪"}${fmt.number(Number(q.price),true)}`}</td>
+        <td data-label="Observation date">{date(q.as_of as string|undefined)}</td><td data-label="Source">{isManual(q)?"Manual":"Automatic"}</td>
+        <td data-label="Status">{missing?"Unavailable":q.fresh?"Current":"Stale"}</td></tr>})}
+    </tbody></table></div><p className="holding-hint">Exchange prices are delayed observations; mutual funds use published valuations. Neither is a guaranteed broker price.</p></details>
+    <details><summary>Technical details</summary><button type="button" className="btn btn-secondary" onClick={()=>void navigator.clipboard?.writeText(raw)}>Copy diagnostics</button>
+      <pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere",maxHeight:480,overflow:"auto"}}>{raw}</pre></details>
+    <p className="holding-hint">Indicative prices only. This application does not place trades.</p>
+    {plan&&state.allocation_mode==="proportional"&&Object.entries(plan.unspent_by_fund??{}).some(([,v])=>Number(v)>0)&&<details><summary>{text.planDetails}</summary>
+      {Object.entries(plan.unspent_by_fund??{}).filter(([,v])=>Number(v)>0).map(([id,v])=><p key={id}>{text.unspentShare.replace("{fund}",state.instruments[id]?.label??id).replace("{unspent}",fmt.cell(v,"cash")).replace("{cost}",fmt.cell(plan.unit_costs_ils?.[id],"price"))}</p>)}<p>{text.pooledCash}</p></details>}
+  </section>;
+}
+
 function CurrentAllocation({ state }: { state: State }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const outside = new Map(state.comparison.map(row => [row.id, row.Status === "Outside the rebalance"]));
@@ -363,17 +413,7 @@ export default function RebalanceHoldings() {
       </section>}
       </div>
       <div role="tabpanel" id="action-panel-details" aria-labelledby="action-tab-details" tabIndex={0} hidden={actionTab !== "details"}>
-      {plan ? <section><h2>{text.planDetails}</h2>
-        {state.allocation_mode === "proportional" && <>
-          {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
-            <p key={key}>{text.unspentShare.replace("{fund}", state.instruments[key].label).replace("{unspent}", fmt.cell(value, "cash"))
-              .replace("{cost}", fmt.cell(plan.unit_costs_ils?.[key], "price"))}</p>)}
-          <p>{text.pooledCash}</p>
-        </>}
-      </section> : <p>{text.detailsEmpty}</p>}
-        <p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
-        <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre>
-        <p>{text.signalCaption}</p><p>{state.source_settings}</p><pre>{fmt.json({ diagnostics: state.target_diagnostics, signals: state.signals })}</pre>
+      <DataSignals state={state} plan={plan} paused={paused} />
       </div>
       </div>
       <div hidden={step !== "holdings"}>
