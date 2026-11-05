@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "mappings": {
+    "HAA-Simple Israel": {
+      "model": "HAA-Simple",
+      "note": "Original USD SPY/TIP rules; IEF/BIL replace the Israeli defensive funds."
+    },
+    "HAA 4 Israel": {
+      "model": "HAA 4",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Inflation Compass Standard Israel": {
+      "model": "Inflation Compass Standard",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Inflation Compass Fast (40-day) Israel": {
+      "model": "Inflation Compass Fast (40-day)",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Inflation Compass Steady (80-day) Israel": {
+      "model": "Inflation Compass Steady (80-day)",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Buy and Hold SPY Israel": {
+      "model": "Buy and Hold SPY",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Buy and Hold QQQ Israel": {
+      "model": "Buy and Hold QQQ",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Buy and Hold Semiconductors Israel": {
+      "model": "Buy and Hold Semiconductors",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Century Momentum Israel": {
+      "model": "Century Momentum",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Century Momentum Move to Cash Israel": {
+      "model": "Century Momentum Move to Cash",
+      "note": "SPMO signals are unchanged; BIL US T-bills replace Ayalon Kaspit shekel cash. No IEF retreat is substituted."
+    },
+    "Growth-Inflation Concentrated Israel": {
+      "model": "Growth-Inflation Concentrated",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "GEM Israel": {
+      "model": "GEM",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "GGCEM Link Original Israel": {
+      "model": "GGCEM Link Original",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "BAA-G4 (Aggressive) Israel": {
+      "model": "BAA-G4 (Aggressive)",
+      "note": "Uses the original USD implementation for the entire period. Local fund tracking, ILS hedging and currency exposure are omitted."
+    },
+    "Buy and Hold Global Israel": {
+      "model": "Buy and Hold ACWI",
+      "note": "ACWI is a functional all-country equity proxy, not the identical FTSE All-World index."
+    },
+    "Buy and Hold Gold Israel": {
+      "model": "Buy and Hold Gold GLD",
+      "note": "GLD dollar gold replaces Israeli gold; no shekel hedge or USD/ILS returns."
+    },
+    "Buy and Hold Harel Government Bonds Israel": {
+      "model": "Buy and Hold IEF",
+      "note": "Functional intermediate US Treasury proxy. US Treasuries differ from Israeli government bonds in duration, inflation exposure and interest-rate behaviour.",
+      "prominent": true
+    },
+    "Buy and Hold World Value Israel": {
+      "ticker": "IVLU",
+      "note": "Functional international developed-market value ETF, excluding US stocks; not an exact global/world-value index match.",
+      "prominent": true
+    },
+    "Buy and Hold Nasdaq-100 x3 Monthly Israel": {
+      "ticker": "TQQQ",
+      "note": "Functional 3x Nasdaq ETF. TQQQ resets DAILY, unlike the Israeli MONTHLY-reset fund. Financing, tracking and reset outcomes differ.",
+      "prominent": true
+    },
+    "Buy and Hold S&P 500 x3 Israel": {
+      "ticker": "UPRO",
+      "note": "Functional US daily-reset 3x S&P 500 ETF; local leverage, financing and tracking differ.",
+      "prominent": true
+    }
+  }
+}

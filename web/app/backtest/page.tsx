@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
+import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/backtest.json";
 import multiText from "../../content/backtest-multi.json";
 import MultiForm from "./multi-form";
+import {UsdToggle,UsdBanner,fitDates,type UsdInfo} from "../../components/UsdEquivalents";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
@@ -14,12 +16,12 @@ import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 type Row = Record<string, unknown>;
 type Table = { columns: string[]; rows: Row[]; display_rows?: Row[]; total_rows?: number; shown_rows?: number; truncated?: boolean };
 type Model = { label: string; strategy: string; variant: string | null; implementation: string };
-type Form = { label: string; start: string; end: string; initial: number; fee_type: "percentage" | "fixed"; fee_value: number;
+type Form = { usd_equivalents: boolean; label: string; start: string; end: string; initial: number; fee_type: "percentage" | "fixed"; fee_value: number;
   tax_enabled: boolean; tax_rate: number; monthly_contribution: number; reference_replay: boolean } & FeeAssumptions;
 type Options = { models: Model[]; label: string; currency: string; bounds: { start_min: string; start_max: string; end_min: string; end_max: string };
   defaults: Form; captions: string[]; warnings: string[]; data_validation: Table; reference_replay_available: boolean; dca_caption: string; reference_caption: string };
 type Chart = { series: { label: string; svg_points: string }[]; minimum: number; maximum: number; start: string; end: string; caption: string };
-type Results = { label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
+type Results = { usd_equivalents?: UsdInfo; label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
   fees?: { currency: string; enabled: boolean; pre_tax: number; after_tax: number } | null;
   annual: Table; monthly: Table; value_chart: Chart; drawdown_chart: Chart; calculated_at: string; cache: { key: string; hit: string | null };
   captions: string[]; warnings: string[]; data_origin: string; timing: Row; calculation_timing: Row;
@@ -43,7 +45,7 @@ function Lines({ value, title }: { value: Chart; title: string }) {
     <p>{value.caption}</p></section>;
 }
 
-const initialForm: Form = { ...defaultFees, label: "", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
+const initialForm: Form = { ...defaultFees, usd_equivalents:false, label: "", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
   tax_enabled: true, tax_rate: 25, monthly_contribution: 1000, reference_replay: false };
 
 export default function BacktestPage() {
@@ -62,6 +64,7 @@ export default function BacktestPage() {
   const [changed, setChanged] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const inFlight = useRef(false);
+  const optionsLabel = useRef("");
   const current = models?.find(model => model.label === form.label);
   useEffect(() => {
     if (modelsCache) return;
@@ -74,17 +77,19 @@ export default function BacktestPage() {
   }, [attempt]);
   useEffect(() => {
     if (mode !== "single" || !form.label) { setLoading(false); return; }
-    const cached = optionsCache.get(form.label);
-    if (cached) { setOptions(cached); setForm(previous => ({...previous,start:cached.bounds.start_min,end:cached.bounds.end_max,reference_replay:false})); return; }
+    const preserve = optionsLabel.current === form.label;
+    const applyOptions = (value: Options) => {setOptions(value); optionsLabel.current=form.label; setForm(previous=>({...previous,...(preserve?fitDates(previous,value.bounds):{start:value.bounds.start_min,end:value.bounds.end_max}),reference_replay:false}));};
+    const cached = form.usd_equivalents ? null : optionsCache.get(form.label);
+    if (cached) {setLoading(false); setError(""); applyOptions(cached); return;}
     const controller = new AbortController(); setLoading(true); setOptions(null); setError(""); setResult(null);
-    void backtestRequest<Options>(`/api/backtest/options?label=${encodeURIComponent(form.label)}`, { signal: controller.signal })
+    void backtestRequest<Options>(`/api/backtest/options?label=${encodeURIComponent(form.label)}${form.usd_equivalents ? "&usd_equivalents=true" : ""}`, { signal: controller.signal })
       .then(value => {
         if (controller.signal.aborted) return;
-        optionsCache.set(form.label,value); setOptions(value); setForm(previous => ({ ...previous, start: value.bounds.start_min, end: value.bounds.end_max, reference_replay: false }));
+        if(!form.usd_equivalents)optionsCache.set(form.label,value); applyOptions(value);
       }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [form.label, mode]);
+  }, [form.label, form.usd_equivalents, mode]);
   useEffect(() => {
     if (!running) return;
     const started = Date.now(); setElapsed(0);
@@ -138,6 +143,7 @@ export default function BacktestPage() {
         <input type="radio" name="backtest-mode" value={value} checked={mode === value} onChange={() => { setMode(value); update({}); }} />{text[value]}
       </label>)}
     </fieldset>
+    {mode === "single" && <UsdToggle checked={form.usd_equivalents} disabled={running} onChange={usd_equivalents=>update({usd_equivalents})}/> }
     {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})} />}
     {loadingModels && mode === "single" && <p role="status">{text.loading}</p>}
     {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!models && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
@@ -151,8 +157,8 @@ export default function BacktestPage() {
           <label>{text.implementation}<select value={form.label} onChange={event => update({ label: event.target.value })}>{implementations.map(value => <option key={value.label} value={value.label}>{value.implementation}</option>)}</select></label>
         </div>
         <p className="assumption-hint">{text.currency}: {options.currency}</p>
-        <AmountAndDates initial={<label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={text.start}><input aria-label={text.start} type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={text.end}><input aria-label={text.end} type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></DateField>}
-          dca={<><Toggle checked={dca} onChange={value => { setDca(value); update({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
+        <AmountAndDates initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={text.start}><input aria-label={text.start} type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={text.end}><input aria-label={text.end} type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></DateField>}
+          dca={<><Toggle checked={dca} onChange={value => { setDca(value); update({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
         <Fees value={form} onChange={update}>
           <TaxControls enabled={form.tax_enabled} rate={form.tax_rate} step={.1} onEnabled={tax_enabled => update({tax_enabled})} onRate={tax_rate => update({tax_rate})} />
         </Fees>
@@ -167,7 +173,7 @@ export default function BacktestPage() {
     {running && <div role="status"><p>{text.longRun}</p><p>{text.elapsed}: {elapsed}</p></div>}
     {changed && <p>{text.changed}</p>}
     {result && <div aria-label={text.results}>
-      <h2>{result.label}</h2><p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
+      <UsdBanner value={result.usd_equivalents}/><h2>{result.label}</h2><p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
       <section><h2>{text.settings}</h2><p>{text.currency}: {result.currency}</p>
         <h3>{text.configuredSettings}</h3><dl>{Object.entries(result.settings).map(([key, value]) => <div key={key}><dt>{(text.settingLabels as Record<string, string>)[key] ?? key}</dt><dd>{fmt.configuration(value,key,result.settings.fee_type==="percentage")}</dd></div>)}</dl>
         <h3>{text.engineSettings}</h3><dl>{Object.entries(result.engine_parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{fmt.cell(value,key)}</dd></div>)}</dl></section>

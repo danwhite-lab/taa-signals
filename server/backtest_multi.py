@@ -19,7 +19,7 @@ from haa.portfolio_backtest import run_portfolio_backtest
 from haa.portfolio_config import backtest_portfolio_config, deep_history_portfolio_config, TRANSFER_ERROR
 from haa.portfolio_signals import monthly_strategy_input
 from haa.synthetic_history import monthly_blend_input
-from . import backtest as base, signals
+from . import backtest as base, signals, usd_equivalents as usd
 from .cache import data_version, digest
 from .signals_wire import clean, table
 from .performance import decisions as cached_decisions
@@ -134,7 +134,7 @@ def load_saved(body, portfolios):
 
 
 def live_inputs(request):
-    definitions = [base.definition(s.model) for s in request.sleeves]
+    definitions = [usd.resolve(s.model) if getattr(request,"usd_equivalents",False) else base.definition(s.model) for s in request.sleeves]
     mixed = getattr(request, "daily_valuation", False) or any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
     local = all(d.execution_currency == "ILS" for d in definitions)
     benchmark = "RVOL_SPY_IL" if mixed and local else "SPY"
@@ -206,6 +206,7 @@ def calculate(request, models, passed, *, start=None, end=None):
 def run(request, code):
     from .backtest_multi_presentation import report
     started = perf_counter()
+    mapping = usd.guard(request, [s.model for s in request.sleeves])
     request = validated(request)
     try:
         models, version, metadata, warnings, benchmark, cutoff = (proxy_inputs(request) if request.mode == "deep" else live_inputs(request))
@@ -217,6 +218,7 @@ def run(request, code):
         params["execution_order"] = order
         params.update(code=code, utc_date=str(datetime.now(timezone.utc).date()), completed_cutoff=cutoff,
                       source_metadata=digest(table(metadata)), content_version=digest(WORDS), presentation=f"backtest-{'portfolio' if request.mode == 'portfolio' else 'deep-history'}-v1")
+        if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             began = perf_counter()
             preliminary = calculate(request, models, passed)
@@ -230,6 +232,7 @@ def run(request, code):
             if nav.empty or not np.isfinite(nav[[c for c in ("pre_tax_value", "after_tax_value", "benchmark_value") if c in nav]].to_numpy()).all() or not np.isfinite(result.monthly[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all(): error("invalidResult")
             timing = {"input_and_signal_seconds": round(loaded-started, 6), "engine_seconds": round(perf_counter()-began, 6)}
             bundle = report(request, result, models, passed, benchmark, metadata, (lower, upper), (start, end), timing)
+            bundle = usd.annotate(bundle, mapping, request, (nav.index.min().date(), nav.index.max().date()))
             # Guard before ResultCache can persist a failed/oversized result.
             probe = {**bundle["public"], "warnings": bundle["public"]["warnings"] + warnings,
                      "downloads": [{"kind": k, "label": v["label"], "filename": v["filename"], "bytes": len(v["csv"].encode())} for k, v in bundle["downloads"].items()]}

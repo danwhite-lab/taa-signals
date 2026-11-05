@@ -1,19 +1,21 @@
 "use client";
 import { useRef, useState } from "react";
+import {UsdToggle,UsdBanner,useUsdAvailability,fitDates,type UsdInfo} from "../../components/UsdEquivalents";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
+import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/compare.json";
 import { compareRequest, compareDownload } from "../../lib/compareApi";
 import { AmountAndDates, DateField, CostsAndTax, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
 
 type Mode = "models" | "portfolios";
-type Settings = {mode: Mode; models: string[]; portfolio_ids: string[]; method: "monthly" | "daily"; initial: number; monthly_contribution: number; fee_pct: number; tax_enabled: boolean; tax_rate: number; start: string; end: string};
+type Settings = {usd_equivalents?:boolean;mode: Mode; models: string[]; portfolio_ids: string[]; method: "monthly" | "daily"; initial: number; monthly_contribution: number; fee_pct: number; tax_enabled: boolean; tax_rate: number; start: string; end: string};
 type Table = {columns: string[]; rows: Record<string, unknown>[]; display_rows?: Record<string, unknown>[]; total_rows?: number; shown_rows?: number};
 type Chart = {series: {label: string; svg_points: string}[]; start: string; end: string; minimum: number; maximum: number; caption: string};
 type Options = {models: {label: string; strategy?: string; benchmark: string; execution_currency: string}[]; portfolios: {id: string; name: string}[]; defaults: Settings};
-type Result = {gate: string; reason?: string; mode: Mode; tax_enabled: boolean; window: {start: string; end: string; periods: number};
+type Result = {usd_equivalents?:UsdInfo;gate: string; reason?: string; mode: Mode; tax_enabled: boolean; window: {start: string; end: string; periods: number};
   success: string | null; source_caption: string | null; coverage: Table; tables: Record<string, Table>; charts: Record<string, Chart>;
   downloads: {kind: string; label: string; filename: string}[]; cache: {key: string; hit: string | null}; warnings: string[]; timing: unknown; data_validation: Table};
 
@@ -62,6 +64,7 @@ export default function ComparePage() {
     return item && <button className="btn btn-secondary" key={kind} onClick={()=>void compareDownload(result!.cache.key,kind,item.filename).catch(()=>setError(text.downloadError))}>{item.label}</button>;
   }
   const models=settings.mode!=="portfolios";
+  const availability=useUsdAvailability(!!settings.usd_equivalents,{mode:settings.mode,models:settings.models,portfolio_ids:settings.portfolio_ids,method:settings.method},bounds=>setSettings(previous=>fitDates(previous,bounds)));
   const selected=options.models.filter(m=>settings.models.includes(m.label));
   const mismatch=new Set(selected.map(m=>m.execution_currency)).size>1;
   const enough=(models ? settings.models.length : settings.portfolio_ids.length)>=2;
@@ -87,27 +90,28 @@ export default function ComparePage() {
         </fieldset></details> :
         <details onToggle={event => { if (event.currentTarget.open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><fieldset aria-label={text.saved}><legend>{text.saved}</legend>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset></details>}
       </fieldset>
+      <UsdToggle checked={!!settings.usd_equivalents} disabled={running} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}
       {!enough ? <p className="signal-info">{models ? text.modelsGate : text.portfoliosGate}</p> : <>
       <p>{models ? text.modelsCaption : text.savedCaption}</p>
       {!models && <p>{text.neutral}</p>}
       <fieldset className="compare-settings compare-model-settings" disabled={running}>
         {!models && <><label>{text.method}<select value={settings.method} onChange={e=>change({method:e.target.value as Settings["method"]})}>{Object.entries(text.methods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><p>{text.methodCaption}</p></>}
-        <AmountAndDates initial={<label>{models ? text.initial : text.portfolioInitial}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
-          contribution={<label>{text.contribution}<input type="number" min="0" step="100" value={settings.monthly_contribution} onChange={e=>change({monthly_contribution:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
+        <AmountAndDates initial={<label>{models ? text.initial : text.portfolioInitial}{settings.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" step={models ? 1000 : 1} value={settings.initial} onChange={e=>change({initial:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
+          contribution={<label>{text.contribution}{settings.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" step="100" value={settings.monthly_contribution} onChange={e=>change({monthly_contribution:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
           start={<DateField label={text.startLabel} hint={models ? text.start : text.portfolioStart}><input aria-label={models ? text.start : text.portfolioStart} type="date" value={settings.start} onChange={e=>change({start:e.target.value})}/></DateField>} end={<DateField label={text.endLabel} hint={models ? text.end : text.portfolioEnd}><input aria-label={models ? text.end : text.portfolioEnd} type="date" value={settings.end} onChange={e=>change({end:e.target.value})}/></DateField>} />
         <p className="assumption-hint">{models ? text.contributionCaption : text.portfolioContributionCaption}</p>
         <CostsAndTax><TaxControls leading={<label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
           enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/></CostsAndTax>
-        <p>{text.dateHelp}</p>{models && mismatch && <p className="signal-warning">{text.hint}</p>}
-      </fieldset><button className="btn btn-primary" disabled={running} onClick={()=>void run()}>{running ? text.running : text.run}</button>
+        <p>{text.dateHelp}</p>{models && mismatch && !settings.usd_equivalents && <p className="signal-warning">{text.hint}</p>}
+      </fieldset><button className="btn btn-primary" disabled={running || availability.loading || !!availability.error} onClick={()=>void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
       </>}
     </>
     {result?.gate === "selection" && <p className="signal-info">{result.reason}</p>}
     {result?.gate === "available" && <section aria-label={text.completed}>
-      <p>{text.completed}</p>{result.success && <Markdown>{fmt.text(result.success ?? "")}</Markdown>}{result.source_caption && <p>{fmt.text(result.source_caption)}</p>}
+      <UsdBanner value={result.usd_equivalents}/><p>{text.completed}</p>{result.success && <Markdown>{fmt.text(result.success ?? "")}</Markdown>}{result.source_caption && <p>{fmt.text(result.source_caption)}</p>}
       <p>{result.cache.hit ? text.cached : text.calculated}</p>{result.warnings.map((w,i)=><p className="signal-warning" key={i}>{w}</p>)}
-      {download("price-warnings")}
+      {download("price-warnings")}{download("usd-equivalents")}
       <details><summary>{text.coverage}</summary><DataTable value={result.coverage}/></details>
       <details><summary>{text.sections[0]}</summary>
         {models ? <><Plot value={result.charts.value_pre} title={text.preChart}/>{result.tax_enabled && <Plot value={result.charts.value_after} title={text.afterChart}/>}</> : <Plot value={result.charts[`value_${suffix}`]} title={text.portfolioChart}/>}
