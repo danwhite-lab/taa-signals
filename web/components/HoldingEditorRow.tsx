@@ -8,12 +8,13 @@ type Row = Record<string, string | boolean | null>;
 type Quote = Record<string, unknown>;
 const label = (key: string) => text.columns[key as keyof typeof text.columns] ?? key;
 
-export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, targets = [], instruments = {}, portfolioName = "", role: draftRole }: {
+export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, targets = [], instruments = {}, portfolioName = "", allocation = "—", role: draftRole }: {
   row: Row; quote?: Quote; busy: boolean;
   role?: string;
   targets?: {id:string;label:string;weight?:string}[];
   instruments?: Record<string, {label:string; identifier:string}>;
   portfolioName?: string;
+  allocation?: string;
   onEdit: (key: string, field: string, value: string | boolean) => void; onBlur: () => void;
 }) {
   const security = String(row.Security);
@@ -23,7 +24,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   const manual = row["Manual price per unit"] != null && row["Manual price per unit"] !== "";
   const target = targets.find(item => item.id === security);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
-  const removeButton = useRef<HTMLButtonElement>(null);
+  const removeButton = useRef<HTMLElement>(null);
   useEffect(() => setConfirmRemoval(false), [portfolioName, target?.id]);
   function fundName(id: string) {
     const identifier = instruments[id]?.identifier || id.split(":").at(-1) || id;
@@ -34,65 +35,67 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   const planStatus = role === "companion" && anchor ? words.companionStatus.replace("{fund}", fundName(anchor))
     : target ? words.inPlan.replace("{weight}", target.weight || "—") : words.notInPlan;
   const hint = role === "outside" ? words.outsideHint : role === "companion" ? words.companionHint : !target ? words.notInPlanHint : undefined;
+  const [menuOpen, setMenuOpen] = useState(false);
   const [holdingOpen, setHoldingOpen] = useState(false);
-  const [priceEditorOpen, setPriceEditorOpen] = useState(missing || stale || manual);
+  const [priceEditorOpen, setPriceEditorOpen] = useState(false);
   function field(key: string, caption: string) {
-    return <label className="holding-field"><span>{caption}</span>
+    return <label className="compact-holding-field"><span>{caption}</span>
       <input id={`holding-${encodeURIComponent(security)}-${encodeURIComponent(key)}`}
         aria-label={`${label(key)} ${security}`} type={key === "Price date" ? "date" : "text"}
         inputMode={key === "Price date" ? undefined : "decimal"} value={String(row[key] ?? "")}
         disabled={busy} onChange={event => onEdit(security, key, event.target.value)} onBlur={onBlur} />
     </label>;
   }
-  return <article className="holding-editor-row" role="listitem" aria-label={String(row.Fund)}>
-    <div className="holding-editor-details">
-      <button type="button" className="holding-editor-summary" aria-expanded={holdingOpen} aria-controls={`holding-options-${encodeURIComponent(security)}`} onClick={() => setHoldingOpen(previous => !previous)}>
-        <strong>{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</strong><span className="holding-plan-status" title={hint}>{planStatus}</span>{(missing || stale) && <span className="holding-summary-alert" aria-label={String(quote?.status ?? quote?.error ?? text.unavailable)}>!</span>}
-      </button>
-      <div id={`holding-options-${encodeURIComponent(security)}`} className={holdingOpen ? "holding-editor-content is-open" : "holding-editor-content"}>
-    <div className="holding-main">
-      <div className="holding-fund"><strong>{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</strong><span className="holding-plan-status" title={hint}>{planStatus}</span><small>{security.split(":").at(-1)} · {row.Currency}</small></div>
-      {field("Value (₪ / $)", words.value)}
-      {field("Units", words.units)}
-      <div className="holding-price"><span className="holding-mobile-label">{words.price}</span>
-        <span>{fmt.cell(quote?.price, "price")}</span><small>{fmt.cell(quote?.as_of, "as_of")}</small>
-        {(missing || stale) && <details className="holding-price-status"><summary className="price-alert" title={String(quote?.status ?? quote?.error ?? text.unavailable)}>{missing ? words.missing : words.stale}</summary>
-          <span>{String(quote?.status ?? quote?.error ?? text.unavailable)}</span></details>}
+  const currency = row.Currency === "ILS" ? "₪" : "$";
+  const price = manual ? row["Manual price per unit"] : quote?.price;
+  const priceDate = manual ? row["Price date"] : quote?.as_of;
+  const detailsId = `holding-options-${encodeURIComponent(security)}`;
+  return <>
+    <tr className="compact-holding-row" aria-label={String(row.Fund)}>
+      <th scope="row" title={[planStatus, hint].filter(Boolean).join(" · ")}>
+        <span className="compact-fund-name">{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</span>
+        <small>{security.split(":").at(-1)} · {row.Currency}</small>
+      </th>
+      <td className="numeric"><div className="compact-value-field"><span aria-hidden="true">{currency}</span>{field("Value (₪ / $)", `${words.value} (${currency})`)}</div></td>
+      <td className="numeric">{field("Units", words.units)}</td>
+      <td className="numeric" title={planStatus}>{allocation}</td>
+      <td><select className="compact-role" aria-label={`${words.role} ${security}`} value={role} disabled={busy}
+        onChange={event => { onEdit(security, "Role", event.target.value); if (event.target.value === "companion") setHoldingOpen(true); }}>
+        {Object.entries(words.roles).map(([value,caption]) => <option key={value} value={value}
+          disabled={value === "companion" && !targets.some(t => t.id !== security) && !anchor}>{caption}</option>)}
+      </select></td>
+      <td className="compact-row-actions">
+        {(missing || stale) && <span className="price-alert" title={String(quote?.status ?? quote?.error ?? text.unavailable)} aria-label={missing ? words.missing : words.stale}>!</span>}
+        <button type="button" className="compact-icon-button" disabled={busy} aria-label={words.detailsFund.replace("{fund}", String(row.Fund))}
+          aria-expanded={holdingOpen} aria-controls={detailsId} onClick={() => setHoldingOpen(previous => !previous)}><span aria-hidden="true">{holdingOpen ? "⌃" : "⌄"}</span></button>
+        <details className="compact-holding-menu" open={menuOpen} onKeyDown={event => { if (event.key === "Escape") { setMenuOpen(false); removeButton.current?.focus(); } }}>
+          <summary ref={removeButton} aria-disabled={busy} aria-expanded={menuOpen} onClick={event => {event.preventDefault(); if (!busy) setMenuOpen(previous => !previous);}} aria-label={words.actionsFund.replace("{fund}", String(row.Fund))}>⋯</summary>
+          <button type="button" className="compact-delete" hidden={!menuOpen} disabled={busy} aria-label={words.removeFund.replace("{fund}", String(row.Fund))}
+            onClick={() => { setMenuOpen(false); if (target) {setConfirmRemoval(true); setHoldingOpen(true);} else onEdit(security, "Remove", true); }}>{words.remove}</button>
+        </details>
+      </td>
+    </tr>
+    <tr className="compact-holding-details" id={detailsId} hidden={!holdingOpen}><td colSpan={6}>
+      {role === "companion" && <label className="compact-companion">{words.companion}<select aria-label={`${words.companion} ${security}`} disabled={busy}
+        value={anchor} onChange={event => onEdit(security, "Companion of", event.target.value)}>
+        <option value="">{words.none}</option>
+        {anchor && !targets.some(t => t.id === anchor) && <option value={anchor}>{words.unmatchedCompanion.replace("{fund}", fundName(anchor))}</option>}
+        {[...targets].filter(t => t.id !== security).sort((a,b) => (a.label || a.id).localeCompare(b.label || b.id, undefined, {sensitivity:"base"})).map(t => <option key={t.id} value={t.id}>{t.label || t.id}</option>)}
+      </select></label>}
+      <div className="compact-price-summary" title={String(quote?.source ?? text.unavailable)}>
+        <span>{words.price}: {price == null || price === "" ? text.unavailable : `${currency}${fmt.cell(price, "price")}`} · {manual ? text.manual : text.auto} · {fmt.cell(priceDate, "as_of")}</span>
+        <button type="button" className="compact-edit-button" disabled={busy} aria-expanded={priceEditorOpen} aria-controls={`${detailsId}-price`} onClick={() => setPriceEditorOpen(previous => !previous)}>{words.editPrice}</button>
       </div>
-      <div className="holding-membership">
-        <div className="holding-role-buttons" role="group" aria-label={`${words.role} ${security}`}>
-          {Object.entries(words.roles).map(([value,caption])=><button key={value} type="button" className="btn btn-secondary"
-            aria-pressed={role===value} disabled={busy || (value==='companion' && !targets.some(t=>t.id!==security) && !row['Companion of'])}
-            onClick={()=>onEdit(security,'Role',value)}>{caption}</button>)}
-        </div>
-        <div className="holding-role-picker">{role==='companion' && <label>{words.of}<select aria-label={`${words.companion} ${security}`} disabled={busy}
-          value={String(row["Companion of"] ?? "")} onChange={event=>onEdit(security,"Companion of",event.target.value)}>
-          <option value="">{words.none}</option>
-          {row["Companion of"] && !targets.some(t=>t.id===row["Companion of"]) && <option value={String(row["Companion of"])}>{words.unmatchedCompanion.replace("{fund}", fundName(anchor))}</option>}
-          {[...targets].filter(t=>t.id!==security).sort((a,b)=>(a.label || a.id).localeCompare(b.label || b.id,undefined,{sensitivity:'base'})).map(t=><option key={t.id} value={t.id}>{t.label || t.id}</option>)}
-        </select></label>}</div>
+      <div className="compact-price-fields" id={`${detailsId}-price`} hidden={!priceEditorOpen}>
+        {field("Manual price per unit", words.unitPrice)}
+        {field("Price date", words.priceDate)}
+        {field("Minimum order (₪)", words.minimumOrder)}
       </div>
-      <div className="holding-remove">
-        <button type="button" ref={removeButton} className="btn btn-destructive" disabled={busy} aria-label={words.removeFund.replace("{fund}", String(row.Fund))}
-          onClick={() => target ? setConfirmRemoval(true) : onEdit(security, "Remove", true)}>-</button>
-      </div>
-    </div>
-    {confirmRemoval && <div className="holding-remove-confirm" role="alert">
-      <p>{words.removePlanConfirm.replace("{portfolio}", portfolioName)}</p>
-      <button type="button" className="btn btn-destructive" disabled={busy} onClick={() => onEdit(security, "Remove", true)}>{words.removeAnyway}</button>
-      <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setConfirmRemoval(false); removeButton.current?.focus(); }}>{words.cancelRemoval}</button>
-    </div>}
-    <details className="holding-price-editor" open={priceEditorOpen} onToggle={event => setPriceEditorOpen(event.currentTarget.open)}>
-      <summary>{words.editPrice}</summary>
-      <div className="holding-advanced">
-        {field("Manual price per unit", label("Manual price per unit"))}
-        <div>{field("Price date", label("Price date"))}
-          <p className="holding-hint">{text.manualCaption}</p></div>
-        {field("Minimum order (₪)", label("Minimum order (₪)"))}
-      </div>
-      <details className="holding-source"><summary>{words.source}</summary><p>{String(quote?.source ?? text.unavailable)}</p></details>
-    </details>
-      </div>
-    </div>
-  </article>;
+      {confirmRemoval && <div className="compact-remove-confirm" role="alert">
+        <p>{words.removePlanConfirm.replace("{portfolio}", portfolioName)}</p>
+        <button type="button" className="btn btn-destructive" disabled={busy} onClick={() => onEdit(security, "Remove", true)}>{words.removeAnyway}</button>
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => {setConfirmRemoval(false); removeButton.current?.focus();}}>{words.cancelRemoval}</button>
+      </div>}
+    </td></tr>
+  </>;
 }

@@ -13,7 +13,7 @@
   "unmatchedCompanion": "Saved anchor: {fund}, not a plan target now",
   "remove": "Remove",
   "removeFund": "Remove {fund}",
-  "editPrice": "Edit price",
+  "editPrice": "Edit",
   "source": "source",
   "stale": "Stale",
   "missing": "Missing",
@@ -25,5 +25,13 @@
   "companionHint": "Counts toward its anchor’s strategy sleeve while that sleeve is in the plan. If the sleeve is not in the plan, this holding stays outside the rebalance.",
   "removePlanConfirm": "This fund is in your plan ({portfolio}). Removing it counts it as not held, so the Buy step will still include it. To drop it from the plan, edit the portfolio.",
   "removeAnyway": "Remove anyway",
-  "cancelRemoval": "Cancel"
+  "cancelRemoval": "Cancel",
+  "allocation": "Allocation %",
+  "type": "Type",
+  "rowActions": "Row actions",
+  "detailsFund": "Details for {fund}",
+  "actionsFund": "Actions for {fund}",
+  "unitPrice": "Unit price",
+  "priceDate": "Price date",
+  "minimumOrder": "Minimum order (\u20aa)"
 }

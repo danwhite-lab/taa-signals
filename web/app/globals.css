@@ -376,3 +376,47 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .rebalance-action-tabs button[aria-selected="true"] { background: #17645f; color: white; }
 .rebalance-action-tabs button:focus-visible { outline: 2px solid #17645f; outline-offset: 2px; }
 @media (max-width: 420px) { .rebalance-action-tabs button { font-size: .75rem; } }
+
+/* Shared holdings: editable rows with quiet, optional detail controls. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.compact-holdings-scroll { overflow-x: auto; max-width: 100%; }
+.compact-holdings-table { width: 100%; min-width: 660px; border-collapse: collapse; table-layout: fixed; font-size: .85rem; }
+.compact-holdings-table th, .compact-holdings-table td { border: 0; padding: .45rem .5rem; vertical-align: middle; text-align: left; }
+.compact-holdings-table thead th { color: #687482; font-size: .75rem; font-weight: 500; border-bottom: 1px solid #dce2e8; }
+.compact-holding-row { border-bottom: 1px solid #edf0f2; }
+.compact-holdings-table th:first-child { width: 32%; }
+.compact-holdings-table th:last-child { width: 82px; }
+.compact-holdings-table .numeric, .compact-holdings-table .numeric input { text-align: right; font-variant-numeric: tabular-nums; }
+.compact-holdings-table .compact-fund-name { display: block; font-weight: 500; line-height: 1.25; overflow-wrap: anywhere; }
+.compact-holdings-table small { display: block; color: #687482; font-size: .7rem; font-weight: 400; margin-top: .2rem; }
+.rebalance-page .compact-holding-field { display: block; margin: 0; font-size: .75rem; }
+.compact-holding-row .compact-holding-field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.rebalance-page .compact-holding-field input, .compact-role { width: 100%; min-width: 0; min-height: 32px; margin: 0; padding: .3rem .35rem; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; box-sizing: border-box; }
+.rebalance-page .compact-holding-field input:hover, .compact-role:hover { border-color: #dce2e8; }
+.rebalance-page .compact-holding-field input:focus, .compact-role:focus { border-color: var(--accent); outline: 1px solid var(--accent); }
+.compact-row-actions { white-space: nowrap; }
+.compact-icon-button, .compact-holding-menu summary { display: inline-block; border: 0; background: none; color: inherit; cursor: pointer; padding: .3rem; font: inherit; min-width: 28px; text-align: center; }
+.compact-holding-menu { display: inline-block; margin: 0 !important; vertical-align: top; }
+.compact-holding-menu summary { list-style: none; }
+.compact-holding-menu summary::-webkit-details-marker { display: none; }
+.compact-delete { display: block; color: #a33434; background: transparent; border: 0; padding: .35rem; cursor: pointer; font: inherit; }
+.compact-holding-details td { padding: .4rem .75rem .6rem; background: #fafbfc; }
+.compact-holding-details[hidden], .compact-price-fields[hidden] { display: none !important; }
+.compact-price-summary { display: flex; align-items: center; gap: .65rem; color: #687482; font-size: .8rem; }
+.compact-edit-button { padding: .2rem; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.compact-price-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; max-width: 620px; margin-top: .45rem; }
+.compact-price-fields .compact-holding-field span { display: block; margin-bottom: .2rem; color: #687482; }
+.rebalance-page .compact-price-fields input { border-color: #dce2e8; background: white; }
+.rebalance-page .compact-companion { display: flex; align-items: center; gap: .5rem; margin: 0 0 .4rem; font-size: .8rem; }
+.compact-companion select { max-width: 400px; margin: 0; padding: .2rem; }
+.compact-remove-confirm { font-size: .8rem; }
+.compact-remove-confirm .btn { padding: .35rem .6rem; }
+@media (max-width: 700px) { .compact-holdings-table { min-width: 620px; } .compact-holdings-table th:first-child { width: 27%; } }
+.rebalance-page .compact-holdings-table input:not([type="checkbox"]) { width: 100%; max-width: none; }
+.compact-holdings-table th, .compact-holdings-table td { white-space: normal; }
+.compact-holdings-table thead th:nth-child(5) { width: 100px; }
+.rebalance-page .compact-role { padding: .3rem .35rem; }
+.compact-price-summary { flex-wrap: wrap; }
+.compact-value-field { display: flex; align-items: center; gap: .2rem; }
+.compact-value-field > span { color: #687482; font-size: .75rem; }
+.compact-value-field > label { flex: 1; min-width: 0; }
