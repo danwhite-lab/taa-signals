@@ -48,7 +48,7 @@ it("only validates on edits; runs solely on the explicit button, disabled for in
   fireEvent.click(screen.getByRole("button", { name: text.run }));
   await waitFor(()=>expect(run).toHaveBeenCalled());
   expect(run).toHaveBeenCalledTimes(1);
-  expect(run.mock.calls[0][0]).toMatchObject({ mode: "portfolio", tax_enabled: true, tax_rate: 25, fee_value: 0 });
+  expect(run.mock.calls[0][0]).toMatchObject({ label: "HAA-Simple", tax_enabled: true, tax_rate: 25, fee_value: 0 });
   expect(run.mock.calls[0][0]).toMatchObject({fees_enabled:true,ils_fee_percent:.05,ils_minimum_fee:2,usd_flat_fee:5});
   expect(mock.request.mock.calls.every(([path]) => !["/api/workspace", "/api/backtest"].includes(path))).toBe(true);
 });
@@ -75,7 +75,8 @@ it("retains daily single-proxy restrictions and benchmark caveats", async () => 
   expect(screen.getByLabelText(words.weight)).toHaveProperty("value", "100");
   expect(screen.getByLabelText(words.weight)).toHaveProperty("disabled", true);
   expect(screen.getByText(words.add)).toHaveProperty("disabled", true);
-  expect(screen.getByText(words.benchmarkHelp)).toBeTruthy();
+  fireEvent.click(screen.getByText(words.advancedTitle));
+  expect(screen.getByLabelText(words.benchmark).closest("label")?.getAttribute("title")).toBe(words.benchmarkHelp);
   expect(screen.getByText("Mock benchmark caveat")).toBeTruthy();
 });
 
@@ -127,7 +128,8 @@ it('restores the saved transfer rule and parameters into the run request, then r
   fireEvent.click(screen.getByRole('button',{name:text.run}));
   await waitFor(()=>expect(run).toHaveBeenCalled());
   await waitFor(()=>expect(run).toHaveBeenCalledTimes(2));
-  expect(run.mock.calls[1][0]).toMatchObject({sleeve_rebalance_mode:'none',rebalance_sleeve:null,rebalance_cap:15,rebalance_target:10});
+  expect(run.mock.calls[1][0]).toMatchObject({label:'HAA-Simple',initial:3000});
+  expect(run.mock.calls[1][0]).not.toHaveProperty('sleeve_rebalance_mode');
 });
 
 it('restores an annual rule without changing unrelated assumptions',async()=>{
