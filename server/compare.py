@@ -74,7 +74,8 @@ def selection(request, records):
         try: sleeves, _ = backtest_portfolio_config(row.get("payload"), multi.MODELS, require_capital_fx=False)
         except (ValueError, TypeError, OverflowError, KeyError): error("invalidSaved")
         result.append(sleeves)
-    currencies = {definition(s["model"]).execution_currency for sleeves in result for s in sleeves}
+    currency_definition = usd.resolve if request.usd_equivalents else definition
+    currencies = {currency_definition(s["model"]).execution_currency for sleeves in result for s in sleeves}
     if len(currencies) > 1 or not currencies.issubset({"USD", "ILS"}):
         error("portfolioCurrency")
     return result

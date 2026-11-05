@@ -27,7 +27,8 @@ def availability(request, records):
             except (ValueError, TypeError, OverflowError, KeyError) as exc:
                 raise HTTPException(400,str(exc)) from None
             labels.extend(s['model'] for s in sleeves)
-        currencies={base.definition(label).execution_currency for label in labels}
+        currency_definition=usd.resolve if request.usd_equivalents else base.definition
+        currencies={currency_definition(label).execution_currency for label in labels}
         if len(currencies)>1: raise HTTPException(400,usd.WORDS['mixed_history'])
     labels=list(dict.fromkeys(labels))
     if not labels: raise HTTPException(400,usd.WORDS['select_history'])

@@ -2,6 +2,8 @@
 
 “Test USD equivalents” is an optional research setting, off by default, in single-strategy and portfolio Backtest and both Compare modes. It runs the existing USD implementation for the **entire** requested period. It does not reconstruct Israeli fund returns, convert USD returns to ILS, splice histories or extend ETFs before inception. It is separate from bundled Deep History.
 
+Saved-portfolio Compare and its date options validate execution currencies after mapping when this setting is on. A supported Israeli portfolio can therefore be compared with a USD portfolio, including mixed-origin sleeves, while preserving every sleeve weight. With the setting off, the original single-currency restrictions remain in force.
+
 Capital and monthly contributions become USD amounts without numeric conversion. Portfolio weights, saved portfolio records and live holdings/signals are unchanged. Results exclude USD/ILS movements, Israeli tracking differences and hedging costs. The existing realized-gain tax approximation remains an approximation, not a reconstruction of actual Israeli fund tax treatment.
 
 ## Coverage

@@ -156,3 +156,71 @@ def test_mapping_version_changes_cache_identity(market, monkeypatch):
     second=post(body).json()
     assert first['cache']['key']!=second['cache']['key']
     assert second['usd_equivalents']['mapping_version']=='changed-source-version'
+
+
+@pytest.mark.parametrize('mixed_sleeves',[False,True],ids=['ils-vs-usd','mixed-origin-sleeves'])
+def test_saved_portfolios_validate_resolved_usd_currencies_end_to_end(market,monkeypatch,mixed_sleeves):
+    sleeves=[{'model':'HAA-Simple Israel','weight':75 if mixed_sleeves else 100}]
+    if mixed_sleeves: sleeves.append({'model':'HAA-Simple','weight':25})
+    records=[{'id':'ils','payload':{'version':1,'name':'Israeli','sleeves':sleeves}},
+             {'id':'usd','payload':{'version':1,'name':'Dollar','sleeves':[{'model':'HAA-Simple','weight':100}]}}]
+    before=deepcopy(records)
+    monkeypatch.setattr(module.private_api,'portfolios',lambda session:records)
+    body={'mode':'portfolios','portfolio_ids':['ils','usd'],'usd_equivalents':True}
+    options=client.post('/api/usd-equivalents/options',headers=HEADERS,json=body)
+    assert options.status_code==200,options.text
+    bounds=options.json()['bounds']
+    assert options.json()['currency']=='USD'
+    captured=[]
+    original_engine=compare.compare_portfolios
+    def engine(portfolios,*args,**kwargs):
+        captured.append(portfolios)
+        return original_engine(portfolios,*args,**kwargs)
+    monkeypatch.setattr(compare,'compare_portfolios',engine)
+    result=client.post('/api/compare',headers=HEADERS,json={**body,'initial':10000,'monthly_contribution':1000,
+        'start':bounds['start_min'],'end':bounds['end_max']})
+    assert result.status_code==200,result.text
+    value=result.json()
+    assert value['gate']=='available'
+    assert value['window']['start']==bounds['start_min'] and value['window']['end']==bounds['end_max']
+    assert value['usd_equivalents']['currency']=='USD'
+    assert {r['resolved'] for r in value['usd_equivalents']['mappings']}=={'HAA-Simple'}
+    assert len(captured[0])==2
+    for actual,saved in zip(captured[0].values(),records):
+        assert [weight for weight,_ in actual.values()]==[s['weight']/100 for s in saved['payload']['sleeves']]
+        assert {model.execution_currency for _,model in actual.values()}=={'USD'}
+    assert records==before
+    # Both portfolios resolve to the same underlying book, even when two
+    # original sleeve identities map to one strategy; no weight may disappear.
+    for row in value['tables']['summary_pre']['rows']:
+        first,second=(row[name] for name in captured[0])
+        if isinstance(first,(float,int)): assert first==pytest.approx(second,rel=1e-9,abs=1e-9)
+        else: assert first==second
+
+
+@pytest.mark.parametrize('explicit_off',[False,True],ids=['default','explicit-off'])
+def test_saved_portfolios_original_currency_restrictions_remain_off(market,monkeypatch,explicit_off):
+    records=[{'id':identifier,'payload':{'version':1,'name':identifier,'sleeves':[{'model':label,'weight':100}]}}
+             for identifier,label in [('ils','HAA-Simple Israel'),('usd','HAA-Simple')]]
+    monkeypatch.setattr(module.private_api,'portfolios',lambda session:records)
+    body={'mode':'portfolios','portfolio_ids':['ils','usd']}
+    if explicit_off: body['usd_equivalents']=False
+    prior=len(market)
+    options=client.post('/api/usd-equivalents/options',headers=HEADERS,json={**body,'usd_equivalents':False})
+    result=client.post('/api/compare',headers=HEADERS,json=body)
+    assert options.status_code==result.status_code==400
+    assert options.json()['detail']==usd.WORDS['mixed_history']
+    assert result.json()['detail']==compare.WORDS['portfolioCurrency']
+    assert len(market)==prior
+
+
+def test_saved_unsupported_usd_mapping_rejected_before_loading(market,monkeypatch):
+    records=[{'id':identifier,'payload':{'version':1,'name':identifier,'sleeves':[{'model':label,'weight':100}]}}
+             for identifier,label in [('unsupported','TA-125 Smart Momentum'),('usd','HAA-Simple')]]
+    monkeypatch.setattr(module.private_api,'portfolios',lambda session:records)
+    body={'mode':'portfolios','portfolio_ids':['unsupported','usd'],'usd_equivalents':True}
+    prior=len(market)
+    for endpoint in ('/api/usd-equivalents/options','/api/compare'):
+        result=client.post(endpoint,headers=HEADERS,json=body)
+        assert result.status_code==400 and 'TA-125 Smart Momentum' in result.json()['detail']
+        assert len(market)==prior
