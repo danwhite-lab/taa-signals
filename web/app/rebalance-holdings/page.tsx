@@ -83,7 +83,10 @@ function CurrentAllocation({ state }: { state: State }) {
 export default function RebalanceHoldings() {
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const planPickerButton = useRef<HTMLButtonElement>(null);
-  const [step, setStep] = useState<"holdings" | "sell" | "buy">("holdings");
+  const [step, setStep] = useState<"holdings" | "action">("holdings");
+  const [actionTab, setActionTab] = useState<"balance" | "sell" | "buy" | "details">("balance");
+  const actionTabs = ["balance", "sell", "buy", "details"] as const;
+  function openBuy() { setStep("action"); setActionTab("buy"); }
   const [planId, setPlanId] = useState("");
   const [state, setState] = useState<State | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -226,12 +229,16 @@ export default function RebalanceHoldings() {
       }}>{text.replacementConfirm.replace("{old}", item.from_label).replace("{new}", item.to_label)}</button>)}</div>}
       {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
       {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+      {dirty && <p role="status">{text.unsaved}</p>}
+      {state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}
+      {plan && staleFunds.length > 0 && <p className="signal-warning">{text.stalePlan}</p>}
+      {plan && state.partial && <p>{text.partial}</p>}
       <div className="rebalance-workflow">
       <nav className="rebalance-steps" aria-label={text.stepNavigation}>
-        {(["holdings", "sell", "buy"] as const).map(value => <button type="button" key={value} aria-current={step === value ? "step" : undefined} onClick={() => setStep(value)}>{text.steps[value]}</button>)}
+        {(["holdings", "action"] as const).map(value => <button type="button" key={value} aria-current={step === value ? "step" : undefined} onClick={() => setStep(value)}>{text.steps[value]}</button>)}
       </nav>
       <div className="rebalance-step-content">
-      {planId && <button type="button" className="rebalance-plan-chip" onClick={() => setStep("buy")}>{text.planChip} · {changed ? text.staleChip : text.currentChip}</button>}
+      {planId && <button type="button" className="rebalance-plan-chip" onClick={openBuy}>{text.planChip} · {changed ? text.staleChip : text.currentChip}</button>}
       <div hidden={step !== "holdings"}>
       <div className="compare-plan-picker">
         <button type="button" ref={planPickerButton} className="rebalance-plan-chip" aria-expanded={planPickerOpen} aria-controls="compare-plan-options" disabled={busy || paused}
@@ -284,26 +291,13 @@ export default function RebalanceHoldings() {
           </details>
         </details>
             <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
-        {dirty && <p>{text.unsaved}</p>}
+
 
             <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
       </section>
-      <button type="button" className="btn btn-secondary" onClick={() => setStep("sell")}>{text.nextSell}</button>
+      <button type="button" className="btn btn-secondary" onClick={() => {setStep("action"); setActionTab("balance");}}>{text.nextAction}</button>
       </div>
-      <div hidden={step !== "sell"}>
-        <section><h2>{text.sellTitle}</h2><p>{text.sellCaption}</p>
-        {dirty || !state.portfolio_id || state.errors.length > 0 ? <p role="status">{text.sellUnavailable}</p> : <>
-          {!state.sell_review?.length && <p>{text.noSells}</p>}
-          {!!state.sell_review?.length && <table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.beforeUnits}</th><th>{text.afterUnits}</th></tr></thead><tbody>
-            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}>{state.instruments[row.id].label}</td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : row.action === "pending" ? text.pendingReplacement : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
-          </tbody></table>}
-        </>}
-        <button type="button" className="btn btn-secondary" onClick={() => setStep("holdings")}>{text.backHoldings}</button>
-        <button type="button" className="btn btn-primary" onClick={() => setStep("buy")}>{text.nextBuy}</button>
-        </section>
-      </div>
-      <div hidden={step !== "buy"}>
-      <p>{text.buyCaption}</p>
+      <div hidden={step !== "action"}>
       <section aria-label={text.generate} className="rebalance-action-section"><h2>{text.generate}</h2>
         <div className="rebalance-controls rebalance-controls-compact" role="group" aria-label={text.controls}>
           <div className="rebalance-control-fields">
@@ -313,23 +307,47 @@ export default function RebalanceHoldings() {
           {!state.portfolios.length && <p>{text.noPortfolio}</p>}
           {changed && <p>{text.changed}</p>}
           <button className="btn btn-primary" disabled={busy || paused || dirty || !state.ready} onClick={() => void action(async () => {
-              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setPlanId(value.plan.id); setChanged(false);
+              const value = await request<{ plan: Plan; state: State }>("/api/rebalance/plan", args()); setState(value.state); setPlan(value.plan); setPlanId(value.plan.id); setChanged(false); setActionTab("buy");
             })}>{text.generate}</button>
         </div>
       </section>
+      <div className="rebalance-action-tabs" role="tablist" aria-label={text.actionResults}>
+        {actionTabs.map((value, index) => <button type="button" role="tab" key={value} id={`action-tab-${value}`} aria-controls={`action-panel-${value}`}
+          aria-selected={actionTab === value} tabIndex={actionTab === value ? 0 : -1} onClick={() => setActionTab(value)}
+          onKeyDown={event => {
+            let next: number;
+            if (event.key === "ArrowRight") next = (index + 1) % actionTabs.length;
+            else if (event.key === "ArrowLeft") next = (index + actionTabs.length - 1) % actionTabs.length;
+            else if (event.key === "Home") next = 0;
+            else if (event.key === "End") next = actionTabs.length - 1;
+            else return;
+            event.preventDefault(); setActionTab(actionTabs[next]); document.getElementById(`action-tab-${actionTabs[next]}`)?.focus();
+          }}>{text.actionTabs[value]}</button>)}
+      </div>
+      <div role="tabpanel" id="action-panel-balance" aria-labelledby="action-tab-balance" tabIndex={0} hidden={actionTab !== "balance"}>
       <CurrentAllocation state={state} />
       <section><h2>{text.rebalanceTotal}</h2><p>{fmt.cell(state.total_display,"value")}</p><h2>{text.fullTotal}</h2><p>{fmt.cell(state.full_total_display,"value")}</p>{state.full_total_ils === null && <p>{text.fullMissing}</p>}</section>
-      <section><h2>{text.comparison}</h2>{state.errors.map((value, i) => <p role="alert" key={i}>{value} {text.failedTargetsExisting}</p>)}<table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
+      <section><h2>{text.comparison}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.target}</th><th>{text.actual}</th><th>{text.status}</th></tr></thead><tbody>
         {comparison.map(row => <tr key={row.id} className={row.companion_of ? "companion-row" : undefined}><td data-label={text.fund}>{row.Fund}{row.companion_of && <small className="companion-note">{row.Status === "Outside the rebalance" ? text.unmatchedCompanionNote : text.companionNote}</small>}</td><td data-label={text.target}>{row.target_display}</td><td data-label={text.actual}>{row.actual_display}</td><td data-label={text.status}>{row.Status === "Companion" ? text.companionStatus : row.Status}{isStale(row.id) && <small className="companion-note">{text.stalePrice.replace("{date}", staleDate(row.id))}</small>}</td></tr>)}</tbody></table>{state.overweight && <p>{text.overweight}</p>}</section>
+      </div>
+      <div role="tabpanel" id="action-panel-sell" aria-labelledby="action-tab-sell" tabIndex={0} hidden={actionTab !== "sell"}>
+        <section><h2>{text.sellTitle}</h2><p>{text.sellCaption}</p>
+        {dirty || !state.portfolio_id || state.errors.length > 0 ? <p role="status">{text.sellUnavailable}</p> : <>
+          {!state.sell_review?.length && <p>{text.noSells}</p>}
+          {!!state.sell_review?.length && <table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.beforeUnits}</th><th>{text.afterUnits}</th></tr></thead><tbody>
+            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}>{state.instruments[row.id].label}</td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : row.action === "pending" ? text.pendingReplacement : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
+          </tbody></table>}
+        </>}
+        <button type="button" className="btn btn-secondary" onClick={() => setStep("holdings")}>{text.backHoldings}</button>
+        <button type="button" className="btn btn-primary" onClick={openBuy}>{text.nextBuy}</button>
+        </section>
+      </div>
+      <div role="tabpanel" id="action-panel-buy" aria-labelledby="action-tab-buy" tabIndex={0} hidden={actionTab !== "buy"}>
+      <p>{text.buyCaption}</p>
+      {!plan && <p>{changed ? text.changed : text.buyEmpty}</p>}
       {plan && <section><h2>{text.buyList}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
         {plan.orders.map(order => <tr key={order.id}><td data-label={text.fund}>{state.instruments[order.id].label}{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td data-label={text.wholeUnits}>{fmt.number(order.units)}</td><td data-label={text.estimated}>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
-        {staleFunds.length > 0 && <p className="signal-warning">{text.stalePlan}</p>}{state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>{state.partial && <p>{text.partial}</p>}
-        {state.allocation_mode === "proportional" && <>
-          {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
-            <p key={key}>{text.unspentShare.replace("{fund}", state.instruments[key].label).replace("{unspent}", fmt.cell(value, "cash"))
-              .replace("{cost}", fmt.cell(plan.unit_costs_ils?.[key], "price"))}</p>)}
-          <p>{text.pooledCash}</p>
-        </>}
+        {state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>
         {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
         {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{staleFunds.length > 0 && <p className="signal-warning">{text.staleRecord}</p>}{plan.orders.map(order => <div className="record-order" key={order.id}><p>{state.instruments[order.id].label}{isStale(order.id) && <> — {text.staleOrder.replace("{date}", staleDate(order.id))}</>}</p>
           <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
@@ -339,6 +357,20 @@ export default function RebalanceHoldings() {
             ...args(), plan, acknowledge: ack, confirmations: plan.orders.map(order => ({ id: order.id, ...confirmed[order.id] })) }); await persist(value.account, true); })}>{text.done}</button>
           <button className="btn btn-secondary" disabled={busy} onClick={() => setRecording(false)}>{text.cancel}</button></section>}
       </section>}
+      </div>
+      <div role="tabpanel" id="action-panel-details" aria-labelledby="action-tab-details" tabIndex={0} hidden={actionTab !== "details"}>
+      {plan ? <section><h2>{text.planDetails}</h2>
+        {state.allocation_mode === "proportional" && <>
+          {Object.entries(plan.unspent_by_fund ?? {}).filter(([, value]) => Number(value) > 0).map(([key, value]) =>
+            <p key={key}>{text.unspentShare.replace("{fund}", state.instruments[key].label).replace("{unspent}", fmt.cell(value, "cash"))
+              .replace("{cost}", fmt.cell(plan.unit_costs_ils?.[key], "price"))}</p>)}
+          <p>{text.pooledCash}</p>
+        </>}
+      </section> : <p>{text.detailsEmpty}</p>}
+        <p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
+        <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre>
+        <p>{text.signalCaption}</p><p>{state.source_settings}</p><pre>{fmt.json({ diagnostics: state.target_diagnostics, signals: state.signals })}</pre>
+      </div>
       </div>
       <div hidden={step !== "holdings"}>
           <details><summary>{text.advanced}</summary>
@@ -354,9 +386,6 @@ export default function RebalanceHoldings() {
 
 
         <button className="btn btn-secondary" disabled={busy || paused} onClick={() => void action(() => refresh())}>{text.refresh}</button>
-        <p>{text.pricesCaption}</p><p>{text.fundCaption}</p><p>{text.costCaption}</p><p>{text.conflictDetails}</p>
-        <pre>{fmt.json({ quotes: state.quotes, fx: state.fx, seconds: state.seconds, revision: state.workspace_revision })}</pre>
-        <p>{text.signalCaption}</p><p>{state.source_settings}</p><pre>{fmt.json({ diagnostics: state.target_diagnostics, signals: state.signals })}</pre>
       </details>
       </div></div></div>
     </>}
