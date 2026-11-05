@@ -119,6 +119,7 @@
   "neverOrders": "This page never places orders. Display and record-keeping only; you trade manually at your broker.",
   "steps": {
     "holdings": "1 Holdings",
+    "action": "2 Action",
     "sell": "2 Sell",
     "buy": "3 Buy"
   },
@@ -143,5 +144,16 @@
   "comparePlan": "Compare plan: {name}",
   "choosePlan": "Choose a comparison plan",
   "morePlans": "Add more plans on the Portfolio page",
-  "noPlan": "None"
+  "noPlan": "None",
+  "actionResults": "Action results",
+  "actionTabs": {
+    "balance": "Portfolio balance",
+    "sell": "Sell list",
+    "buy": "Buy list",
+    "details": "Details"
+  },
+  "nextAction": "Continue to Action",
+  "buyEmpty": "Generate a buy list using your saved holdings and entered cash.",
+  "detailsEmpty": "Generate a buy list to see its allocation breakdown.",
+  "planDetails": "Plan details"
 }

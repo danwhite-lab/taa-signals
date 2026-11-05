@@ -63,7 +63,7 @@ const manyChartState = {
 it("shows every physical holding and cash once, largest first, in the full-account chart", async () => {
   mock.request.mockResolvedValue(chartState); render(<Page />);
   await screen.findByText(text.holdings);
-  fireEvent.click(screen.getByRole("button", { name: text.steps.buy }));
+  fireEvent.click(screen.getByRole("button", { name: text.steps.action }));
   const chart = await screen.findByRole("img", { name: new RegExp(text.currentAllocation) });
   expect(screen.getAllByRole("button", {name:/Show or hide/}).map(button => button.getAttribute("aria-label"))).toEqual([
     text.allocationToggle.replace("{holding}","Outside holding"), text.allocationToggle.replace("{holding}",item.label),
@@ -78,7 +78,7 @@ it("shows every physical holding and cash once, largest first, in the full-accou
 
 it("recalculates visible allocation percentages and restores the full account", async () => {
   mock.request.mockResolvedValue(chartState); render(<Page />); await screen.findByText(text.holdings);
-  fireEvent.click(screen.getByRole("button", {name:text.steps.buy})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
   fireEvent.click(allocationButton("Outside holding"));
   expect(allocationButton("Outside holding").getAttribute("aria-pressed")).toBe("false");
   expect(allocationButton("Outside holding").textContent).toContain(text.allocationHidden);
@@ -92,7 +92,7 @@ it("recalculates visible allocation percentages and restores the full account", 
 
 it("gives nine slices distinct stable colours", async () => {
   mock.request.mockResolvedValue(manyChartState); render(<Page />); await screen.findByText(text.holdings);
-  fireEvent.click(screen.getByRole("button", {name:text.steps.buy})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action})); await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
   const swatch = (label:string) => allocationButton(label).querySelector(".holdings-allocation-swatch") as HTMLElement;
   const colours = [...document.querySelectorAll<HTMLElement>(".holdings-allocation-swatch")].map(node => node.style.backgroundColor);
   expect(colours).toHaveLength(9); expect(new Set(colours).size).toBe(9);
@@ -104,7 +104,7 @@ it("gives nine slices distinct stable colours", async () => {
 it("names an unpriceable held position instead of putting it in the chart", async () => {
   const unpriced = {...chartState, rows:[...chartRows,{...row,Security:"US:MISSING",Fund:"Missing price",Units:"2"}],instruments:{...chartState.instruments,"US:MISSING":{id:"US:MISSING",identifier:"MISS",market:"US",currency:"USD",label:"Missing price"}}};
   mock.request.mockResolvedValue(unpriced); render(<Page />); await screen.findByText(text.holdings);
-  fireEvent.click(screen.getByRole("button", {name:text.steps.buy}));
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
   await screen.findByRole("img", {name:new RegExp(text.currentAllocation)});
   expect(screen.getByText(text.allocationMissing.replace("{holdings}","Missing price"))).toBeTruthy();
   expect(screen.queryByRole("button", {name:text.allocationToggle.replace("{holding}","Missing price")})).toBeNull();
@@ -472,7 +472,8 @@ it("shows one step at a time, preserves drafts, and keeps a stale plan chip afte
   await ready();
   expect(screen.getByRole("list", {name:text.holdings})).toBeTruthy();
   expect(screen.queryByRole("button", {name:text.generate})).toBeNull();
-  fireEvent.click(screen.getByRole("button", {name:text.steps.sell}));
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab", {name:text.actionTabs.sell}));
   expect(screen.getByRole("heading", {name:text.sellTitle})).toBeTruthy();
   expect(screen.queryByRole("list", {name:text.holdings})).toBeNull();
   fireEvent.click(screen.getByRole("button", {name:text.nextBuy}));
@@ -481,7 +482,7 @@ it("shows one step at a time, preserves drafts, and keeps a stale plan chip afte
   fireEvent.click(screen.getByRole("button", {name:text.steps.holdings}));
   fireEvent.change(screen.getByLabelText(text.cash), {target:{value:"17"}});
   expect(screen.getByText(text.planChip+" · "+text.staleChip)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", {name:text.steps.buy}));
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
   expect(screen.getByRole("button", {name:text.generate})).toHaveProperty("disabled",true);
   expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
   fireEvent.click(screen.getByRole("button", {name:text.steps.holdings}));
@@ -492,7 +493,8 @@ it("shows one step at a time, preserves drafts, and keeps a stale plan chip afte
 it("reviews full exits without recording trades or funding buys from sales", async () => {
   mock.request.mockResolvedValue({...state, sell_review:[{id:item.id,action:"sell",before_units:"2",after_units:"0"}]});
   render(<Page/>); await screen.findByText(text.holdings);
-  fireEvent.click(screen.getByRole("button", {name:text.steps.sell}));
+  fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab", {name:text.actionTabs.sell}));
   expect(screen.getByRole("cell", {name:text.sellAction})).toBeTruthy();
   expect(screen.getByRole("cell", {name:"0"})).toBeTruthy();
   expect(mock.save).not.toHaveBeenCalled();
@@ -528,4 +530,66 @@ it('opens the compare-plan chip, shows the single-plan hint, and picks and colla
   expect(screen.queryByRole('group',{name:text.choosePlan})).toBeNull();
   expect(screen.getByLabelText(text.cash)).toHaveProperty('value','17');
   expect(mock.save).not.toHaveBeenCalled();
+});
+
+it('defaults Action to balance, supports keyboard tabs, and switches without requests or losing inputs', async()=>{
+  await ready();
+  fireEvent.click(screen.getByRole('button',{name:text.steps.action}));
+  const balance=screen.getByRole('tab',{name:text.actionTabs.balance});
+  expect(balance.getAttribute('aria-selected')).toBe('true');
+  expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+  expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(balance.id);
+  fireEvent.change(screen.getByLabelText(text.newMoney),{target:{value:'123'}});
+  const before=mock.request.mock.calls.length;
+  fireEvent.keyDown(balance,{key:'ArrowRight'});
+  const sell=screen.getByRole('tab',{name:text.actionTabs.sell});
+  expect(sell.getAttribute('aria-selected')).toBe('true');expect(document.activeElement).toBe(sell);
+  expect(screen.getByRole('heading',{name:text.sellTitle})).toBeTruthy();
+  fireEvent.keyDown(sell,{key:'End'});
+  const details=screen.getByRole('tab',{name:text.actionTabs.details});
+  expect(details.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(details,{key:'Home'});
+  expect(balance.getAttribute('aria-selected')).toBe('true');
+  fireEvent.click(screen.getByRole('tab',{name:text.actionTabs.buy}));
+  expect(screen.getByText(text.buyEmpty)).toBeTruthy();
+  expect(screen.getByLabelText(text.newMoney)).toHaveProperty('value','123');
+  expect(screen.getByRole('button',{name:text.generate})).toBeTruthy();
+  expect(mock.request.mock.calls).toHaveLength(before);expect(mock.save).not.toHaveBeenCalled();
+});
+
+it('selects Buy list after generation, separates breakdowns, and preserves recording drafts across tabs',async()=>{
+  await ready();fireEvent.click(screen.getByRole('button',{name:text.steps.action}));
+  mock.request.mockResolvedValue({state,plan:{...plan,unspent_by_fund:{[item.id]:'12.50'},unit_costs_ils:{[item.id]:'35'}}});
+  fireEvent.click(screen.getByRole('button',{name:text.generate}));
+  await screen.findByText(text.planChip+' · '+text.currentChip);
+  expect(screen.getByRole('tab',{name:text.actionTabs.buy}).getAttribute('aria-selected')).toBe('true');
+  const buy=screen.getByRole('tabpanel');
+  expect(within(buy).getByRole('heading',{name:text.buyList})).toBeTruthy();
+  expect(within(buy).queryByText(text.pooledCash)).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:text.record}));
+  fireEvent.change(screen.getByLabelText(text.bought),{target:{value:'1'}});
+  fireEvent.change(screen.getByLabelText(text.paid),{target:{value:'36.25'}});
+  const before=mock.request.mock.calls.length;
+  fireEvent.click(screen.getByRole('tab',{name:text.actionTabs.details}));
+  expect(within(screen.getByRole('tabpanel')).getByText(text.pooledCash)).toBeTruthy();
+  fireEvent.click(screen.getByRole('tab',{name:text.actionTabs.balance}));
+  expect(within(screen.getByRole('tabpanel')).getByText(text.comparison)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:text.planChip+' · '+text.currentChip}));
+  expect(screen.getByLabelText(text.bought)).toHaveProperty('value','1');
+  expect(screen.getByLabelText(text.paid)).toHaveProperty('value','36.25');
+  expect(mock.request.mock.calls).toHaveLength(before);expect(mock.save).not.toHaveBeenCalled();
+});
+
+it('keeps blocking errors and data warnings visible across all Action tabs',async()=>{
+  const warning='Mock target failure';
+  mock.request.mockResolvedValue({...state,ready:false,errors:[warning],stale:[item.id]});
+  render(<Page/>);await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole('button',{name:text.steps.action}));
+  for(const name of Object.values(text.actionTabs)){
+    fireEvent.click(screen.getByRole('tab',{name}));
+    expect(screen.getByRole('alert').textContent).toContain(warning);
+    expect(screen.getByRole('alert').closest('[role="tabpanel"]')).toBeNull();
+    expect(screen.getByText(text.stalePrices.replace('{funds}',item.label+' (2026-10-15)')).closest('[role="tabpanel"]')).toBeNull();
+    expect(screen.getByRole('button',{name:text.generate})).toHaveProperty('disabled',true);
+  }
 });
