@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/backtest.json";
 import words from "../../content/backtest-multi.json";
 import { backtestRequest } from "../../lib/backtestApi";
+import {UsdToggle,UsdBanner,useUsdAvailability,fitDates} from "../../components/UsdEquivalents";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
@@ -11,9 +13,9 @@ type Model = { label: string; strategy: string; variant: string | null; implemen
 type Sleeve = { id: number; model: string; weight: number };
 type Config = { dca_caption: string; models: Model[]; proxies: { key: string; label: string; caveat: string }[]; single_options: string[]; blend_options: string[];
   benchmarks: { key: string; label: string; caveat: string }[] };
-type Form = { initial: number; start: string; end: string; fee_type: "percentage" | "fixed"; fee_value: number; tax_enabled: boolean; tax_rate: number;
+type Form = { usd_equivalents:boolean; initial: number; start: string; end: string; fee_type: "percentage" | "fixed"; fee_value: number; tax_enabled: boolean; tax_rate: number;
   monthly_contribution: number; benchmark: string; sleeve_rebalance_mode: string; rebalance_sleeve: number | null; rebalance_cap: number; rebalance_target: number } & FeeAssumptions;
-const defaults: Form = { ...defaultFees, initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
+const defaults: Form = { ...defaultFees, usd_equivalents:false, initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
   monthly_contribution: 1000, benchmark: "sp500", sleeve_rebalance_mode: "none", rebalance_sleeve: null, rebalance_cap: 15, rebalance_target: 10 };
 
 export default function MultiForm({ mode, running, onRun, onChange }: { mode: "portfolio" | "deep"; running: boolean;
@@ -104,6 +106,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       if (value.valid) await onRun(body);
     } catch (failure) { setMessage((failure as Error).message); }
   }
+  const availability=useUsdAvailability(mode === "portfolio" && form.usd_equivalents,{mode:"portfolio",models:sleeves.map(s=>s.model)},bounds=>setForm(previous=>fitDates(previous,bounds)));
   const options = config ? (sleeves.length === 1 ? config.single_options : config.blend_options) : [];
   const transferControls = <>
         <label>{words.rule}<select value={form.sleeve_rebalance_mode} onChange={event => change({ sleeve_rebalance_mode: event.target.value,
@@ -126,6 +129,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
 
     {savedError && <p role="alert">{words.savedListError} {savedError}</p>}
     {loadingPortfolio && <p role="status">{words.loadingPortfolio}</p>}
+    {mode === "portfolio" && <><UsdToggle checked={form.usd_equivalents} disabled={running || loadingPortfolio} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}</>}
     <fieldset disabled={running || loadingPortfolio || !config}>
       <section className={compact ? "portfolio-allocation" : undefined}>
       <header className={compact ? "portfolio-allocation-header" : undefined}>{compact && <h2>{words.allocationTitle}</h2>}
@@ -185,8 +189,8 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         }}>{compact ? words.addSleeve : words.add}</button>
 {compact && <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>}</div>
       </section>
-      <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
-        dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
+      <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
+        dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
       {dca && <p className="portfolio-dca-caption">{config?.dca_caption}</p>}
       {compact ? <details className="portfolio-advanced"><summary><strong>{words.advancedTitle}</strong><span>{words.rebalancingTitle}: {words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · {words.feesTitle}: {form.fees_enabled ? words.on : words.off} · {words.taxTitle}: {form.tax_enabled ? `${form.tax_rate}%` : words.off}</span></summary>
         <div className="portfolio-advanced-grid"><section><h3>{words.rebalancingTitle}</h3>      {transferControls}
@@ -207,7 +211,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
       {compact && !allocationValid && <p role="alert">{(sleeves.some(s => !Number.isFinite(s.weight) || s.weight <= 0) ? words.positivePortfolio : words.weightWarning.replace("{total:.2f}",totalLabel))}</p>}
       {error && <p role="alert">{error}</p>}
       {message && <p role={valid ? "status" : "alert"}>{message}</p>}</div>
-      <button className="btn btn-primary" type="button" disabled={running || !config || (compact && !allocationValid)} onClick={() => void validateAndRun()}>{running ? text.running : text.run}</button>
+      <button className="btn btn-primary" type="button" disabled={running || !config || availability.loading || !!availability.error || (compact && !allocationValid)} onClick={() => void validateAndRun()}>{running ? text.running : text.run}</button>
       </footer>
     </fieldset>
   </section>;

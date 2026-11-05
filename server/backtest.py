@@ -22,7 +22,7 @@ from haa.signals import first_trading_day_after
 from haa.tase_data import plain_holding_provenance
 from haa.trading_fees import TradingFees, totals as fee_totals
 
-from . import cache as store, signals
+from . import cache as store, signals, usd_equivalents as usd
 from .cache import ResultCache, data_version, digest
 from .signals_wire import clean, table
 from .performance import decisions as cached_decisions
@@ -42,6 +42,7 @@ TAX_NOTE = "Modeled tax uses average cost per asset and carried-forward realized
 class Inputs(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     label: str = "HAA-Simple"
+    usd_equivalents: bool = False
     start: date | None = None
     end: date | None = None
     initial: float = Field(default=100000., ge=1)
@@ -153,15 +154,17 @@ def prepare(selected, all_prices):
     return strategy, prices, monthly, monthly_input, bounds, captions
 
 
-def options(label):
+def options(label, usd_equivalents=False):
     from .backtest_presentation import DCA_CAPTION, REFERENCE_CAPTION
-    selected = definition(label)
+    mapping = usd.mappings([label]) if usd_equivalents else []
+    selected = usd.resolve(label) if usd_equivalents else definition(label)
     try:
         prices, metadata, warnings, opens = load_data(selected)
         strategy, prices, monthly, monthly_input, bounds, captions = prepare(selected, prices)
         return clean({"models": [{f.name: getattr(m, f.name) for f in fields(m) if f.name != "model_class"}
                                  for m in MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)],
                       "label": label, "currency": selected.execution_currency, "bounds": bounds,
+                      **({"usd_equivalents": {"enabled": True, "mapping_version": usd.VERSION, "mappings": mapping}} if mapping else {}),
                       "reference_replay_available": getattr(strategy, "signal_calendar", None) == "XNYS",
                       "dca_caption": DCA_CAPTION, "reference_caption": REFERENCE_CAPTION,
                       "captions": captions, "warnings": warnings,
@@ -249,7 +252,8 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
 
 def run(request, code):
     started = perf_counter()
-    selected = definition(request.label)
+    mapping = usd.guard(request, [request.label])
+    selected = usd.resolve(request.label) if mapping else definition(request.label)
     if request.reference_replay and getattr(selected.model_class, "signal_calendar", None) != "XNYS":
         raise HTTPException(400, "Reference replay is available only for the US-signals / TASE V3 implementations.")
     try:
@@ -270,6 +274,7 @@ def run(request, code):
         params = {**request.model_dump(mode="json"), "code": code, "utc_date": str(datetime.now(timezone.utc).date()),
                   "completed_cutoff": str(strategy.completed_cutoff()) if hasattr(strategy, "completed_cutoff") else None,
                   "source_metadata": digest(table(metadata)), "warnings": warnings}
+        if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             signal_start = perf_counter()
             inputs = prices if getattr(strategy, "uses_daily_signals", False) else monthly_input
@@ -291,7 +296,7 @@ def run(request, code):
                 for field in ("source", "identifier", "price_field", "history_kind", "automatic_proxy_extension"):
                     result.audit[f"history_{field}"] = provenance[field]
             timing = {"data_seconds": round(loaded-started, 6), "signal_seconds": round(signal_done-signal_start, 6), "engine_seconds": round(engine_done-signal_done, 6)}
-            return report(selected, request, strategy, prices, monthly, metadata, decisions, result, timing)
+            return usd.annotate(report(selected, request, strategy, prices, monthly, metadata, decisions, result, timing), mapping, request, (nav.index.min().date(), nav.index.max().date()))
         bundle, info = RESULTS.run(model="backtest:" + selected.label, params=params, start=str(start), end=str(end), version=version, compute=compute)
         public = bundle["public"]
         public["warnings"] += warnings + info["warnings"]
@@ -315,7 +320,7 @@ def download(key, kind):
     if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
         raise HTTPException(400, "Invalid result cache key.")
     from .backtest_multi import deep
-    allowed = {"audit", "tax_events", "daily_nav", "portfolio_nav", "sleeve_nav", "executions", "sleeve_tax", "proxy_tax", "proxy_audit", "synthetic_tax", "synthetic_nav", "synthetic_audit", "synthetic_source", "daily_source", "history_sources", "price-warnings"}
+    allowed = {"audit", "tax_events", "daily_nav", "portfolio_nav", "sleeve_nav", "executions", "sleeve_tax", "proxy_tax", "proxy_audit", "synthetic_tax", "synthetic_nav", "synthetic_audit", "synthetic_source", "daily_source", "history_sources", "price-warnings", "usd-equivalents"}
     allowed |= {f"source_{key}_{segment}" for key, spec in deep.ALL_DEEP_HISTORY_SPECS.items() if spec.actual_etf_ticker for segment in ("actual", "early")}
     if kind not in allowed:
         raise HTTPException(400, "Unknown download type.")

@@ -19,6 +19,8 @@ def summary_table(frame):
 
 def report(request, result, models, passed, benchmark_asset, metadata, bounds, chosen, timing):
     proxy = request.mode == "deep"
+    from . import usd_equivalents as usd
+    selected_definition = usd.resolve if request.usd_equivalents else base.definition
     blend = len(request.sleeves) > 1
     specs = [deep.ALL_DEEP_HISTORY_SPECS[s.model] for s in request.sleeves] if proxy else []
     spec = specs[0] if proxy and not blend else None
@@ -56,13 +58,13 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     captions, warnings, downloads, extra_tables, extra_charts = [], ([base.MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []), {}, [], []
     if not proxy:
         warnings += [risk for sleeve in request.sleeves
-                     if (risk := getattr(base.definition(sleeve.model).model_class, "risk_warning", None))]
+                     if (risk := getattr(selected_definition(sleeve.model).model_class, "risk_warning", None))]
 
     def download(kind, frame, filename, label, index=True, raw=False):
         downloads[kind] = {"csv": frame if raw else frame.to_csv(index=index), "filename": filename, "label": label}
 
     if not proxy:
-        assets = tuple(asset for s in request.sleeves if getattr(base.definition(s.model).model_class, "actual_history_only", False) for asset in base.definition(s.model).model_class.data_assets)
+        assets = tuple(asset for s in request.sleeves if getattr(selected_definition(s.model).model_class, "actual_history_only", False) for asset in selected_definition(s.model).model_class.data_assets)
         if assets:
             provenance = plain_holding_provenance(metadata, assets)
             captions.append(W["plainCaption"])

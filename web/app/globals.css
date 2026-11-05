@@ -473,3 +473,10 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .portfolio-compact .amount-dates { padding: .65rem 0; border-top: 1px solid #edf0f2; border-bottom: 1px solid #edf0f2; }
 .portfolio-compact input:not([type="checkbox"]), .portfolio-compact select { display: block; }
 .portfolio-compact .portfolio-run-footer { margin-top: 0; }
+.usd-equivalent-control { margin-block: .75rem; }
+.usd-equivalent-control p { font-size: .8rem; margin: .35rem 0; }
+.usd-equivalent-banner { background: #f1f6fa; border-left: 3px solid #3b82a0; padding: .75rem; margin-block: .75rem; font-size: .85rem; }
+.usd-equivalent-banner p { margin: .4rem 0; }
+.usd-mapping-scroll { overflow-x: auto; max-width: 100%; }
+.usd-mapping-scroll table { min-width: 620px; width: 100%; border-collapse: collapse; }
+.usd-mapping-scroll td, .usd-mapping-scroll th { padding: .4rem; text-align: left; vertical-align: top; border-bottom: 1px solid #dce2e8; white-space: normal; }

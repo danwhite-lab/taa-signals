@@ -26,6 +26,7 @@ from server import today as today_page  # noqa: E402
 from server import backtest_multi  # noqa: E402
 from server import research  # noqa: E402
 from server import compare as compare_page  # noqa: E402
+from server.usd_equivalents_options import OptionsRequest, availability as usd_availability  # noqa: E402
 from server import test_login  # noqa: E402
 
 
@@ -45,7 +46,7 @@ async def private_headers(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/test-login") and response.status_code >= 400:
         response = JSONResponse({"detail": test_login.WORDS["failure"]}, status_code=response.status_code)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login", "/api/usd-equivalents")):
         response.headers["Cache-Control"] = "no-store, private"
     if request.url.path.startswith("/api/test-login"):
         response.headers["Pragma"] = "no-cache"
@@ -224,8 +225,8 @@ def backtest_models(session=Depends(private_api.authenticated)):
 
 
 @app.get("/api/backtest/options")
-def backtest_options(label: str, session=Depends(private_api.authenticated)):
-    return backtest_page.options(label)
+def backtest_options(label: str, usd_equivalents: bool = False, session=Depends(private_api.authenticated)):
+    return backtest_page.options(label, usd_equivalents=True) if usd_equivalents else backtest_page.options(label)
 
 
 @app.get("/api/research/models")
@@ -305,3 +306,11 @@ def backtest_download(key: str, kind: str, session=Depends(private_api.authentic
     item = backtest_page.download(key, kind)
     return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'})
+
+
+# Research-only date availability. No saved settings or account writes.
+
+@app.post("/api/usd-equivalents/options")
+def usd_equivalent_options(body: OptionsRequest, session=Depends(private_api.authenticated)):
+    records = private_api.portfolios(session) if body.mode == "portfolios" else []
+    return usd_availability(body, records)

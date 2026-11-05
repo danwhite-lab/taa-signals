@@ -16,7 +16,7 @@ from haa.comparison import ModelInput, compare_models
 from .compare_execution import compare_portfolios
 from .performance import decisions as cached_decisions, span, measure
 from haa.portfolio_config import backtest_portfolio_config
-from . import backtest as base, backtest_multi as multi, signals, cache as store
+from . import backtest as base, backtest_multi as multi, signals, cache as store, usd_equivalents as usd
 from .cache import ResultCache, digest, data_version
 from .signals_wire import clean, table
 
@@ -28,6 +28,7 @@ LOG = logging.getLogger("taa.compare.timing")
 class Inputs(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     mode: Literal["models", "portfolios"] = "models"
+    usd_equivalents: bool = False
     models: list[str] = Field(default_factory=list, max_length=100)
     portfolio_ids: list[str] = Field(default_factory=list, max_length=100)
     method: Literal["monthly", "daily"] = "monthly"
@@ -80,12 +81,14 @@ def selection(request, records):
 
 
 def load(request, chosen):
+    labels = chosen if request.mode == "models" else [s["model"] for sleeves in chosen for s in sleeves]
+    usd.guard(request, labels)
     if request.mode == "portfolios":
         # The Step 7 union loader supplies shared SPY and adjusted opens whenever
         # a daily sleeve needs them. Canonical IDs, never saved identifiers.
         labels = list(dict.fromkeys(s["model"] for sleeves in chosen for s in sleeves))
         descriptor = SimpleNamespace(sleeves=[multi.Sleeve(id=i, model=label, weight=100/len(labels)) for i, label in enumerate(labels, 1)],
-                                     daily_valuation=request.method == "daily")
+                                     daily_valuation=request.method == "daily", usd_equivalents=request.usd_equivalents)
         templates, version, metadata, warnings, _, cutoff = multi.live_inputs(descriptor)
         templates = {label: templates[f"{label} ({i})"][1] for i, label in enumerate(labels, 1)}
         portfolios = {}
@@ -97,21 +100,21 @@ def load(request, chosen):
                 portfolios[name][key] = (sleeve["weight"]/100, replace(templates[sleeve["model"]], name=key))
         return {"inputs": portfolios, "version": version, "metadata": table(metadata), "warnings": warnings,
                 "cutoff": cutoff, "bounds": None}
-    definitions = [definition(label) for label in chosen]
+    definitions = [usd.resolve(label) if request.usd_equivalents else definition(label) for label in chosen]
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"))))
     strict = tuple(dict.fromkeys(a for d in definitions if getattr(d.model_class, "signal_calendar", None) == "XNYS" for a in d.model_class.us_data_assets))
     descriptor = SimpleNamespace(model_class=lambda: SimpleNamespace(data_assets=assets, us_data_assets=strict,
         benchmark_asset=getattr(definitions[0].model_class, "benchmark_asset", "SPY"), signal_calendar="XNYS" if strict else None))
     prices, metadata, warnings = signals.load_inputs(descriptor)
     inputs, bounds, cutoffs = {}, [], {}
-    for d in definitions:
+    for original_label, d in zip(chosen, definitions):
         strategy = d.model_class()
         own = tuple(dict.fromkeys((*getattr(strategy, "data_assets", base.ASSETS), getattr(strategy, "benchmark_asset", "SPY"))))
         daily = prices.loc[:, own]
         market = getattr(strategy, "market_data_assets", own)
         monthly = base.data.to_month_end(daily.loc[:, list(market)])
         decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else monthly)
-        inputs[d.label] = ModelInput(d.label, decisions, monthly, daily, getattr(strategy, "benchmark_asset", "SPY"), execution_currency=d.execution_currency)
+        inputs[original_label] = ModelInput(original_label, decisions, monthly, daily, getattr(strategy, "benchmark_asset", "SPY"), execution_currency=d.execution_currency)
         first, last = base.data.common_monthly_period(monthly)
         if first is None or last is None: raise ValueError(WORDS["noMonthly"].format(name=d.label))
         bounds.append((first.date(), last.date()))
@@ -157,6 +160,8 @@ def run_loaded(request, chosen, loaded, code, *, started=None, input_seconds=0.)
         params.update(portfolios=[sorted(sleeves, key=lambda s:(s["model"], s["weight"])) for sleeves in order], execution_order=order)
     params.update(code=code, content=digest(WORDS), utc_date=str(datetime.now(timezone.utc).date()),
         completed_cutoff=loaded["cutoff"], sources=digest(loaded["metadata"]), presentation=f"compare-{request.mode}-v1")
+    mapping = usd.guard(request, chosen if request.mode == "models" else [s["model"] for sleeves in chosen for s in sleeves])
+    if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
     def compute():
         began = perf_counter()
         result, bounds = calculate(request, loaded)
@@ -165,6 +170,7 @@ def run_loaded(request, chosen, loaded, code, *, started=None, input_seconds=0.)
             nav = r.daily if r.daily is not None else r.monthly
             if nav.empty or not np.isfinite(nav[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all(): error("invalidResult")
         with span("result_seconds"): bundle = present(request, result, loaded, bounds)
+        bundle = usd.annotate(bundle, mapping, request, (result.common_index.min().date(), result.common_index.max().date()), compare=True)
         bundle["public"]["calculation_timing"] = {"input_seconds": input_seconds, "engine_seconds": round(elapsed, 6)}
         if len(json.dumps({**bundle["public"], "warnings": bundle["public"].get("warnings",[])+loaded["warnings"], "downloads": manifest(bundle)}, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
         return bundle
