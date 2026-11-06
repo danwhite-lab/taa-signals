@@ -147,6 +147,7 @@
   "off": "Off",
   "total": "Total: {total}%",
   "footerSummary": "{count} sleeves \u00b7 {total}% allocated \u00b7 {initial} initial capital",
+  "footerAllocation": "{count} sleeves \u00b7 {total}% allocated",
   "addSleeve": "Add sleeve",
   "allocationHelp": "Allocation help",
   "loadingHelp": "Loading help",

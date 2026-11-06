@@ -37,6 +37,8 @@ it('unified single sleeve refreshes USD dates and preserves literal USD capital'
  expect(screen.getByLabelText(multiWords.portfolioStart)).toHaveProperty('value','2024-01-31');
  expect(screen.getByLabelText(multiWords.portfolioStart)).toHaveProperty('min','2000-01-31');
  expect(screen.getByLabelText(back.initial+' (USD)')).toHaveProperty('value','100000');
+ expect(screen.getByText(`${back.currency}: USD`)).toBeTruthy();
+ expect(screen.getByText(/\$100,000/)).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:back.run}));
  await waitFor(()=>expect(run).toHaveBeenCalled());
  expect(run.mock.calls[0][0]).toMatchObject({label:'HAA-Simple',usd_equivalents:true,initial:100000,start:'2024-01-31'});

@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../lib/backtestApi", () => ({ backtestRequest: mock.request, backtestDownload: vi.fn() }));
 import MultiForm from "../app/backtest/multi-form";
 
-const config = { models: [{ label: "HAA-Simple", strategy: "HAA", variant: "Simple", implementation: "Original" }],
+const config = { models: [{ label: "HAA-Simple", strategy: "HAA", variant: "Simple", implementation: "Original", execution_currency: "USD" }],
   proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Mock caveat" }, { key: "haa_simple", label: "HAA proxy", caveat: "Mock caveat" }, { key: "gem", label: "GEM proxy", caveat: "Mock GEM caveat" }, { key: "rvol_daily", label: "Daily proxy", caveat: "Mock daily caveat" }],
   single_options: ["century_momentum", "haa_simple", "gem", "rvol_daily"], blend_options: ["century_momentum", "haa_simple", "gem"], benchmarks: [{ key: "sp500", label: "Mock benchmark", caveat: "Mock benchmark caveat" }] };
 afterEach(() => { cleanup(); mock.request.mockReset(); });
@@ -194,6 +194,9 @@ it("keeps all added component wording in data files and scopes Today wrapping", 
   const css = readFileSync("./app/globals.css", "utf8");
   expect(css).toContain(".today-sleeve-table table { table-layout: auto; white-space: normal; min-width: 760px; }");
   expect(css).toContain(".signal-table-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; white-space: nowrap; }");
+  expect(css).toContain(".portfolio-allocation { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }");
+  expect(css).toContain(".portfolio-sleeves-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto;");
+  expect(css).not.toContain(".portfolio-compact .assumption-hint { display: none; }");
   expect(readFileSync("./app/today/page.tsx", "utf8")).toContain("signal-table-scroll today-sleeve-table");
 });
 
@@ -220,6 +223,23 @@ it('keeps allocation compact with dependent selectors, a live total, collapsed a
  expect(screen.getByLabelText(text.implementation)).toHaveProperty('value','GEM Standard');
  expect(screen.getByRole('button',{name:text.run}).closest('footer')).toBeTruthy();
  expect(run).not.toHaveBeenCalled();
+});
+
+it('shows resolved ILS currency for one and multiple sleeves without changing capital',async()=>{
+ const run=vi.fn(async(_body:Record<string,unknown>)=>{});
+ const ilsConfig={...config,models:[{...config.models[0],implementation:'Israel',execution_currency:'ILS'}]};
+ mock.request.mockImplementation(async(path:string)=>{
+  if(path.startsWith('/api/backtest/config'))return ilsConfig;
+  if(path.startsWith('/api/backtest/options'))return {currency:'ILS',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:false,reference_caption:''};
+  return {valid:true,message:words.weightSuccess};
+ });
+ render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+ await screen.findByText(`${text.currency}: ILS`);
+ expect(screen.getByText(/₪100,000/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+ const weights=screen.getAllByLabelText(words.weight);fireEvent.change(weights[0],{target:{value:'60'}});fireEvent.change(weights[1],{target:{value:'40'}});
+ expect(screen.getByText(`${text.currency}: ILS`)).toBeTruthy();
+ expect(screen.getByText(/₪100,000/)).toBeTruthy();
 });
 
 it('keeps DCA and import payloads unchanged and shows execution errors at the footer',async()=>{

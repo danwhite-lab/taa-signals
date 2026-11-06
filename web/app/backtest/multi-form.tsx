@@ -10,7 +10,7 @@ import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components
 import { savedChoices } from "../../lib/ui-order";
 import DisplayTable from "../../components/DisplayTable";
 
-type Model = { label: string; strategy: string; variant: string | null; implementation: string };
+type Model = { label: string; strategy: string; variant: string | null; implementation: string; execution_currency?: string };
 type Sleeve = { id: number; model: string; weight: number };
 type Config = { dca_caption: string; models: Model[]; proxies: { key: string; label: string; caveat: string }[]; single_options: string[]; blend_options: string[];
   benchmarks: { key: string; label: string; caveat: string }[] };
@@ -148,8 +148,14 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   for (const sleeve of sleeves) total += sleeve.weight;
   const totalLabel = Number.isFinite(total) ? new Intl.NumberFormat("en", {maximumFractionDigits:2}).format(total) : "—";
   const allocationValid = Number.isFinite(total) && Math.abs(total - 100) < 1e-8 && sleeves.every(s => Number.isFinite(s.weight) && s.weight > 0);
-  const footerSummary = words.footerSummary.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel)
-    .replace("{initial}", new Intl.NumberFormat("en", {style:"currency",currency:"USD",maximumFractionDigits:0}).format(Number.isFinite(form.initial) ? form.initial : 0));
+  const selectedCurrencies = [...new Set(sleeves.map(s => config?.models.find(model => model.label === s.model)?.execution_currency).filter((currency): currency is string => !!currency))];
+  const effectiveCurrency = mode === "deep" ? "USD" : form.usd_equivalents
+    ? availability.value?.currency ?? singleOptions?.currency
+    : legacySingle ? singleOptions?.currency : selectedCurrencies.length === 1 ? selectedCurrencies[0] : undefined;
+  const footerSummary = effectiveCurrency
+    ? words.footerSummary.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel)
+      .replace("{initial}", new Intl.NumberFormat("en", {style:"currency",currency:effectiveCurrency,maximumFractionDigits:0}).format(Number.isFinite(form.initial) ? form.initial : 0))
+    : words.footerAllocation.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel);
   const advancedSummary = mode === "deep"
     ? `${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`
     : `${words.rebalancingTitle}: ${words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · ${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`;
@@ -230,8 +236,9 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         }}>{mode === "deep" ? words.add : words.addSleeve}</button>
 {compact && <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>}</div>
       </section>
+      {effectiveCurrency && <p className="assumption-hint">{text.currency}: {effectiveCurrency}</p>}
       {legacySingle && <section className="single-context">
-        {singleOptions && <><p className="assumption-hint">{text.currency}: {singleOptions.currency}</p>{singleOptions.captions.map((caption,index) => <p key={index}>{caption}</p>)}{singleOptions.warnings.map((warning,index) => <p className="signal-warning" key={index}>{warning}</p>)}
+        {singleOptions && <>{singleOptions.captions.map((caption,index) => <p key={index}>{caption}</p>)}{singleOptions.warnings.map((warning,index) => <p className="signal-warning" key={index}>{warning}</p>)}
           <details><summary>{text.validation}</summary><DisplayTable value={singleOptions.data_validation} label={text.sources}/></details></>}
         {singleOptionsError && <p role="alert">{singleOptionsError}</p>}
       </section>}
