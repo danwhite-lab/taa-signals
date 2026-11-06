@@ -378,7 +378,7 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 @media (max-width: 420px) { .rebalance-action-tabs button { font-size: .75rem; } }
 
 /* Shared holdings: editable rows with quiet, optional detail controls. */
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.visually-hidden { position: absolute; left: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .compact-holdings-scroll { overflow-x: auto; max-width: 100%; }
 .compact-holdings-table { width: 100%; min-width: 660px; border-collapse: collapse; table-layout: fixed; font-size: .85rem; }
 .compact-holdings-table th, .compact-holdings-table td { border: 0; padding: .45rem .5rem; vertical-align: middle; text-align: left; }

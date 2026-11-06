@@ -196,6 +196,7 @@ it("keeps all added component wording in data files and scopes Today wrapping", 
   expect(css).toContain(".signal-table-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; white-space: nowrap; }");
   expect(css).toContain(".portfolio-allocation { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }");
   expect(css).toContain(".portfolio-sleeves-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto;");
+  expect(css).toContain(".visually-hidden { position: absolute; left: 0; width: 1px;");
   expect(css).not.toContain(".portfolio-compact .assumption-hint { display: none; }");
   expect(readFileSync("./app/today/page.tsx", "utf8")).toContain("signal-table-scroll today-sleeve-table");
 });
