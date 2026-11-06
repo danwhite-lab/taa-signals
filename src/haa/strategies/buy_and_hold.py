@@ -323,6 +323,8 @@ _SEMICONDUCTORS_ISRAEL = fund("semiconductors_israel")
 _JAPAN_US = fund("japan_us")
 _JAPAN_ISRAEL = fund("japan_israel")
 _WORLD_VALUE_ISRAEL = fund("world_value_israel")
+_EX_US_ISRAEL = fund("ex_us_israel")
+_RUSSELL_2000_ISRAEL = fund("russell_2000_israel")
 
 
 class BuyAndHoldSemiconductors(_ConfiguredBuyAndHold):
@@ -418,6 +420,44 @@ class BuyAndHoldWorldValueIsrael(_ConfiguredBuyAndHold):
         published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Tachlit World Value USD-hedged ETF 1189596 continuously in ILS."),),
         execution=ExecutionSpec("continuous", "Tachlit World Value 1189596 remains continuously invested", (0,), (0,)),
         data_confidence="moderate", notes=_WORLD_VALUE_ISRAEL.source_note)
+
+
+class BuyAndHoldExUSIsrael(_ConfiguredBuyAndHold):
+    """Continuous holding of the actual USD-hedged IBI ex-US mutual fund."""
+
+    fund_key = _EX_US_ISRAEL.key
+    name = _EX_US_ISRAEL.name
+    holding_asset = _EX_US_ISRAEL.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-ex-us-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold IBI MSCI AC World ex USA 5142476 continuously in ILS; dollar/shekel exposure is hedged."),),
+        execution=ExecutionSpec("continuous", "IBI ex-US fund 5142476 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes=_EX_US_ISRAEL.source_note,
+    )
+
+
+class BuyAndHoldRussell2000Israel(_ConfiguredBuyAndHold):
+    """Continuous holding of the actual unhedged Harel Russell 2000 fund."""
+
+    fund_key = _RUSSELL_2000_ISRAEL.key
+    name = _RUSSELL_2000_ISRAEL.name
+    holding_asset = _RUSSELL_2000_ISRAEL.holding_asset
+    data_assets = (holding_asset,)
+    market_data_assets = data_assets
+    benchmark_asset = holding_asset
+    validation_profile = replace(
+        BuyAndHoldSPY.validation_profile,
+        profile_id="buy-and-hold-russell-2000-israel",
+        published_parameters=(ParameterSpec("implementation", "continuous holding", (), "Hold Harel Russell 2000 fund 5139837 continuously in ILS; dollar/shekel exposure is unhedged."),),
+        execution=ExecutionSpec("continuous", "Harel Russell 2000 fund 5139837 remains continuously invested", (0,), (0,)),
+        data_confidence="limited",
+        notes=_RUSSELL_2000_ISRAEL.source_note,
+    )
 
 
 class BuyAndHoldACWI:

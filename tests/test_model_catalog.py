@@ -1,7 +1,7 @@
 import pytest
 
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies, variants
-from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, BuyAndHoldSPY, CenturyMomentum, CenturyMomentumIsrael, CenturyMomentumMoveToCash, CenturyMomentumMoveToCashIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
+from haa.strategies import BAAG4Aggressive, BAAG4AggressiveIsrael, BuyAndHoldExUSIsrael, BuyAndHoldRussell2000Israel, BuyAndHoldSPY, CenturyMomentum, CenturyMomentumIsrael, CenturyMomentumMoveToCash, CenturyMomentumMoveToCashIsrael, GEM, GEMIsrael, GGCEMLinkOriginal, GGCEMLinkOriginalIsrael, GrowthInflationConcentrated, GrowthInflationConcentratedIsrael, GrowthInflationDiversified, HAA4Israel, HAASimpleIsrael, InflationCompassFast, InflationCompassFastIsrael, InflationCompassStandard, InflationCompassStandardIsrael, InflationCompassSteadyIsrael, OrthogonalAlpha, TA125SmartMomentum, VAAG4
 
 
 def test_catalog_exposes_every_stable_model_once():
@@ -10,6 +10,10 @@ def test_catalog_exposes_every_stable_model_once():
     assert definition_for_label("HAA-Simple Israel").model_class is HAASimpleIsrael
     assert definition_for_label("HAA-Simple Israel").execution_currency == "ILS"
     assert definition_for_label("HAA-Simple").execution_currency == "USD"
+    assert definition_for_label("Buy and Hold Ex-US Israel").model_class is BuyAndHoldExUSIsrael
+    assert definition_for_label("Buy and Hold Russell 2000 Israel").model_class is BuyAndHoldRussell2000Israel
+    assert implementations("Buy and Hold", "Ex-US") == ("Israel",)
+    assert implementations("Buy and Hold", "Russell 2000") == ("Israel",)
 
 
 def test_israel_implementations_are_available_for_simple_haa_and_inflation_compass():

@@ -54,5 +54,27 @@
     "trading_fees": {"ils_percent": 0.05, "ils_minimum": 2},
     "catalog_variant": "World Value",
     "catalog_implementation": "Israel"
+  },
+  "ex_us_israel": {
+    "name": "Buy and Hold Ex-US Israel",
+    "holding_asset": "EX_US_HEDGED_IL",
+    "currency": "ILS",
+    "tase_security_id": "5142476",
+    "tase_security_type": "mutual_fund",
+    "source_status": "actual",
+    "source_note": "IBI tracking MSCI AC World ex USA mutual fund, security 5142476. Uses actual Maya redemption prices in ILS from 2026-05-06 only. Dollar/shekel moves are largely hedged; share-price risk and other underlying currency effects remain. Fund costs and hedge effects are embedded, with no automatic proxy extension.",
+    "catalog_variant": "Ex-US",
+    "catalog_implementation": "Israel"
+  },
+  "russell_2000_israel": {
+    "name": "Buy and Hold Russell 2000 Israel",
+    "holding_asset": "RUSSELL_2000_IL",
+    "currency": "ILS",
+    "tase_security_id": "5139837",
+    "tase_security_type": "mutual_fund",
+    "source_status": "actual",
+    "source_note": "Harel tracking Russell 2000 mutual fund, security 5139837. Uses actual Maya redemption prices in ILS from 2024-12-26 only. Dollar/shekel exposure is unhedged and already included in local fund prices. Fund costs are embedded, with no automatic proxy extension.",
+    "catalog_variant": "Russell 2000",
+    "catalog_implementation": "Israel"
   }
 }

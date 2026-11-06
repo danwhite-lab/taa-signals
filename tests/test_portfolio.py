@@ -78,5 +78,8 @@ def test_execution_security_labels_keep_canonical_symbols_out_of_calculation_log
     assert execution_security_label("GLDM", "ILS") == "GLDM proxy — 1147875"
     assert execution_security_label("VXUS", "ILS") == "VXUS proxy — 5142476"
     assert execution_security_label("ACWX", "ILS") == "ACWX proxy — 5142476"
+    assert execution_security_label("VEA", "ILS") == "VXUS proxy — 5142476"
+    assert execution_security_label("EX_US_HEDGED_IL", "ILS") == "Ex-US Israel — 5142476"
+    assert execution_security_label("RUSSELL_2000_IL", "ILS") == "Russell 2000 Israel — 5139837"
     assert execution_security_label("TLT", "ILS") == "IEF proxy — 1159268"
     assert execution_security_label("SPY", "USD") == "SPY"

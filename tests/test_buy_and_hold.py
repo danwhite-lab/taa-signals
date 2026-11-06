@@ -12,8 +12,9 @@ from haa.strategies import BuyAndHoldGoldIsrael, BuyAndHoldHarelBondsIsrael
 from haa.strategies import BuyAndHoldGLD, BuyAndHoldIEF
 from haa.strategies import BuyAndHoldNasdaq3xMonthlyIsrael, BuyAndHoldTA125x3Israel
 from haa.strategies import BuyAndHoldSP500x3Israel, BuyAndHoldDAX3xMonthlyIsrael
-from haa.strategies import BuyAndHoldJapan, BuyAndHoldJapanIsrael, BuyAndHoldSemiconductors, BuyAndHoldSemiconductorsIsrael
+from haa.strategies import BuyAndHoldExUSIsrael, BuyAndHoldJapan, BuyAndHoldJapanIsrael, BuyAndHoldRussell2000Israel, BuyAndHoldSemiconductors, BuyAndHoldSemiconductorsIsrael
 from haa.comparison import ModelInput, compare_models
+from haa.buy_and_hold_funds import fund
 from haa.model_catalog import definition_for_label
 
 
@@ -189,6 +190,8 @@ def test_qqq_buy_and_hold_implementations_remain_invested_and_use_separate_histo
     (BuyAndHoldSemiconductorsIsrael, "MVSMHTR_IL", "ILS", "Semiconductors", "Israel"),
     (BuyAndHoldJapan, "NIKKEI_225", "USD", "Japan", "Nikkei 225 price index"),
     (BuyAndHoldJapanIsrael, "NIKKEI_225_HEDGED_IL", "ILS", "Japan", "Israel"),
+    (BuyAndHoldExUSIsrael, "EX_US_HEDGED_IL", "ILS", "Ex-US", "Israel"),
+    (BuyAndHoldRussell2000Israel, "RUSSELL_2000_IL", "ILS", "Russell 2000", "Israel"),
 ])
 def test_new_data_defined_buy_and_hold_variants_stay_invested(cls, asset, currency, variant, implementation):
     model = cls()
@@ -212,6 +215,33 @@ def test_semiconductor_proxy_and_price_only_japan_are_explicit_and_never_spliced
     assert TASE_ISRAEL_ASSET_IDS["NIKKEI_225_HEDGED_IL"] == "1150531"
     assert execution_security_label("MVSMHTR_IL", "ILS").endswith("5132972")
     assert execution_security_label("NIKKEI_225_HEDGED_IL", "ILS").endswith("1150531")
+
+
+@pytest.mark.parametrize("cls,asset,security_id,hedging", [
+    (BuyAndHoldExUSIsrael, "EX_US_HEDGED_IL", "5142476", "hedged"),
+    (BuyAndHoldRussell2000Israel, "RUSSELL_2000_IL", "5139837", "unhedged"),
+])
+def test_new_israel_funds_use_actual_ils_returns_without_fx_or_proxy_history(cls, asset, security_id, hedging):
+    model = cls()
+    dates = pd.to_datetime(["2026-05-31", "2026-06-30", "2026-07-31"])
+    prices = pd.DataFrame({asset: [100., 110., 121.]}, index=dates)
+    decisions = model.decisions(prices)
+    result = run_backtest(decisions, prices, 1_000., benchmark_asset=asset)
+    assert model.data_assets == model.market_data_assets == (asset,)
+    assert model.signal_assets == ()
+    assert model.default_trading_fees is None
+    configured = fund(model.fund_key)
+    assert configured.source_status == "actual"
+    assert configured.currency == "ILS"
+    assert configured.tase_security_type == "mutual_fund"
+    assert configured.tase_security_id == security_id
+    assert decisions.selected_asset.eq(asset).all()
+    assert decisions.trade.tolist() == [True, False, False]
+    assert result.monthly.pre_tax_value.iloc[-1] == pytest.approx(1_210.)
+    assert TASE_ISRAEL_ASSET_IDS[asset] == security_id
+    assert execution_security_label(asset, "ILS").endswith(security_id)
+    assert hedging in model.validation_profile.notes.lower()
+    assert "proxy extension" in model.validation_profile.notes.lower()
 
 
 def test_japan_israel_commission_is_used_the_same_in_compare_and_single_backtest():
