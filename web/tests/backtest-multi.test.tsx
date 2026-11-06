@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../lib/backtestApi", () => ({ backtestRequest: mock.request, backtestDownload: vi.fn() }));
 import MultiForm from "../app/backtest/multi-form";
 
-const config = { models: [{ label: "HAA-Simple", strategy: "HAA", variant: "Simple", implementation: "Original" }],
+const config = { models: [{ label: "HAA-Simple", strategy: "HAA", variant: "Simple", implementation: "Original", execution_currency: "USD" }],
   proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Mock caveat" }, { key: "haa_simple", label: "HAA proxy", caveat: "Mock caveat" }, { key: "gem", label: "GEM proxy", caveat: "Mock GEM caveat" }, { key: "rvol_daily", label: "Daily proxy", caveat: "Mock daily caveat" }],
   single_options: ["century_momentum", "haa_simple", "gem", "rvol_daily"], blend_options: ["century_momentum", "haa_simple", "gem"], benchmarks: [{ key: "sp500", label: "Mock benchmark", caveat: "Mock benchmark caveat" }] };
 afterEach(() => { cleanup(); mock.request.mockReset(); });
@@ -16,6 +16,7 @@ function setup(mode: "portfolio" | "deep", defaultId?: string) {
   const run = vi.fn(async (_body: Record<string, unknown>) => {}); const changed = vi.fn();
   mock.request.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path.startsWith("/api/backtest/config")) return config;
+    if (path.startsWith("/api/backtest/options")) return {currency:'USD',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:false,reference_caption:''};
     if (path === "/api/portfolios") return defaultId ? [{id:'fake-id',is_default:defaultId==='fake-id'},{id:'fake-second',is_default:defaultId==='fake-second'}] : [{ id: "fake-id", name: "Fake portfolio" }];
     if (path === "/api/compare/options?kind=portfolios") return {portfolios:[{ id: "fake-id", name: "Fake portfolio" },{id:"fake-second",name:"Fake second"}]};
     if (path === "/api/backtest/load") return { sleeves: [{ id: 1, model: mode === "deep" ? "haa_simple" : "HAA-Simple", weight: 100 }], initial: 3000, warnings: [] };
@@ -48,7 +49,7 @@ it("only validates on edits; runs solely on the explicit button, disabled for in
   fireEvent.click(screen.getByRole("button", { name: text.run }));
   await waitFor(()=>expect(run).toHaveBeenCalled());
   expect(run).toHaveBeenCalledTimes(1);
-  expect(run.mock.calls[0][0]).toMatchObject({ mode: "portfolio", tax_enabled: true, tax_rate: 25, fee_value: 0 });
+  expect(run.mock.calls[0][0]).toMatchObject({ label: "HAA-Simple", tax_enabled: true, tax_rate: 25, fee_value: 0 });
   expect(run.mock.calls[0][0]).toMatchObject({fees_enabled:true,ils_fee_percent:.05,ils_minimum_fee:2,usd_flat_fee:5});
   expect(mock.request.mock.calls.every(([path]) => !["/api/workspace", "/api/backtest"].includes(path))).toBe(true);
 });
@@ -75,7 +76,8 @@ it("retains daily single-proxy restrictions and benchmark caveats", async () => 
   expect(screen.getByLabelText(words.weight)).toHaveProperty("value", "100");
   expect(screen.getByLabelText(words.weight)).toHaveProperty("disabled", true);
   expect(screen.getByText(words.add)).toHaveProperty("disabled", true);
-  expect(screen.getByText(words.benchmarkHelp)).toBeTruthy();
+  fireEvent.click(screen.getByText(words.advancedTitle));
+  expect(screen.getByLabelText(words.benchmark).closest("label")?.getAttribute("title")).toBe(words.benchmarkHelp);
   expect(screen.getByText("Mock benchmark caveat")).toBeTruthy();
 });
 
@@ -127,7 +129,8 @@ it('restores the saved transfer rule and parameters into the run request, then r
   fireEvent.click(screen.getByRole('button',{name:text.run}));
   await waitFor(()=>expect(run).toHaveBeenCalled());
   await waitFor(()=>expect(run).toHaveBeenCalledTimes(2));
-  expect(run.mock.calls[1][0]).toMatchObject({sleeve_rebalance_mode:'none',rebalance_sleeve:null,rebalance_cap:15,rebalance_target:10});
+  expect(run.mock.calls[1][0]).toMatchObject({label:'HAA-Simple',initial:3000});
+  expect(run.mock.calls[1][0]).not.toHaveProperty('sleeve_rebalance_mode');
 });
 
 it('restores an annual rule without changing unrelated assumptions',async()=>{
@@ -191,6 +194,10 @@ it("keeps all added component wording in data files and scopes Today wrapping", 
   const css = readFileSync("./app/globals.css", "utf8");
   expect(css).toContain(".today-sleeve-table table { table-layout: auto; white-space: normal; min-width: 760px; }");
   expect(css).toContain(".signal-table-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; white-space: nowrap; }");
+  expect(css).toContain(".portfolio-allocation { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }");
+  expect(css).toContain(".portfolio-sleeves-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto;");
+  expect(css).toContain(".visually-hidden { position: absolute; left: 0; width: 1px;");
+  expect(css).not.toContain(".portfolio-compact .assumption-hint { display: none; }");
   expect(readFileSync("./app/today/page.tsx", "utf8")).toContain("signal-table-scroll today-sleeve-table");
 });
 
@@ -219,6 +226,23 @@ it('keeps allocation compact with dependent selectors, a live total, collapsed a
  expect(run).not.toHaveBeenCalled();
 });
 
+it('shows resolved ILS currency for one and multiple sleeves without changing capital',async()=>{
+ const run=vi.fn(async(_body:Record<string,unknown>)=>{});
+ const ilsConfig={...config,models:[{...config.models[0],implementation:'Israel',execution_currency:'ILS'}]};
+ mock.request.mockImplementation(async(path:string)=>{
+  if(path.startsWith('/api/backtest/config'))return ilsConfig;
+  if(path.startsWith('/api/backtest/options'))return {currency:'ILS',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:false,reference_caption:''};
+  return {valid:true,message:words.weightSuccess};
+ });
+ render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+ await screen.findByText(`${text.currency}: ILS`);
+ expect(screen.getByText(/₪100,000/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+ const weights=screen.getAllByLabelText(words.weight);fireEvent.change(weights[0],{target:{value:'60'}});fireEvent.change(weights[1],{target:{value:'40'}});
+ expect(screen.getByText(`${text.currency}: ILS`)).toBeTruthy();
+ expect(screen.getByText(/₪100,000/)).toBeTruthy();
+});
+
 it('keeps DCA and import payloads unchanged and shows execution errors at the footer',async()=>{
  const {run}=setup('portfolio');await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByLabelText(text.dcaEnabled));
@@ -234,7 +258,23 @@ it('keeps DCA and import payloads unchanged and shows execution errors at the fo
  fireEvent.click(screen.getByRole('button',{name:text.run}));
  await screen.findByText('Mock execution failed');
  expect(screen.getByText('Mock execution failed').closest('footer')).toBeTruthy();
- expect(run.mock.calls[0][0]).toMatchObject({monthly_contribution:250,initial:3000,start:null,end:null});
+ expect(run.mock.calls[0][0]).toMatchObject({monthly_contribution:250,initial:3000,start:'2020-01-31',end:'2025-12-31'});
  fireEvent.change(screen.getByLabelText(words.weight),{target:{value:'99'}});
  expect(screen.queryByText(words.weightSuccess)).toBeNull();
+});
+
+it('restores reference replay only for a legacy one-sleeve request',async()=>{
+ const run=vi.fn(async(_body:Record<string,unknown>)=>{});
+ mock.request.mockImplementation(async(path:string)=>{
+  if(path.startsWith('/api/backtest/config'))return config;
+  if(path.startsWith('/api/backtest/options'))return {currency:'USD',bounds:{start_min:'2020-01-31',start_max:'2025-12-31',end_min:'2020-01-31',end_max:'2025-12-31'},captions:[],warnings:[],data_validation:{columns:[],rows:[]},reference_replay_available:true,reference_caption:'Mock replay context'};
+  return {valid:true,message:words.weightSuccess};
+ });
+ render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+ await screen.findByLabelText(text.reference);
+ fireEvent.click(screen.getByLabelText(text.reference));
+ fireEvent.click(screen.getByRole('button',{name:text.run}));
+ await waitFor(()=>expect(run).toHaveBeenCalled());
+ expect(run.mock.calls[0][0]).toMatchObject({label:'HAA-Simple',reference_replay:true});
+ expect(run.mock.calls[0][0]).not.toHaveProperty('mode');
 });

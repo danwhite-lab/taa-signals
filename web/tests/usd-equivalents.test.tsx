@@ -2,11 +2,11 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import words from '../content/usd-equivalents.json';
 import back from '../content/backtest.json';
+import multiWords from '../content/backtest-multi.json';
 import compareWords from '../content/compare.json';
 const mock=vi.hoisted(()=>({back:vi.fn(),compare:vi.fn()}));
 vi.mock('../lib/backtestApi',()=>({backtestRequest:mock.back,backtestDownload:vi.fn()}));
 vi.mock('../lib/compareApi',()=>({compareRequest:mock.compare,compareDownload:vi.fn()}));
-import Single from '../app/backtest/page';
 import Multi from '../app/backtest/multi-form';
 import Compare from '../app/compare/page';
 import {UsdBanner} from '../components/UsdEquivalents';
@@ -17,27 +17,37 @@ const resolved={enabled:true,currency:'USD',mapping_version:'fixture-v1',mapping
 const table={columns:[],rows:[]};
 afterEach(()=>{cleanup();mock.back.mockReset();mock.compare.mockReset();});
 
-it('single toggle refreshes options, preserves a valid explicit date and labels USD capital',async()=>{
+const config={models,proxies:[],single_options:[],blend_options:[],benchmarks:[]};
+const options=(usd=false)=>({models,label:'HAA-Simple',currency:usd?'USD':'ILS',bounds:usd?bounds:{...bounds,start_min:'2023-01-31',end_min:'2023-01-31'},captions:[],warnings:[],data_validation:table,reference_replay_available:false,reference_caption:''});
+
+it('unified single sleeve refreshes USD dates and preserves literal USD capital',async()=>{
  mock.back.mockImplementation(async(path:string)=>{
-  if(path==='/api/backtest/models')return {models};
-  return {models,label:'HAA-Simple Israel',currency:path.includes('usd_equivalents=true')?'USD':'ILS',bounds:path.includes('usd_equivalents=true')?bounds:{...bounds,start_min:'2023-01-31',end_min:'2023-01-31'},captions:[],warnings:[],data_validation:table,reference_replay_available:false};
+  if(path.startsWith('/api/backtest/config'))return config;
+  if(path.startsWith('/api/backtest/options'))return options(path.includes('usd_equivalents=true'));
+  return {valid:true,message:'valid'};
  });
- render(<Single/>);
- await screen.findByLabelText(back.strategy);
- fireEvent.change(screen.getByLabelText(back.strategy),{target:{value:'HAA'}});
- await waitFor(()=>expect(screen.getByLabelText(back.start)).toHaveProperty('value','2023-01-31'));
- fireEvent.change(screen.getByLabelText(back.start),{target:{value:'2024-01-31'}});
+ mock.compare.mockResolvedValue(resolved);
+ const run=vi.fn(async(_body:Record<string,unknown>)=>{});
+ render(<Multi mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
+ await waitFor(()=>expect(screen.getByLabelText(multiWords.portfolioStart)).toHaveProperty('value','2023-01-31'));
+ fireEvent.change(screen.getByLabelText(multiWords.portfolioStart),{target:{value:'2024-01-31'}});
  fireEvent.click(screen.getByRole('switch',{name:words.toggle}));
  await waitFor(()=>expect(mock.back.mock.calls.some(([p])=>p.includes('usd_equivalents=true'))).toBe(true));
  await screen.findByLabelText(back.initial+' (USD)');
- expect(screen.getByLabelText(back.start)).toHaveProperty('value','2024-01-31');
- expect(screen.getByLabelText(back.start)).toHaveProperty('min','2000-01-31');
+ expect(screen.getByLabelText(multiWords.portfolioStart)).toHaveProperty('value','2024-01-31');
+ expect(screen.getByLabelText(multiWords.portfolioStart)).toHaveProperty('min','2000-01-31');
  expect(screen.getByLabelText(back.initial+' (USD)')).toHaveProperty('value','100000');
+ expect(screen.getByText(`${back.currency}: USD`)).toBeTruthy();
+ expect(screen.getByText(/\$100,000/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:back.run}));
+ await waitFor(()=>expect(run).toHaveBeenCalled());
+ expect(run.mock.calls[0][0]).toMatchObject({label:'HAA-Simple',usd_equivalents:true,initial:100000,start:'2024-01-31'});
+ expect(run.mock.calls[0][0]).not.toHaveProperty('sleeves');
 });
 
-it('portfolio sends the flag and unchanged allocation and capital after shared date resolution',async()=>{
+it('multi-sleeve USD runs retain explicit weights and the portfolio body',async()=>{
  const run=vi.fn(async(_body:Record<string,unknown>)=>{});
- mock.back.mockImplementation(async(path:string)=>path.startsWith('/api/backtest/config')?{models,proxies:[],single_options:[],blend_options:[],benchmarks:[]}:{valid:true,message:'valid'});
+ mock.back.mockImplementation(async(path:string)=>path.startsWith('/api/backtest/config')?config:path.startsWith('/api/backtest/options')?options(path.includes('usd_equivalents=true')):{valid:true,message:'valid'});
  mock.compare.mockResolvedValue(resolved);
  render(<Multi mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
  await waitFor(()=>expect(screen.getByRole('button',{name:back.run})).toHaveProperty('disabled',false));
@@ -45,10 +55,13 @@ it('portfolio sends the flag and unchanged allocation and capital after shared d
  await screen.findByText(new RegExp(words.available));
  expect(mock.compare.mock.calls[0][0]).toBe('/api/usd-equivalents/options');
  expect(JSON.parse(mock.compare.mock.calls[0][1].body)).toMatchObject({usd_equivalents:true,mode:'portfolio'});
+ fireEvent.click(screen.getByRole('button',{name:multiWords.addSleeve}));
+ const weights=screen.getAllByLabelText(multiWords.weight);
+ fireEvent.change(weights[0],{target:{value:'60'}});fireEvent.change(weights[1],{target:{value:'40'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:back.run})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('button',{name:back.run}));
  await waitFor(()=>expect(run).toHaveBeenCalled());
- expect(run.mock.calls[0][0]).toMatchObject({usd_equivalents:true,initial:100000,sleeves:[{id:1,model:'HAA-Simple',weight:100}],start:'2000-01-31'});
+ expect(run.mock.calls[0][0]).toMatchObject({mode:'portfolio',usd_equivalents:true,initial:100000,sleeves:[{id:1,model:'HAA-Simple',weight:60},{id:2,model:'HAA-Simple',weight:40}],start:'2023-01-31'});
 });
 
 it.each(['models','portfolios'] as const)('Compare %s forwards USD mode and renders mappings',async mode=>{
