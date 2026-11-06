@@ -46,8 +46,11 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "XLU_IL": "1150507",
         "GOLD_IL": "1147875",
         "HAREL_GOV_BONDS_IL": "5131792",
+        "WORLD_VALUE_HEDGED_IL": "1189596",
         "MVSMHTR_IL": "5132972",
         "NIKKEI_225_HEDGED_IL": "1150531",
+        "EX_US_HEDGED_IL": "5142476",
+        "RUSSELL_2000_IL": "5139837",
     }
 
 
@@ -136,6 +139,23 @@ def test_data_defined_semiconductor_fund_and_japan_etf_use_their_actual_tase_pat
     assert metadata.loc["MVSMHTR_IL", "price_field"] == "Maya published redemption price"
     assert metadata.loc["NIKKEI_225_HEDGED_IL", "price_field"] == "Adjusted close"
     assert calls == [("5132972", "history"), ("1150531", "history")]
+
+
+def test_ex_us_and_russell_funds_use_only_actual_maya_dates_and_prices():
+    calls = []
+    ex_us_dates = pd.to_datetime(["2026-05-06", "2026-05-07"])
+    russell_dates = pd.to_datetime(["2024-12-26", "2024-12-30"])
+    source = TasePriceSource(factory_for({
+        "5142476": pd.DataFrame({"Close": [100., 99.35]}, index=ex_us_dates),
+        "5139837": pd.DataFrame({"Close": [100., 97.96]}, index=russell_dates),
+    }, calls))
+    prices, metadata = source.fetch_all(("EX_US_HEDGED_IL", "RUSSELL_2000_IL"))
+    assert prices.EX_US_HEDGED_IL.dropna().index.tolist() == ex_us_dates.tolist()
+    assert prices.RUSSELL_2000_IL.dropna().index.tolist() == russell_dates.tolist()
+    assert metadata.price_field.eq("Maya published redemption price").all()
+    assert metadata.identifier.to_dict() == {"EX_US_HEDGED_IL": "5142476", "RUSSELL_2000_IL": "5139837"}
+    assert metadata.source.str.contains("proxy", case=False).sum() == 0
+    assert calls == [("5142476", "history"), ("5139837", "history")]
 
 
 def test_gld_source_substitution_is_flagged_as_stand_in():
