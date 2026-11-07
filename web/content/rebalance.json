@@ -77,6 +77,7 @@
   "stalePrices": "Using the latest available price for: {funds}",
   "staleFx": "Using the latest available USD/ILS rate dated {date}.",
   "stalePrice": "Stale price ({date})",
+  "staleFundNav": "Published fund valuation dated {date} (latest session {session})",
   "staleOrder": "Uses price dated {date}",
   "stalePlan": "This buy list uses the latest available prices shown beside the affected orders.",
   "staleRecord": "These purchases are being recorded against the dated prices shown in this buy list.",

@@ -12,10 +12,13 @@ def _quote_cells(quote):
         observed = pd.Timestamp(stamp).date() if stamp else None
     except (ValueError, TypeError, OverflowError):
         observed = None
+    status = ("Unavailable" if not available
+              else f"Published {stamp}, not today's price" if quote.get("valuation_kind") == "fund_nav" and not quote.get("fresh")
+              else "Current" if quote.get("fresh") else "Stale")
     return {"Price per unit (₪ / $)": float(number(quote["price"], positive=True)) if available else None,
             "Price observation date": observed,
             "Price source": "Manual override" if quote.get("field") == "Manual per-unit price" else "Automatic",
-            "Price status": "Unavailable" if not available else "Current" if quote.get("fresh") else "Stale"}
+            "Price status": status}
 
 def _preview_positions(account, instruments, rows):
     """Draft value-to-unit entry only; use the existing actual-price checks."""
@@ -60,7 +63,7 @@ def _preview_positions(account, instruments, rows):
                             "Units to save": float(position["units"]),
                             "Price per unit (₪ / $)": _quote_cells(quote)["Price per unit (₪ / $)"],
                             "Price observation date": _quote_cells(quote)["Price observation date"],
-                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" and quote.get("fresh") else "Current" if quote.get("fresh") else "Stale") if current else "Missing — no conversion"})
+                            "Price status": _quote_cells(quote)["Price status"] if current else "Missing — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
     return positions, preview, errors
