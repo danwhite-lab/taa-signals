@@ -1,12 +1,12 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/backtest.json";
 import words from "../../content/backtest-multi.json";
 import { backtestRequest } from "../../lib/backtestApi";
 import {UsdToggle,UsdBanner,useUsdAvailability,fitDates} from "../../components/UsdEquivalents";
 import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
-import { AmountAndDates, DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
+import { DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
 import DisplayTable from "../../components/DisplayTable";
 
@@ -22,8 +22,8 @@ type Form = { usd_equivalents:boolean; initial: number; start: string; end: stri
 const defaults: Form = { ...defaultFees, usd_equivalents:false, initial: 100000, start: "", end: "", fee_type: "percentage", fee_value: 0, tax_enabled: true, tax_rate: 25,
   monthly_contribution: 1000, reference_replay: false, benchmark: "sp500", sleeve_rebalance_mode: "none", rebalance_sleeve: null, rebalance_cap: 15, rebalance_target: 10 };
 
-export default function MultiForm({ mode, running, onRun, onChange }: { mode: "portfolio" | "deep"; running: boolean;
-  onRun: (body: Record<string, unknown>) => Promise<void>; onChange: () => void }) {
+export default function MultiForm({ mode, running, onRun, onChange, modeControl }: { mode: "portfolio" | "deep"; running: boolean;
+  onRun: (body: Record<string, unknown>) => Promise<void>; onChange: () => void; modeControl?: ReactNode }) {
   const [config, setConfig] = useState<Config | null>(null);
   const [form, setForm] = useState(defaults);
   const [sleeves, setSleeves] = useState<Sleeve[]>([{ id: 1, model: mode === "deep" ? "century_momentum" : "HAA-Simple", weight: 100 }]);
@@ -41,6 +41,7 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   const [singleOptions, setSingleOptions] = useState<SingleOptions | null>(null);
   const [singleOptionsError, setSingleOptionsError] = useState("");
   const loadController = useRef<AbortController | null>(null);
+  const validationController = useRef<AbortController | null>(null);
   const loadInFlight = useRef(false);
   const nextId = useRef(2);
   const daily = mode === "deep" && sleeves.some(s => s.model === "rvol_daily");
@@ -52,7 +53,11 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     void backtestRequest<Config>(`/api/backtest/config?mode=${mode}`, { signal: controller.signal })
       .then(value => { if (!controller.signal.aborted) setConfig(value); })
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
-    return () => { controller.abort(); loadController.current?.abort(); };
+    return () => {
+      controller.abort();
+      loadController.current?.abort();
+      validationController.current?.abort();
+    };
   }, [mode]);
   const legacySingle = mode === "portfolio" && sleeves.length === 1 && form.sleeve_rebalance_mode === "none";
   useEffect(() => {
@@ -116,9 +121,15 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
   }
   async function validateAndRun() {
     if (running || !config) return;
+    validationController.current?.abort();
+    const controller = new AbortController();
+    validationController.current = controller;
     setValid(false); setMessage(""); setError("");
     try {
-      const value = await backtestRequest<{valid:boolean;message:string}>("/api/backtest/validate", {method:"POST", body:JSON.stringify(body)});
+      const value = await backtestRequest<{valid:boolean;message:string}>("/api/backtest/validate", {
+        method: "POST", body: JSON.stringify(body), signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       setValid(value.valid); setMessage(value.message);
       // A default one-sleeve configuration remains the established
       // single-strategy calculation whenever no portfolio-only transfer rule
@@ -128,7 +139,9 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
             rebalance_cap: _cap, rebalance_target: _target, benchmark: _benchmark, ...single}) => ({...single, label: chosen[0].model, reference_replay: form.reference_replay}))(body)
         : body;
       if (value.valid) await onRun(runBody);
-    } catch (failure) { setMessage((failure as Error).message); }
+    } catch (failure) {
+      if (!controller.signal.aborted) setMessage((failure as Error).message);
+    }
   }
   const availability=useUsdAvailability(mode === "portfolio" && form.usd_equivalents,{mode:"portfolio",models:sleeves.map(s=>s.model)},bounds=>setForm(previous=>fitDates(previous,bounds)));
   const options = config ? (sleeves.length === 1 ? config.single_options : config.blend_options) : [];
@@ -141,9 +154,6 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
           <label>{words.cap}<input type="number" min="1" max="99" value={form.rebalance_cap} onChange={event => change({ rebalance_cap: event.target.valueAsNumber })} /></label>
           <label>{words.target}<input type="number" min="1" max="98" value={form.rebalance_target} onChange={event => change({ rebalance_target: event.target.valueAsNumber })} /></label></>}
         <details><summary>{words.settingsHelp}</summary><p>{words.mixedCaption}</p><p>{words.taxCaption}</p></details></>;
-  // Both visible modes use the same compact configuration rhythm. The API
-  // mode remains distinct so proxy calculations never enter the live engine.
-  const compact = true;
   let total = 0;
   for (const sleeve of sleeves) total += sleeve.weight;
   const totalLabel = Number.isFinite(total) ? new Intl.NumberFormat("en", {maximumFractionDigits:2}).format(total) : "—";
@@ -156,19 +166,75 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
     ? words.footerSummary.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel)
       .replace("{initial}", new Intl.NumberFormat("en", {style:"currency",currency:effectiveCurrency,maximumFractionDigits:0}).format(Number.isFinite(form.initial) ? form.initial : 0))
     : words.footerAllocation.replace("{count}", String(sleeves.length)).replace("{total}", totalLabel);
-  const advancedSummary = mode === "deep"
-    ? `${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`
-    : `${words.rebalancingTitle}: ${words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · ${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`;
-  return <section className={compact ? "portfolio-compact" : undefined}>{!compact && <p>{words.choose}</p>}
-    {!config && !error && <p role="status">{text.loading}</p>}
+  const costsSummary = `${words.feesTitle}: ${form.fees_enabled ? words.on : words.off} · ${words.taxTitle}: ${form.tax_enabled ? `${form.tax_rate}%` : words.off}`;
+  const advancedSummary = mode === "deep" ? costsSummary
+    : `${words.rebalancingTitle}: ${words.rules[form.sleeve_rebalance_mode as keyof typeof words.rules]} · ${costsSummary}`;
+  const formDisabled = running || loadingPortfolio || !config;
+  return <div className="backtest-setup">
+    <section className="portfolio-allocation backtest-setup-card" aria-labelledby="backtest-allocation-heading">
+      <header className="portfolio-allocation-header">
+        <h2 id="backtest-allocation-heading">{mode === "deep" ? words.extendedAllocationTitle : words.allocationTitle}</h2>
+      </header>
+      {!config && !error && <p role="status">{text.loading}</p>}
+      {mode === "portfolio" && <><UsdToggle checked={form.usd_equivalents} disabled={running || loadingPortfolio} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}</>}
+      <fieldset disabled={formDisabled}>
+        <div className="backtest-allocation-bar" aria-hidden="true">
+          {sleeves.filter(sleeve => Number.isFinite(sleeve.weight) && sleeve.weight > 0).map(sleeve => (
+            <span key={sleeve.id} style={{ width: `${Math.min(sleeve.weight, 100)}%` }} />
+          ))}
+        </div>
+        {warnings.map((warning, i) => <p role="alert" key={i}>{warning}</p>)}
+        {mode === "portfolio" ? <details className="portfolio-help"><summary>{words.allocationHelp}</summary><p>{words.sleeveCaption}</p></details> : <p>{words.proxyCaption}</p>}
+        {mode === "deep" && <div className="proxy-caveats">
+          {sleeves.map(s => <p className="signal-warning" key={s.id}>{config?.proxies.find(proxy => proxy.key === s.model)?.caveat}</p>)}
+          <p>{daily ? words.dailyCaption : words.proxyTax.replace("{benchmark}", config?.benchmarks.find(item => item.key === form.benchmark)?.label ?? "")}</p>
+          {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}
+        </div>}
+        {mode === "deep" && <div className="portfolio-sleeves"><table role="table" className="portfolio-sleeves-table" aria-label={words.extendedAllocationTitle}><thead role="rowgroup"><tr role="row">
+        <th role="columnheader" scope="col">{words.proxyStrategy}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
+      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => <tr role="row" key={s.id}><td role="cell"><label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
+        {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label></td>
+        <td role="cell" className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"} onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label></td>
+        <td role="cell"><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove} disabled={sleeves.length === 1} onClick={() => { setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>×</button></td>
+      </tr>)}</tbody></table></div>}
+        {mode === "portfolio" && <div className="portfolio-sleeves"><table role="table" className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead role="rowgroup"><tr role="row">
+        <th role="columnheader" scope="col">{text.strategy}</th><th role="columnheader" scope="col">{text.variant}</th><th role="columnheader" scope="col">{text.implementation}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
+      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => {
+        const current = config?.models.find(m => m.label === s.model);
+        const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
+        return <tr role="row" key={s.id}><td role="cell">{!current && <p role="alert">{words.unavailable.replace("{model}", s.model)}</p>}
+            <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(s, event.target.value)}>
+              {[...new Set(config?.models.map(m => m.strategy) ?? [])].sort().map(name => <option key={name}>{name}</option>)}</select></label></td><td role="cell"><label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={event => choose(s, current?.strategy ?? "", event.target.value)}>
+              {variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label></td><td role="cell"><label>{text.implementation}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value })}>
+              {config?.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
+          </td><td role="cell" className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"}
+            onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
+          </td><td role="cell"><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove}
+          disabled={sleeves.length === 1} onClick={() => {setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange();}}>×</button></td></tr>;
+      })}</tbody></table></div>}
+        <div className="portfolio-allocation-bottom">
+          <button className="btn btn-secondary" type="button" title={mode === "deep" ? words.addProxyHelp : words.addHelp}
+            disabled={daily || (mode === "deep" ? sleeves.length >= (config?.blend_options.length ?? 0) : sleeves.length >= 100)} onClick={() => {
+              const model = mode === "deep" ? config?.blend_options.find(key => !sleeves.some(s => s.model === key)) : "HAA-Simple";
+              if (!model) return;
+              setValid(false); setMessage(""); setSleeves(previous => [...previous, { id: nextId.current++, model, weight: 0 }]); onChange();
+            }}>{mode === "deep" ? words.add : words.addSleeve}</button>
+          <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>
+        </div>
+      </fieldset>
+      {legacySingle && <section className="single-context">
+        {singleOptions && <>{singleOptions.captions.map((caption,index) => <p key={index}>{caption}</p>)}{singleOptions.warnings.map((warning,index) => <p className="signal-warning" key={index}>{warning}</p>)}
+          <details><summary>{text.validation}</summary><DisplayTable value={singleOptions.data_validation} label={text.sources}/></details></>}
+        {singleOptionsError && <p role="alert">{singleOptionsError}</p>}
+      </section>}
+    </section>
 
-    {savedError && <p role="alert">{words.savedListError} {savedError}</p>}
-    {loadingPortfolio && <p role="status">{words.loadingPortfolio}</p>}
-    {mode === "portfolio" && <><UsdToggle checked={form.usd_equivalents} disabled={running || loadingPortfolio} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}</>}
-    <fieldset disabled={running || loadingPortfolio || !config}>
-      <section className={compact ? "portfolio-allocation" : undefined}>
-      <header className={compact ? "portfolio-allocation-header" : undefined}>{compact && <h2>{mode === "deep" ? words.extendedAllocationTitle : words.allocationTitle}</h2>}
-      <details className="portfolio-saved-loader" onToggle={event => { if (event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
+    <section className="backtest-parameters backtest-setup-card" aria-labelledby="backtest-parameters-heading">
+      <h2 id="backtest-parameters-heading">{words.parametersTitle}</h2>
+      {savedError && <p role="alert">{words.savedListError} {savedError}</p>}
+      {loadingPortfolio && <p role="status">{words.loadingPortfolio}</p>}
+      <fieldset disabled={formDisabled}>
+        <details className="portfolio-saved-loader" onToggle={event => { if (event.currentTarget.open && !saved.length && !loadingSaved) void listSaved(); }}>
         <summary>{words.load}</summary>
         {loadingSaved && <p role="status">{words.loadingSaved}</p>}
         <label>{words.saved}<select value={selected} disabled={loadingSaved} onChange={event => setSelected(event.target.value)}>{saved.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
@@ -179,96 +245,49 @@ export default function MultiForm({ mode, running, onRun, onChange }: { mode: "p
         <button className="btn btn-secondary" type="button" disabled={!file} onClick={() => void loadFile()}>{words.loadFile}</button>
         <details><summary>{words.loadingHelp}</summary><p>{mode === "deep" ? words.deepLoadCaption : words.loadCaption}</p></details>
       </details>
-      </header>
-      {warnings.map((warning, i) => <p role="alert" key={i}>{warning}</p>)}
-      {mode === "portfolio" ? <details className="portfolio-help"><summary>{words.allocationHelp}</summary><p>{words.sleeveCaption}</p></details> : <p>{words.proxyCaption}</p>}
-      {mode === "deep" && <div className="proxy-caveats">
-        {sleeves.map(s => <p className="signal-warning" key={s.id}>{config?.proxies.find(proxy => proxy.key === s.model)?.caveat}</p>)}
-        <p>{daily ? words.dailyCaption : words.proxyTax.replace("{benchmark}", config?.benchmarks.find(item => item.key === form.benchmark)?.label ?? "")}</p>
-        {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}
-      </div>}
-      {mode === "deep" && <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.extendedAllocationTitle}><thead><tr>
-        <th scope="col">{words.proxyStrategy}</th><th scope="col" className="numeric">{words.weight}</th><th scope="col"><span className="visually-hidden">{words.actions}</span></th>
-      </tr></thead><tbody>{sleeves.map((s, index) => <tr key={s.id}><td><label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
-        {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label></td>
-        <td className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"} onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label></td>
-        <td><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove} disabled={sleeves.length === 1} onClick={() => { setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>×</button></td>
-      </tr>)}</tbody></table></div>}
-      {mode === "portfolio" ? <div className="portfolio-sleeves-scroll"><table className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead><tr>
-        <th scope="col">{text.strategy}</th><th scope="col">{text.variant}</th><th scope="col">{text.implementation}</th><th scope="col" className="numeric">{words.weight}</th><th scope="col"><span className="visually-hidden">{words.actions}</span></th>
-      </tr></thead><tbody>{sleeves.map((s, index) => {
-        const current = config?.models.find(m => m.label === s.model);
-        const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
-        return <tr key={s.id}><td>{!current && <p role="alert">{words.unavailable.replace("{model}", s.model)}</p>}
-            <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(s, event.target.value)}>
-              {[...new Set(config?.models.map(m => m.strategy) ?? [])].sort().map(name => <option key={name}>{name}</option>)}</select></label></td><td><label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={event => choose(s, current?.strategy ?? "", event.target.value)}>
-              {variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label></td><td><label>{text.implementation}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value })}>
-              {config?.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
-          </td><td className="numeric">          <label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"}
-            onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
-</td><td><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove}
-          disabled={sleeves.length === 1} onClick={() => {setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange();}}>×</button></td></tr>;
-      })}</tbody></table></div> : <>      {mode !== "deep" && sleeves.map(s => {
-        const current = config?.models.find(m => m.label === s.model);
-        const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
-        return <div className="backtest-sleeve" key={s.id}>
-          <button className="btn btn-destructive" type="button" disabled={sleeves.length === 1} onClick={() => { setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>{words.remove}</button>
-          {mode === "deep" ? <label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
-            {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label> : <div className="signal-selector">
-            {!current && <p role="alert">{words.unavailable.replace("{model}", s.model)}</p>}
-            <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(s, event.target.value)}>
-              {[...new Set(config?.models.map(m => m.strategy) ?? [])].sort().map(name => <option key={name}>{name}</option>)}</select></label>
-            <label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={event => choose(s, current?.strategy ?? "", event.target.value)}>
-              {variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label>
-            <label>{text.implementation}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value })}>
-              {config?.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
-          </div>}
-          <label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"}
-            onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
-          {mode === "deep" && <p className="signal-warning">{config?.proxies.find(p => p.key === s.model)?.caveat}</p>}
-        </div>;
-      })}
-</>}
-      <div className="portfolio-allocation-bottom">      <button className="btn btn-secondary" type="button" title={mode === "deep" ? words.addProxyHelp : words.addHelp}
-        disabled={daily || (mode === "deep" ? sleeves.length >= (config?.blend_options.length ?? 0) : sleeves.length >= 100)} onClick={() => {
-          const model = mode === "deep" ? config?.blend_options.find(key => !sleeves.some(s => s.model === key)) : "HAA-Simple";
-          if (!model) return; setValid(false); setMessage(""); setSleeves(previous => [...previous, { id: nextId.current++, model, weight: 0 }]); onChange();
-        }}>{mode === "deep" ? words.add : words.addSleeve}</button>
-{compact && <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>}</div>
-      </section>
-      {effectiveCurrency && <p className="assumption-hint">{text.currency}: {effectiveCurrency}</p>}
-      {legacySingle && <section className="single-context">
-        {singleOptions && <>{singleOptions.captions.map((caption,index) => <p key={index}>{caption}</p>)}{singleOptions.warnings.map((warning,index) => <p className="signal-warning" key={index}>{warning}</p>)}
-          <details><summary>{text.validation}</summary><DisplayTable value={singleOptions.data_validation} label={text.sources}/></details></>}
-        {singleOptionsError && <p role="alert">{singleOptionsError}</p>}
-      </section>}
-      <AmountAndDates title={compact ? words.investmentTitle : undefined} initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" min={singleOptions?.bounds.start_min} max={singleOptions?.bounds.start_max} value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" min={singleOptions?.bounds.end_min} max={singleOptions?.bounds.end_max} value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>}
-        dca={<><Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />
-      {dca && <p className="portfolio-dca-caption">{config?.dca_caption}</p>}
-      {legacySingle && singleOptions?.reference_replay_available && <><label>{text.reference}<input type="checkbox" checked={form.reference_replay} onChange={event => change({reference_replay:event.target.checked})} /></label><p>{singleOptions.reference_caption}</p></>}
-      {compact ? <details className="portfolio-advanced"><summary><strong>{words.advancedTitle}</strong><span>{advancedSummary}</span></summary>
-        <div className="portfolio-advanced-grid"><section><h3>{mode === "deep" ? words.benchmark : words.rebalancingTitle}</h3>
-          {mode === "deep" ? <><label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
-            {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : transferControls}
-</section>
-        <section><h3>{words.feesTitle}</h3><Fees compact value={form} onChange={change} /></section><section><h3>{words.taxTitle}</h3>        <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
-          onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} /></section></div>
-        <details><summary>{words.settingsHelp}</summary><p>{words.dateHelp}</p></details>
-      </details> : <>      <label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
-          {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{words.benchmarkHelp}</p>
-          <p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p><p>{daily ? words.dailyCaption : words.proxyTax.replace("{benchmark}", config?.benchmarks.find(b => b.key === form.benchmark)?.label ?? "")}</p>
-          {sleeves.some(s => s.model === "rvol_synthetic") && <p className="signal-warning">{words.syntheticTax}</p>}
-      <Fees value={form} onChange={change}>
-        <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
+      </fieldset>
+      <div className="backtest-parameter-group">
+        <h3>{words.capitalHorizonTitle}</h3>
+        {effectiveCurrency && <p className="assumption-hint">{text.currency}: {effectiveCurrency}</p>}
+        <fieldset disabled={formDisabled}>
+          <label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => change({ initial: event.target.valueAsNumber })} /></label>
+          <div className="dca-row">
+            <Toggle checked={dca} onChange={value => { setDca(value); change({}); }}>{text.dcaEnabled}</Toggle>
+            {dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => change({ monthly_contribution: event.target.valueAsNumber })} /></label>}
+          </div>
+          {dca && <p className="portfolio-dca-caption">{config?.dca_caption}</p>}
+          <TaxControls enabled={!daily && form.tax_enabled} rate={form.tax_rate} disabled={daily} hideRate={daily} label={daily ? words.dailyTax : text.taxEnabled}
           onEnabled={tax_enabled => change({tax_enabled})} onRate={tax_rate => change({tax_rate})} />
-      </Fees>
-<p>{words.dateHelp}</p></>}
-      <footer className="portfolio-run-footer"><div>{compact && <p>{footerSummary}</p>}
-      {compact && !allocationValid && <p role="alert">{(sleeves.some(s => !Number.isFinite(s.weight) || s.weight <= 0) ? words.positivePortfolio : words.weightWarning.replace("{total:.2f}",totalLabel))}</p>}
-      {error && <p role="alert">{error}</p>}
-      {message && <p role={valid ? "status" : "alert"}>{message}</p>}</div>
-      <button className="btn btn-primary" type="button" disabled={running || !config || availability.loading || !!availability.error || (compact && !allocationValid)} onClick={() => void validateAndRun()}>{running ? text.running : text.run}</button>
-      </footer>
-    </fieldset>
-  </section>;
+        </fieldset>
+        {modeControl}
+      </div>
+
+      <fieldset className="backtest-parameter-group" disabled={formDisabled}>
+        {mode === "deep" ? <><label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
+            {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : transferControls}
+        <div className="backtest-date-grid">
+          <DateField label={words.startDate} hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" min={singleOptions?.bounds.start_min} max={singleOptions?.bounds.start_max} value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>
+          <DateField label={words.endDate} hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" min={singleOptions?.bounds.end_min} max={singleOptions?.bounds.end_max} value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>
+        </div>
+        {legacySingle && singleOptions?.reference_replay_available && <><label>{text.reference}<input type="checkbox" checked={form.reference_replay} onChange={event => change({reference_replay:event.target.checked})} /></label><p>{singleOptions.reference_caption}</p></>}
+        <details className="portfolio-advanced">
+          <summary><strong>{words.advancedTitle}</strong><span>{advancedSummary}</span></summary>
+          <Fees compact value={form} onChange={change} />
+          <details><summary>{words.settingsHelp}</summary><p>{words.dateHelp}</p></details>
+        </details>
+        <footer className="portfolio-run-footer">
+          <button className="btn btn-primary" type="button"
+            disabled={running || !config || availability.loading || !!availability.error || !allocationValid}
+            onClick={() => void validateAndRun()}>{running ? text.running : text.run}</button>
+          <div>
+            <p>{footerSummary}</p>
+            {!allocationValid && <p role="alert">{sleeves.some(s => !Number.isFinite(s.weight) || s.weight <= 0)
+              ? words.positivePortfolio : words.weightWarning.replace("{total:.2f}", totalLabel)}</p>}
+            {error && <p role="alert">{error}</p>}
+            {message && <p role={valid ? "status" : "alert"}>{message}</p>}
+          </div>
+        </footer>
+      </fieldset>
+    </section>
+  </div>;
 }

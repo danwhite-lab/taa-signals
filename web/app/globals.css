@@ -466,62 +466,85 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .compact-value-field { display: flex; align-items: center; gap: .2rem; }
 .compact-value-field > span { color: var(--muted); font-size: .75rem; }
 .compact-value-field > label { flex: 1; min-width: 0; }
-/* Compact Portfolio backtest configuration; other backtest modes retain their layout. */
-.portfolio-compact { width: 100%; max-width: 100%; min-width: 0; font-size: .85rem; }
-.portfolio-compact > fieldset { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
-.portfolio-allocation { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }
-.portfolio-compact h2, .portfolio-compact h3 { font-size: .95rem; margin: 0 0 .45rem; }
-.portfolio-compact section { margin: 0 0 .75rem; }
-.portfolio-allocation-header { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
-.portfolio-compact details { margin: .35rem 0; }
-.portfolio-compact summary { cursor: pointer; font-size: .8rem; }
-.portfolio-compact .portfolio-saved-loader { max-width: 100%; }
-.portfolio-saved-loader[open] { flex-basis: 100%; }
-.portfolio-compact label { display: block; margin: 0; font-size: .8rem; min-width: 0; }
-.portfolio-compact input:not([type="checkbox"]), .portfolio-compact select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 32px; padding: .3rem .4rem; margin: .2rem 0 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); font: inherit; }
-.portfolio-compact .btn { padding: .4rem .65rem; min-height: 32px; font-size: .8rem; }
-.portfolio-sleeves-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; }
-.portfolio-sleeves-table { width: 100%; min-width: 560px; border-collapse: collapse; table-layout: fixed; }
-.portfolio-sleeves-table td, .portfolio-sleeves-table th { padding: .2rem .35rem; text-align: left; border-bottom: 1px solid var(--divider); }
-.portfolio-sleeves-table th { font-size: .75rem; color: var(--muted); font-weight: 500; }
-.portfolio-sleeves-table th:nth-child(4) { width: 76px; }
+/* Backtest setup cards share the app palette and leave results styling separate. */
+.backtest-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  margin: 12px 0 24px;
+  font-size: .85rem;
+}
+.backtest-page .backtest-setup-card { min-width: 0; margin: 0; padding: 16px; }
+.backtest-setup-card fieldset { min-inline-size: 0; border: 0; padding: 0; margin: 0; }
+.backtest-setup-card h2, .backtest-setup-card h3 { font-size: .95rem; margin: 0 0 .45rem; }
+.backtest-setup-card h2 { padding-bottom: 10px; border-bottom: 1px solid var(--divider); }
+.backtest-setup-card p, .backtest-setup-card th { overflow-wrap: anywhere; }
+.backtest-setup-card details { margin: .65rem 0; }
+.backtest-setup-card summary { font-size: .8rem; }
+.backtest-setup-card label { display: block; margin: 0; font-size: .8rem; min-width: 0; }
+.backtest-setup-card input:not([type="checkbox"]), .backtest-setup-card select {
+  width: 100%; min-width: 0; min-height: 32px; padding: .3rem .4rem; margin: .2rem 0 0;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--surface); font: inherit;
+}
+.backtest-setup-card .btn { padding: .4rem .65rem; min-height: 32px; font-size: .8rem; }
+.portfolio-allocation-header { margin: 0 0 .65rem; }
+.backtest-allocation-bar { display: flex; height: 8px; overflow: clip; border-radius: 4px; background: var(--surface-tint); }
+.backtest-allocation-bar > span { flex: none; background: var(--accent); }
+.backtest-allocation-bar > span:nth-child(3n + 2) { background: var(--accent-hover); }
+.backtest-allocation-bar > span:nth-child(3n) { background: var(--info); }
+.portfolio-sleeves-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.portfolio-sleeves-table td, .portfolio-sleeves-table th { padding: .35rem; text-align: left; border-bottom: 1px solid var(--divider); }
+.portfolio-sleeves-table th { font-size: .75rem; color: var(--muted); font-weight: 500; background: var(--surface-low); }
+.portfolio-sleeves-table th.numeric { width: 76px; }
 .portfolio-sleeves-table th:last-child { width: 28px; }
-.portfolio-compact .portfolio-sleeves-table label { font-size: 0; }
-.portfolio-compact .portfolio-sleeves-table select, .portfolio-compact .portfolio-sleeves-table input { font-size: .8rem; margin: 0; }
+.backtest-setup-card .portfolio-sleeves-table label { font-size: 0; }
+.backtest-setup-card .portfolio-sleeves-table select, .backtest-setup-card .portfolio-sleeves-table input { font-size: .8rem; margin: 0; }
 .portfolio-sleeves-table .numeric, .portfolio-sleeves-table .numeric input { text-align: right; font-variant-numeric: tabular-nums; }
 .portfolio-remove { padding: .25rem; background: transparent; color: var(--error); border: 0; cursor: pointer; font-size: 1.1rem; }
-.portfolio-allocation-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: .4rem; gap: .75rem; }
-.allocation-total { color: var(--success); font-weight: 500; }
-.allocation-total.invalid { color: var(--error); }
-.portfolio-compact .amount-dates { padding: .65rem 0; border-block: 1px solid var(--divider); }
-.portfolio-compact .amount-date-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: .75rem; }
-.portfolio-compact .assumption-hint { display: block; margin: .35rem 0; }
-.portfolio-compact .dca-row { display: flex; align-items: center; gap: .75rem; margin-top: .5rem; flex-wrap: wrap; }
-.portfolio-compact .toggle-label { display: flex; gap: .4rem; align-items: center; }
-.portfolio-compact .dca-row input:not([type="checkbox"]) { max-width: 160px; }
-.portfolio-advanced { border-bottom: 1px solid var(--divider); padding: .5rem 0; }
-.portfolio-advanced > summary span { display: inline; margin-left: .75rem; color: var(--muted); font-size: .75rem; }
-.portfolio-advanced-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1rem; margin-top: .75rem; }
-.portfolio-advanced-grid .assumption-row { display: grid; grid-template-columns: minmax(0,1fr); gap: .45rem; margin: 0; }
-.portfolio-advanced-grid .assumption-row .toggle-label { margin-bottom: .25rem; }
-.portfolio-run-footer { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .5rem 0; }
-.portfolio-run-footer p { margin: .2rem 0; font-size: .8rem; }
-.portfolio-run-footer > button { flex-shrink: 0; }
-@media(max-width:650px) {
- .backtest-page { width: 100%; min-width: 0; overflow-x: clip; }
- .backtest-page .portfolio-compact { padding-inline: 12px; }
- .portfolio-compact .amount-date-grid, .portfolio-advanced-grid { grid-template-columns: minmax(0,1fr); }
- .portfolio-advanced > summary span { display: block; margin: .25rem 0 0; }
- .portfolio-run-footer { flex-wrap: wrap; }
- .portfolio-run-footer > button { width: 100%; }
+.portfolio-allocation-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-top: .75rem; gap: .5rem; }
+.allocation-total { padding: .25rem .5rem; border-radius: 4px; background: var(--success-soft); color: var(--success); font-weight: 500; }
+.allocation-total.invalid { background: var(--error-soft); color: var(--error); }
+.backtest-setup-card .single-context { margin: .75rem 0 0; padding: 0; border: 0; }
+.backtest-setup-card .signal-table-scroll { max-height: none; overflow: visible; }
+.backtest-setup-card .signal-table-scroll table { table-layout: fixed; white-space: normal; overflow-wrap: anywhere; }
+.backtest-setup-card .signal-table-scroll th { position: static; }
+.backtest-parameters .portfolio-saved-loader { padding: .5rem .65rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-low); }
+.portfolio-saved-loader .btn { margin: .4rem 0; }
+.backtest-parameters .backtest-parameter-group { border-top: 1px solid var(--divider); padding-top: .75rem; margin-top: .75rem; }
+.backtest-parameter-group .dca-row, .backtest-parameter-group .assumption-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: .45rem; margin: .55rem 0; }
+.backtest-parameter-group .assumption-row label { white-space: normal; }
+.backtest-parameter-group label.toggle-label {
+  display: flex; flex-direction: row-reverse; justify-content: space-between; gap: .5rem;
+  padding: .4rem .55rem; border: 1px solid var(--border); border-radius: 6px;
 }
-.portfolio-compact { padding: 16px; }
-.backtest-page .portfolio-compact { margin: .75rem 0; }
-.portfolio-compact section { border: 0; border-radius: 0; background: transparent; padding: 0; }
-.portfolio-compact .portfolio-allocation-header { margin-bottom: .4rem; }
-.portfolio-compact .amount-dates { padding: .65rem 0; border-top: 1px solid var(--divider); border-bottom: 1px solid var(--divider); }
-.portfolio-compact input:not([type="checkbox"]), .portfolio-compact select { display: block; }
-.portfolio-compact .portfolio-run-footer { margin-top: 0; }
+.backtest-parameter-group .dca-row input:not([type="checkbox"]) { max-width: none; }
+.backtest-date-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .75rem; }
+.backtest-date-grid .date-field input { max-width: 100%; }
+.portfolio-advanced { border-block: 1px solid var(--divider); padding: .5rem 0; }
+.portfolio-advanced > summary span { display: inline; margin-left: .75rem; color: var(--muted); font-size: .75rem; }
+.portfolio-run-footer { display: grid; gap: .5rem; padding-top: .5rem; margin-top: 0; }
+.portfolio-run-footer p { margin: .2rem 0; font-size: .8rem; }
+.portfolio-run-footer > button { width: 100%; }
+@media (max-width: 980px) {
+  .backtest-setup { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 650px) {
+  .backtest-page { width: 100%; min-width: 0; overflow-x: clip; }
+  .backtest-page .backtest-setup-card { padding: 12px; }
+  .portfolio-sleeves-table, .portfolio-sleeves-table tbody { display: block; }
+  .portfolio-sleeves-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .portfolio-sleeves-table tbody tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: .5rem;
+    padding: .65rem; margin-top: .5rem; border: 1px solid var(--divider); border-radius: 6px;
+  }
+  .portfolio-sleeves-table td { min-width: 0; padding: 0; border: 0; }
+  .portfolio-sleeves-table td:first-child { grid-column: 1 / -1; }
+  .portfolio-sleeves-table td:last-child { justify-self: end; }
+  .backtest-setup-card .portfolio-sleeves-table label { font-size: .8rem; text-align: left; }
+  .backtest-setup-card .portfolio-sleeves-table select, .backtest-setup-card .portfolio-sleeves-table input { margin-top: .2rem; }
+  .portfolio-advanced > summary span { display: block; margin: .25rem 0 0; }
+}
 .usd-equivalent-control { margin-block: .75rem; }
 .usd-equivalent-control p { font-size: .8rem; margin: .35rem 0; }
 .usd-equivalent-banner { background: var(--surface-low); border-left: 3px solid var(--info); padding: .75rem; margin-block: .75rem; font-size: .85rem; }
