@@ -138,13 +138,12 @@ export default function BacktestPage() {
   const variants = [...new Set(models?.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
   const implementations = models?.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
-    <fieldset className="segmented" role="radiogroup" aria-label={text.mode} disabled={running}><legend>{text.mode}</legend>
-      {(["portfolio", "deep"] as const).map(value => <label className="segment" key={value}>
-        <input type="radio" name="backtest-mode" value={value} checked={mode === value} onChange={() => { setMode(value); update({}); }} />{value === "portfolio" ? text.backtest : text.extendedHistory}
-      </label>)}
-    </fieldset>
     {mode === "single" && <UsdToggle checked={form.usd_equivalents} disabled={running} onChange={usd_equivalents=>update({usd_equivalents})}/> }
-    {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})} />}
+    {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})}
+      modeControl={<Toggle checked={mode === "deep"} disabled={running} onChange={enabled => {
+        setMode(enabled ? "deep" : "portfolio");
+        update({});
+      }}>{text.extendedHistory}</Toggle>} />}
     {loadingModels && mode === "single" && <p role="status">{text.loading}</p>}
     {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!models && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
     {mode === "single" && models && <fieldset disabled={running || loadingModels} className="backtest-controls"><legend>{text.single}</legend><label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(event.target.value)}><option value="">{text.chooseStrategy}</option>{strategies.map(value => <option key={value}>{value}</option>)}</select></label></fieldset>}

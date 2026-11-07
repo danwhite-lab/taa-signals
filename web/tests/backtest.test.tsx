@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/backtest.json";
+import words from "../content/backtest-multi.json";
 
 const mock = vi.hoisted(() => ({ request: vi.fn(), download: vi.fn() }));
 vi.mock("../lib/backtestApi", () => ({ backtestRequest: mock.request, backtestDownload: mock.download }));
@@ -57,17 +58,48 @@ it("defaults to tax ON at 25% and currency-specific broker fees, with the other 
   expect(screen.queryByText(text.reference)).toBeNull();
 });
 
-it('switches all three modes with the same default using native grouped radios',async()=>{
-  await ready();const original=mock.request.getMockImplementation()!;
-  mock.request.mockImplementation(async(path,init)=>path.startsWith('/api/backtest/config')?{models:[],proxies:[],single_options:[],blend_options:[],benchmarks:[]}:
-    path==='/api/backtest/validate'?{valid:true,message:'Example validated'}:path==='/api/compare/options'?{portfolios:[]}:path==='/api/portfolios'?[]:original(path,init));
-  expect(screen.getByRole('radiogroup',{name:text.mode})).toBeTruthy();
-  expect(screen.getByRole('radio',{name:text.single})).toHaveProperty('checked',true);
-  for(const label of [text.portfolio,text.deep,text.single]){
-    fireEvent.click(screen.getByRole('radio',{name:label}));
-    expect(screen.getByRole('radio',{name:label})).toHaveProperty('checked',true);
+it("uses the Parameters switch to load and reset each Backtest mode", async () => {
+  mock.request.mockImplementation(async (path: string) => {
+    if (path === "/api/backtest/config?mode=portfolio") return { models: options.models };
+    if (path === "/api/backtest/config?mode=deep") return {
+      models: [],
+      proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Proxy caveat" }],
+      single_options: ["century_momentum"], blend_options: ["century_momentum"],
+      benchmarks: [{ key: "sp500", label: "S&P 500", caveat: "Benchmark caveat" }],
+    };
+    if (path.startsWith("/api/backtest/options")) return options;
+    if (path === "/api/backtest/validate") return { valid: true, message: words.weightSuccess };
+    return result;
+  });
+  render(<BacktestPage />);
+  const history = () => screen.getByRole("switch", { name: text.extendedHistory });
+  await screen.findByRole("option", { name: "HAA" });
+  expect(history()).toHaveProperty("checked", false);
+  expect(history().closest("section")?.getAttribute("aria-labelledby")).toBe("backtest-parameters-heading");
+  expect(screen.queryByRole("radiogroup", { name: text.mode })).toBeNull();
+  fireEvent.change(screen.getByLabelText(text.initial), { target: { value: "20000" } });
+
+  fireEvent.click(history());
+  await screen.findByRole("option", { name: "Century proxy" });
+  expect(history()).toHaveProperty("checked", true);
+  expect(screen.getByLabelText(text.initial)).toHaveProperty("value", "100000");
+  expect(screen.queryByLabelText(text.strategy)).toBeNull();
+  expect(screen.getByText("Proxy caveat")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: text.run }));
+  await screen.findByRole("table", { name: text.summary });
+  for (const path of ["/api/backtest/validate", "/api/backtest"]) {
+    const request = mock.request.mock.calls.find(([url]) => url === path);
+    expect(JSON.parse(request![1].body)).toMatchObject({ mode: "deep", sleeves: [{ model: "century_momentum", weight: 100 }] });
   }
-  expect(mock.request.mock.calls.some(([path])=>path==='/api/backtest')).toBe(false);
+
+  fireEvent.click(history());
+  await screen.findByRole("option", { name: "HAA" });
+  expect(history()).toHaveProperty("checked", false);
+  expect(screen.queryByLabelText(words.proxyStrategy)).toBeNull();
+  expect(screen.queryByRole("table", { name: text.summary })).toBeNull();
+  expect(mock.request.mock.calls.filter(([path]) => path.startsWith("/api/backtest/config")).map(([path]) => path)).toEqual([
+    "/api/backtest/config?mode=portfolio", "/api/backtest/config?mode=deep", "/api/backtest/config?mode=portfolio",
+  ]);
 });
 
 it("validates controls before posting and clears stale results on edit", async () => {
