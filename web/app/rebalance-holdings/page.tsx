@@ -347,7 +347,12 @@ export default function RebalanceHoldings() {
             <label>{text.cash}<input value={cash} inputMode="decimal" disabled={busy} onChange={event => { invalidate(true); setCash(event.target.value); }} /></label>
 
 
-            <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => { const value = await editor(); setPreview(value); if (value.account && !value.errors.length) await persist(value.account, false); })}>{text.save}</button>
+            <button className="btn btn-primary" disabled={busy || paused} onClick={() => void action(async () => {
+              const value = await editor(); setPreview(value);
+              if (value.errors.length) setError(value.errors.join(" "));
+              else if (!value.account) setError(text.validation);
+              else await persist(value.account, false);
+            })}>{text.save}</button>
       </section>
       <button type="button" className="btn btn-secondary" onClick={() => {setStep("action"); setActionTab("balance");}}>{text.nextAction}</button>
       </div>
