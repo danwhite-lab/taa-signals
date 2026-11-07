@@ -140,6 +140,14 @@
   "extendedAllocationTitle": "Proxy allocation",
   "investmentTitle": "Investment & period",
   "parametersTitle": "Parameters",
+  "resultsComplete": "Backtest complete",
+  "resultTabs": {
+    "overview": "Overview",
+    "charts": "Charts",
+    "statistics": "Detailed Statistics",
+    "history": "History & Data"
+  },
+  "downloadBytes": "{bytes} bytes",
   "capitalHorizonTitle": "Capital & Horizon",
   "startDate": "Start",
   "endDate": "End",

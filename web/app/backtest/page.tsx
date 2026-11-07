@@ -25,7 +25,7 @@ type Results = { usd_equivalents?: UsdInfo; label: string; currency: string; set
   fees?: { currency: string; enabled: boolean; pre_tax: number; after_tax: number } | null;
   annual: Table; monthly: Table; value_chart: Chart; drawdown_chart: Chart; calculated_at: string; cache: { key: string; hit: string | null };
   captions: string[]; warnings: string[]; data_origin: string; timing: Row; calculation_timing: Row;
-  downloads: { kind: string; label: string; filename: string; bytes: number }[];
+  downloads: { kind: string; label: string; filename: string; bytes?: number }[];
   extra_tables?: { label: string; value: Table }[]; extra_charts?: { label: string; value: Chart }[];
   rolling?: { years: number; label: string; table: Table; chart: Chart }[];
   cards?: { label: string; value: string; delta?: string }[]; value_title?: string; drawdown_title?: string; summary_title?: string; data_validation?: Table };
@@ -36,13 +36,159 @@ function DataTable({value,label}:{value:Table;label?:string}) { return <DisplayT
 
 function Lines({ value, title }: { value: Chart; title: string }) {
   const colors = ["#17645f", "#6488a3", "#b58a52"];
-  return <section><h2>{title}</h2><svg viewBox="0 0 900 290" role="img" aria-label={title}>
+  return <section className="backtest-result-chart"><h2>{title}</h2>
+    <ul className="backtest-chart-legend" aria-label={text.legend}>{value.series.map((series, index) => <li key={series.label}>
+      <span aria-hidden="true" style={{ backgroundColor: colors[index % colors.length] }} />{series.label}
+    </li>)}</ul>
+    <svg viewBox="0 0 900 290" role="img" aria-label={title}>
     <line x1="55" y1="30" x2="55" y2="250" stroke="#dce2e8" /><line x1="55" y1="250" x2="870" y2="250" stroke="#dce2e8" />
     <text x="0" y="28" fontSize="12">{fmt.axis(value.maximum,title)}</text><text x="0" y="250" fontSize="12">{fmt.axis(value.minimum,title)}</text>
     <text x="55" y="277" fontSize="12">{fmt.date(value.start)}</text><text x="870" y="277" fontSize="12" textAnchor="end">{fmt.date(value.end)}</text>
     {value.series.map((series, index) => <polyline key={series.label} points={series.svg_points} fill="none" stroke={colors[index % colors.length]} strokeWidth="1.7" />)}
-  </svg><ul aria-label={text.legend}>{value.series.map((series, index) => <li key={series.label} style={{ color: colors[index % colors.length] }}>{series.label}</li>)}</ul>
+    </svg>
     <p>{value.caption}</p></section>;
+}
+
+const resultTabs = ["overview", "charts", "statistics", "history"] as const;
+
+function BacktestResults({ result, onDownloadError }: { result: Results; onDownloadError: () => void }) {
+  const [tab, setTab] = useState<(typeof resultTabs)[number]>("overview");
+  const [rollingYears, setRollingYears] = useState<number>();
+  const rollingChart = result.rolling?.find(item => item.years === rollingYears)
+    ?? result.rolling?.find(item => item.years === 5)
+    ?? result.rolling?.at(-1);
+
+  // These labels are emitted by the current API for history and provenance tables.
+  const historyLabels = new Set<string>([multiText.dailySignals, multiText.plainSources]);
+  const historyTables = result.extra_tables?.filter(item => historyLabels.has(item.label));
+  const statisticsTables = result.extra_tables?.filter(item => !historyLabels.has(item.label));
+  const sectionCaptions = new Set<string>([
+    ...(historyTables?.some(item => item.label === multiText.dailySignals) ? [multiText.sourceCaption] : []),
+    ...(statisticsTables?.some(item => item.label === multiText.selected) ? [multiText.sleeveFeeCaption] : []),
+  ]);
+  const panel = (id: (typeof resultTabs)[number]) => ({
+    role: "tabpanel",
+    id: `backtest-result-panel-${id}`,
+    "aria-labelledby": `backtest-result-tab-${id}`,
+    tabIndex: 0,
+    hidden: tab !== id,
+  });
+
+  return <section className="backtest-results" aria-label={text.results}>
+    <header className="backtest-results-heading">
+      <h2>{multiText.resultsComplete}</h2>
+      <p>{result.label}</p>
+    </header>
+    <UsdBanner value={result.usd_equivalents} />
+    <p>{text.legacyCaptions}</p>
+    {result.captions.map((value, index) => !sectionCaptions.has(value) && <div key={index}><Markdown>{value}</Markdown></div>)}
+    {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
+
+    <div className="backtest-result-tabs" role="tablist" aria-label={text.results}>
+      {resultTabs.map((value, index) => <button
+        key={value} id={`backtest-result-tab-${value}`} type="button" role="tab"
+        aria-controls={`backtest-result-panel-${value}`} aria-selected={tab === value}
+        tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)}
+        onKeyDown={event => {
+          let next: number;
+          if (event.key === "ArrowRight") next = (index + 1) % resultTabs.length;
+          else if (event.key === "ArrowLeft") next = (index + resultTabs.length - 1) % resultTabs.length;
+          else if (event.key === "Home") next = 0;
+          else if (event.key === "End") next = resultTabs.length - 1;
+          else return;
+          event.preventDefault();
+          setTab(resultTabs[next]);
+          document.getElementById(`backtest-result-tab-${resultTabs[next]}`)?.focus();
+        }}
+      >{multiText.resultTabs[value]}</button>)}
+    </div>
+
+    <div className="backtest-result-panel" {...panel("overview")}>
+      <p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
+      {!!result.cards?.length && <div className="backtest-result-cards">
+        {result.cards.map(card => <section key={card.label}>
+          <h3>{card.label}</h3>
+          <p>{fmt.cell(card.value, card.label)}</p>
+          {card.delta && <p>{card.delta}</p>}
+        </section>)}
+      </div>}
+      <section><h2>{result.summary_title ?? text.summary}</h2>
+        <DataTable value={result.summary} label={result.summary_title ?? text.summary} />
+      </section>
+      {result.fees && <section aria-label={text.totalFees}><h3>{text.totalFees} ({result.fees.currency})</h3>
+        <p>{text.preTaxFees}: {result.fees.pre_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        {!!result.settings.tax_enabled && <p>{text.afterTaxFees}: {result.fees.after_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+        <p>{text.feeSimulations}</p></section>}
+      <details className="backtest-result-detail"><summary>{text.settings}</summary><p>{text.currency}: {result.currency}</p>
+        <h3>{text.configuredSettings}</h3><dl>{Object.entries(result.settings).map(([key, value]) => <div key={key}><dt>{(text.settingLabels as Record<string, string>)[key] ?? key}</dt><dd>{fmt.configuration(value,key,result.settings.fee_type==="percentage")}</dd></div>)}</dl>
+        <h3>{text.engineSettings}</h3><dl>{Object.entries(result.engine_parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{fmt.cell(value,key)}</dd></div>)}</dl></details>
+      <footer>{text.disclaimer}</footer>
+    </div>
+
+    <div className="backtest-result-panel" {...panel("charts")}>
+      <Lines value={result.value_chart} title={result.value_title ?? text.performance} />
+      <Lines value={result.drawdown_chart} title={result.drawdown_title ?? text.drawdown} />
+      {result.extra_charts?.map(item => <Lines key={item.label} value={item.value} title={item.label} />)}
+      {!!result.rolling?.length && <details className="backtest-result-detail">
+        <summary>{multiText.rolling}</summary>
+        <p>{multiText.rollingCaption}</p>
+        <label>{multiText.rollingPeriod}<select value={rollingChart?.years} onChange={event => setRollingYears(Number(event.target.value))}>
+          {result.rolling.map(item => <option key={item.years} value={item.years}>{item.label}</option>)}
+        </select></label>
+        {rollingChart && <Lines value={rollingChart.chart} title={rollingChart.label} />}
+      </details>}
+    </div>
+
+    <div className="backtest-result-panel" {...panel("statistics")}>
+      <details className="backtest-result-detail" open><summary>{text.periods}</summary>
+        <DataTable value={result.periods} label={text.periods} />
+      </details>
+      <details className="backtest-result-detail"><summary>{text.returns}</summary>
+        <h3>{text.annual}</h3><DataTable value={result.annual} label={text.annual} />
+        <h3>{text.monthly}</h3><DataTable value={result.monthly} label={text.monthly} />
+      </details>
+      {statisticsTables?.map(item => <details className="backtest-result-detail" key={item.label}>
+        <summary>{item.label}</summary>
+        {item.label === multiText.selected && sectionCaptions.has(multiText.sleeveFeeCaption) && <p>{multiText.sleeveFeeCaption}</p>}
+        <DataTable value={item.value} label={item.label} />
+      </details>)}
+      {!!result.rolling?.length && <details className="backtest-result-detail">
+        <summary>{multiText.rolling}</summary>
+        {result.rolling.map(item => <details className="backtest-result-detail" key={item.years}>
+          <summary>{item.label}</summary><DataTable value={item.table} label={item.label} />
+        </details>)}
+      </details>}
+    </div>
+
+    <div className="backtest-result-panel" {...panel("history")}>
+      <details className="backtest-result-detail"><summary>{text.ledger}</summary>
+        <DataTable value={result.tax_events} label={text.ledger} />
+      </details>
+      {historyTables?.map(item => <details className="backtest-result-detail" key={item.label}>
+        <summary>{item.label}</summary>
+        {item.label === multiText.dailySignals && sectionCaptions.has(multiText.sourceCaption) && <p>{multiText.sourceCaption}</p>}
+        <DataTable value={item.value} label={item.label} />
+      </details>)}
+      {result.data_validation && <details className="backtest-result-detail"><summary>{text.validation}</summary>
+        {!result.warnings.includes(result.data_origin) && !result.captions.includes(result.data_origin) && <p>{result.data_origin}</p>}
+        <DataTable value={result.data_validation} label={text.sources} />
+      </details>}
+      <section><h2>{text.downloads}</h2>
+        <p>{text.fullDownloadNote}</p>
+        <ul className="backtest-result-downloads">
+          {result.downloads.map(item => <li key={item.kind}>
+            <div><span>{item.filename}</span>{typeof item.bytes === "number" && Number.isFinite(item.bytes) &&
+              <small>{multiText.downloadBytes.replace("{bytes}", item.bytes.toLocaleString())}</small>}</div>
+            <button className="btn btn-secondary" type="button"
+              onClick={() => void backtestDownload(result.cache.key, item.kind, item.filename).catch(onDownloadError)}>{item.label}</button>
+          </li>)}
+        </ul>
+      </section>
+      <details className="backtest-result-detail"><summary>{text.timing}</summary>
+        <pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre>
+      </details>
+    </div>
+  </section>;
 }
 
 const initialForm: Form = { ...defaultFees, usd_equivalents:false, label: "", start: "", end: "", initial: 100000, fee_type: "percentage", fee_value: 0,
@@ -50,7 +196,6 @@ const initialForm: Form = { ...defaultFees, usd_equivalents:false, label: "", st
 
 export default function BacktestPage() {
   const [mode, setMode] = useState<"single" | "portfolio" | "deep">("portfolio");
-  const [rollingYears, setRollingYears] = useState(5);
   const [form, setForm] = useState<Form>(initialForm);
   const [dca, setDca] = useState(false);
   const [options, setOptions] = useState<Options | null>(null);
@@ -130,7 +275,6 @@ export default function BacktestPage() {
       const value = await backtestRequest<Results>("/api/backtest", { method: "POST", signal: controller.signal,
         body: JSON.stringify(body) });
       setResult(value);
-      if (value.rolling?.length) setRollingYears(value.rolling.find(item => item.years === 5)?.years ?? value.rolling[value.rolling.length-1].years);
     } catch (failure) { setError(timedOut ? text.timeout : (failure as Error).message); }
     finally { clearTimeout(timeout); inFlight.current = false; setRunning(false); }
   }
@@ -171,37 +315,7 @@ export default function BacktestPage() {
     </>}
     {running && <div role="status"><p>{text.longRun}</p><p>{text.elapsed}: {elapsed}</p></div>}
     {changed && <p>{text.changed}</p>}
-    {result && <div aria-label={text.results}>
-      <UsdBanner value={result.usd_equivalents}/><h2>{result.label}</h2><p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
-      <section><h2>{text.settings}</h2><p>{text.currency}: {result.currency}</p>
-        <h3>{text.configuredSettings}</h3><dl>{Object.entries(result.settings).map(([key, value]) => <div key={key}><dt>{(text.settingLabels as Record<string, string>)[key] ?? key}</dt><dd>{fmt.configuration(value,key,result.settings.fee_type==="percentage")}</dd></div>)}</dl>
-        <h3>{text.engineSettings}</h3><dl>{Object.entries(result.engine_parameters).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{fmt.cell(value,key)}</dd></div>)}</dl></section>
-      <p>{text.legacyCaptions}</p>
-      {result.captions.map((value, index) => <div key={index}><Markdown>{value}</Markdown></div>)}
-      {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
-      {mode !== "single" && result.data_validation && <details><summary>{text.validation}</summary><p>{result.data_origin}</p><DataTable value={result.data_validation} label={text.sources} /></details>}
-      {result.cards && <section className="backtest-grid">{result.cards.map(card => <div key={card.label}><h3>{card.label}</h3><p>{fmt.cell(card.value,card.label)}</p>{card.delta && <p>{card.delta}</p>}</div>)}</section>}
-      {result.fees && <section aria-label={text.totalFees}><h3>{text.totalFees} ({result.fees.currency})</h3>
-        <p>{text.preTaxFees}: {result.fees.pre_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-        {!!result.settings.tax_enabled && <p>{text.afterTaxFees}: {result.fees.after_tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
-        <p>{text.feeSimulations}</p></section>}
-      <section><h2>{result.summary_title ?? text.summary}</h2><DataTable value={result.summary} label={result.summary_title ?? text.summary} /></section>
-      <Lines value={result.value_chart} title={result.value_title ?? text.performance} /><Lines value={result.drawdown_chart} title={result.drawdown_title ?? text.drawdown} />
-      {result.extra_charts?.map(item => <Lines key={item.label} value={item.value} title={item.label} />)}
-      {result.extra_tables?.map(item => <details key={item.label}><summary>{item.label}</summary><DataTable value={item.value} label={item.label} /></details>)}
-      {!!result.rolling?.length && <details><summary>{multiText.rolling}</summary><p>{multiText.rollingCaption}</p>
-        <label>{multiText.rollingPeriod}<select value={rollingYears} onChange={event => setRollingYears(Number(event.target.value))}>
-          {result.rolling.map(item => <option key={item.years} value={item.years}>{item.label}</option>)}</select></label>
-        {result.rolling.filter(item => item.years === rollingYears).map(item => <section key={item.years}><Lines value={item.chart} title={item.label} /><DataTable value={item.table} label={item.label} /></section>)}
-      </details>}
-      <p>{text.fullDownloadNote}</p>
-      <details><summary>{text.periods}</summary><DataTable value={result.periods} label={text.periods} /></details>
-      <details><summary>{text.ledger}</summary><DataTable value={result.tax_events} label={text.ledger} /></details>
-      <details><summary>{text.returns}</summary><DataTable value={result.annual} label={text.annual} /><DataTable value={result.monthly} label={text.monthly} /></details>
-      <section><h2>{text.downloads}</h2><div className="actions">{result.downloads.map(item => <button className="btn btn-secondary" key={item.kind}
-        onClick={() => void backtestDownload(result.cache.key, item.kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>)}</div></section>
-      <details><summary>{text.timing}</summary><pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre></details>
-    </div>}
-    <footer>{text.disclaimer}</footer>
+    {result ? <BacktestResults result={result} onDownloadError={() => setError(text.downloadError)} />
+      : <footer>{text.disclaimer}</footer>}
   </main>;
 }
