@@ -1,7 +1,7 @@
 .secondary {
   display: block;
   font-size: .8rem;
-  color: #626b7a;
+  color: var(--muted);
   white-space: normal;
   overflow-wrap: normal;
   word-break: normal;

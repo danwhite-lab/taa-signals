@@ -4,21 +4,21 @@
 .page input, .page textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .summary { margin: 24px 0; min-width: 0; }
 .summary h2 { line-height: 1.5; white-space: normal; overflow-wrap: normal; word-break: normal; }
-.badge { display: inline-block; padding: 4px 10px; border: 1px solid #92b7a8; border-radius: 12px; background: #e5f2ed; color: #1c5343; font-size: .85rem; }
+.badge { display: inline-block; padding: 4px 10px; border: 1px solid var(--success-border); border-radius: 12px; background: var(--success-soft); color: var(--success); font-size: .85rem; }
 .settings { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 18px 0; min-width: 0; }
 .settings > label { flex: 1 1 9rem; min-width: 0; margin: 0; font-size: .85rem; }
 .modelSetting { flex: 2 1 17rem; min-width: 0; }
 .page .settings input, .page .settings select {
   display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
   height: 40px; padding: 8px; margin: 6px 0 0; font: inherit; font-size: .9rem;
-  border: 1px solid #b7c2cc; border-radius: 5px;
+  border: 1px solid var(--control-border); border-radius: 5px;
 }
 .settings .addSleeve { flex-wrap: nowrap; margin: 0; gap: 8px; }
 .settings .addSleeve label { margin: 0; font-size: .85rem; }
 .settings .addSleeve button { height: 40px; margin: 0; }
 .tableScroll { overflow-x: auto; max-width: 100%; }
 .sleeves { width: 100%; border-collapse: collapse; table-layout: auto; }
-.sleeves th, .sleeves td { padding: 12px 8px; border-bottom: 1px solid #e3e8ed; text-align: left; }
+.sleeves th, .sleeves td { padding: 12px 8px; border-bottom: 1px solid var(--divider); text-align: left; }
 .sleeves th:first-child, .sleeves td:first-child { min-width: 12rem; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .sleeves th:last-child, .sleeves td:last-child { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .sleeves tfoot { font-weight: 700; }
@@ -33,7 +33,7 @@
 .addSleeve label { flex: 1 1 16rem; min-width: 0; }
 .addSleeve select { display: block; width: 100%; max-width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; }
 .addSleeve button { min-width: 2.5rem; margin-bottom: 8px; }
-.warning { border-left: 3px solid #b77719; background: #fff8e9; padding: 12px; line-height: 1.6; }
+.warning { border-left: 3px solid var(--warning); background: var(--warning-soft); padding: 12px; line-height: 1.6; }
 .advanced { margin: 18px 0; }
 .advanced summary { cursor: pointer; font-weight: 600; }
 @media (max-width: 600px) {
