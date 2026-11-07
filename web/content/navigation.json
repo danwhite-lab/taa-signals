@@ -1,0 +1,16 @@
+{
+  "brand": "Signalboard",
+  "ariaLabel": "Primary navigation",
+  "openMenu": "Open navigation menu",
+  "closeMenu": "Close navigation menu",
+  "pages": [
+    { "label": "Today", "href": "/today/" },
+    { "label": "Signals", "href": "/signals/" },
+    { "label": "Portfolio", "href": "/portfolio/" },
+    { "label": "Rebalance Holdings", "href": "/rebalance-holdings/" },
+    { "label": "Backtest", "href": "/backtest/" },
+    { "label": "Research", "href": "/research/" },
+    { "label": "Compare", "href": "/compare/" },
+    { "label": "Strategy Catalogue", "href": "/strategy-catalogue/" }
+  ]
+}
