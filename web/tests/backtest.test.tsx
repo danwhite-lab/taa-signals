@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, act, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/backtest.json";
 import words from "../content/backtest-multi.json";
+import usdWords from "../content/usd-equivalents.json";
 
 const mock = vi.hoisted(() => ({ request: vi.fn(), download: vi.fn() }));
 vi.mock("../lib/backtestApi", () => ({ backtestRequest: mock.request, backtestDownload: mock.download }));
@@ -156,9 +157,70 @@ it("shows timeout without partial results", async () => {
   expect(screen.queryByRole("table", { name: text.summary })).toBeNull();
 });
 
-it("uses authenticated full CSV downloads and content-file labels", async () => {
-  const run = await ready(); fireEvent.click(run);
-  fireEvent.click(await screen.findByText("Mock ledger download"));
+it.each([false, true])("organizes results and keeps requests unchanged with Extended History set to %s", async (deep) => {
+  const periods = deep
+    ? { columns: ["Strategy", "Benchmark", "Delta"], rows: [{ Strategy: 2, Benchmark: 1, Delta: 1 }] }
+    : { columns: ["Strategy"], rows: [{ Strategy: 2 }] };
+  mock.download.mockResolvedValue(undefined);
+  mock.request.mockImplementation(async (path: string) => {
+    if (path === "/api/backtest/config?mode=portfolio") return { models: options.models };
+    if (path === "/api/backtest/config?mode=deep") return {
+      models: [], proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Proxy caveat" }],
+      single_options: ["century_momentum"], blend_options: ["century_momentum"],
+      benchmarks: [{ key: "sp500", label: "S&P 500", caveat: "Benchmark caveat" }],
+    };
+    if (path.startsWith("/api/backtest/options")) return options;
+    if (path === "/api/backtest/validate") return { valid: true, message: words.weightSuccess };
+    if (path === "/api/backtest/models") return { models: options.models };
+    return {
+      ...result, periods, warnings: ["Result warning"], data_validation: table, data_origin: "Source metadata",
+      usd_equivalents: { enabled: !deep, currency: "USD", mapping_version: "test", mappings: [] },
+      extra_tables: [{ label: words.selected, value: table }, { label: words.dailySignals, value: table }],
+      extra_charts: [{ label: words.syntheticCurve, value: chart }],
+      rolling: deep ? [{ years: 5, label: "Five-year returns", table, chart }] : [],
+      downloads: [...result.downloads, { kind: "audit", label: "Mock audit download", filename: "audit.csv", bytes: 512 }],
+    };
+  });
+  render(<BacktestPage />);
+  if (deep) fireEvent.click(screen.getByRole("switch", { name: text.extendedHistory }));
+  const run = screen.getByRole("button", { name: text.run });
+  await waitFor(() => expect(run).toHaveProperty("disabled", false));
+  fireEvent.click(run);
+  await screen.findByRole("heading", { name: words.resultsComplete });
+  const callsAfterRun = mock.request.mock.calls.length;
+  const tab = (name: string) => screen.getByRole("tab", { name });
+  const panel = (name: string) => within(screen.getByRole("tabpanel", { name }));
+  const overview = tab(words.resultTabs.overview);
+  expect(overview.getAttribute("aria-selected")).toBe("true");
+  expect(panel(words.resultTabs.overview).getByRole("table", { name: text.summary })).toBeTruthy();
+  const tablist = screen.getByRole("tablist", { name: text.results });
+  expect(screen.getByText("Result warning").compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  fireEvent.keyDown(overview, { key: "ArrowRight" });
+  const charts = panel(words.resultTabs.charts);
+  expect(document.activeElement).toBe(tab(words.resultTabs.charts));
+  expect(charts.getByRole("img", { name: text.performance })).toBeTruthy();
+  expect(charts.getByRole("img", { name: words.syntheticCurve })).toBeTruthy();
+  expect(charts.queryByRole("table")).toBeNull();
+
+  fireEvent.click(tab(words.resultTabs.statistics));
+  const stats = panel(words.resultTabs.statistics);
+  expect(within(stats.getByRole("table", { name: text.periods })).getAllByRole("columnheader")
+    .map(node => node.textContent)).toEqual(periods.columns);
+  expect(stats.getByText(words.selected)).toBeTruthy();
+  expect(stats.queryByText(words.dailySignals)).toBeNull();
+
+  fireEvent.keyDown(tab(words.resultTabs.statistics), { key: "End" });
+  const history = panel(words.resultTabs.history);
+  expect(history.getByText(text.ledger)).toBeTruthy();
+  expect(history.getByText(words.dailySignals)).toBeTruthy();
+  expect(history.getByText("mock.csv")).toBeTruthy();
+  expect(history.getAllByText(/bytes$/).map(node => node.textContent)).toEqual(["512 bytes"]);
+  expect(screen.getByText("Result warning")).toBeTruthy();
+  expect(screen.getByText("Mock result caption")).toBeTruthy();
+  if (!deep) expect(screen.getByText(usdWords.banner)).toBeTruthy();
+  expect(mock.request.mock.calls).toHaveLength(callsAfterRun);
+  fireEvent.click(history.getByRole("button", { name: "Mock ledger download" }));
   expect(mock.download).toHaveBeenCalledWith("mock-key", "tax_events", "mock.csv");
   const source = readFileSync("./app/backtest/page.tsx", "utf8");
   expect(source).toContain('from "../../content/backtest.json"');
