@@ -139,9 +139,9 @@ it('downloads the displayed combined table as CSV',async()=>{
   expect(revoke).toHaveBeenCalledWith('blob:mock');
 });
 
-it('scopes grey caption and whole-word phone layout to Today history only',()=>{
+it('scopes muted caption and whole-word phone layout to Today history only',()=>{
   const css=readFileSync('./app/today/history-sources.module.css','utf8');
-  expect(css).toContain('font-size: .85rem');expect(css).toContain('color: #626b7a');
+  expect(css).toContain('font-size: .85rem');expect(css).toContain('color: var(--muted)');
   expect(css).toContain('white-space: normal');expect(css).toContain('overflow-wrap: normal');
   expect(css).toContain('word-break: normal');expect(css).toContain('hyphens: none');
   expect(css).not.toMatch(/break-all|anywhere|overflow:\s*hidden/);
