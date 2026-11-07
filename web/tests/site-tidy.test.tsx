@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { existsSync, readFileSync } from "node:fs";
 
-const mock=vi.hoisted(()=>({redirect:vi.fn((path:string)=>{throw new Error(`Redirect: ${path}`);})}));
-vi.mock('next/navigation',()=>({usePathname:()=>'/strategy-catalogue/',redirect:mock.redirect}));
+const mock=vi.hoisted(()=>({pathname:'/strategy-catalogue/',redirect:vi.fn((path:string)=>{throw new Error(`Redirect: ${path}`);})}));
+vi.mock('next/navigation',()=>({usePathname:()=>mock.pathname,redirect:mock.redirect}));
 vi.mock('../components/TestLoginBadge',()=>({default:()=> <strong>TEST LOGIN</strong>}));
 import Catalogue from '../app/strategy-catalogue/page';
 import Home from '../app/page';
@@ -11,19 +11,73 @@ import RulesRedirect from '../app/rules/page';
 import Navigation from '../components/top-navigation';
 import { metadata as catalogueMetadata } from '../app/strategy-catalogue/layout';
 
-afterEach(()=>{cleanup();vi.unstubAllGlobals();mock.redirect.mockClear();});
+afterEach(()=>{cleanup();vi.unstubAllGlobals();mock.pathname='/strategy-catalogue/';mock.redirect.mockClear();});
 
 it('uses the catalogue nav link and plain Signalboard title while keeping TEST LOGIN',()=>{
   render(<Navigation/>);
   // next/link normalizes trailing slashes in the test runtime.
   expect(screen.queryByRole('link',{name:'Signalboard'})).toBeNull();
-  expect(screen.getByText('Signalboard')).toBeTruthy();
+  expect(screen.getAllByText('Signalboard')).toHaveLength(2);
+  const nav=screen.getByRole('navigation',{name:'Primary navigation'});
+  const links=within(nav).getAllByRole('link');
+  expect(links.map(link=>link.textContent)).toEqual([
+    'Today','Signals','Portfolio','Rebalance Holdings','Backtest','Research','Compare','Strategy Catalogue'
+  ]);
+  expect(links.map(link=>link.getAttribute('href'))).toEqual([
+    '/today','/signals','/portfolio','/rebalance-holdings','/backtest','/research','/compare','/strategy-catalogue'
+  ]);
   const link=screen.getByRole('link',{name:'Strategy Catalogue'});
   expect(link.getAttribute('href')?.replace(/\/$/,'')).toBe('/strategy-catalogue');
   expect(link.getAttribute('aria-current')).toBe('page');
   expect(screen.queryByText('Preview')).toBeNull();
   expect(screen.queryByRole('link',{name:'Rules'})).toBeNull();
-  expect(screen.getByText('TEST LOGIN')).toBeTruthy();
+  expect(screen.getAllByText('TEST LOGIN')).toHaveLength(2);
+});
+
+it('keeps the closed mobile drawer out of the accessibility tree, then manages focus and Escape',async()=>{
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  render(<><Navigation/><div className="app-content"><a href="/background">Background control</a></div></>);
+  const menu=screen.getByRole('button',{name:'Open navigation menu'});
+  await waitFor(()=>expect(document.querySelector('.app-sidebar')?.getAttribute('aria-hidden')).toBe('true'));
+  expect(screen.queryByRole('navigation',{name:'Primary navigation'})).toBeNull();
+  expect(menu.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(menu);
+  expect(menu.getAttribute('aria-expanded')).toBe('true');
+  expect(document.activeElement).toBe(screen.getByRole('link',{name:'Today'}));
+  expect(document.querySelector('.mobile-nav-header')?.hasAttribute('inert')).toBe(true);
+  await waitFor(()=>expect(document.querySelector('.app-content')?.hasAttribute('inert')).toBe(true));
+  fireEvent.keyDown(document,{key:'Escape'});
+  await waitFor(()=>expect(menu.getAttribute('aria-expanded')).toBe('false'));
+  expect(document.querySelector('.mobile-nav-header')?.hasAttribute('inert')).toBe(false);
+  expect(document.querySelector('.app-content')?.hasAttribute('inert')).toBe(false);
+  expect(document.activeElement).toBe(menu);
+});
+
+it('contains forward and reverse Tab focus inside the open mobile drawer',async()=>{
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  render(<><Navigation/><div className="app-content"><button>Background control</button></div></>);
+  fireEvent.click(screen.getByRole('button',{name:'Open navigation menu'}));
+  const drawer=document.querySelector('.app-sidebar') as HTMLElement;
+  const close=drawer.querySelector('.sidebar-close') as HTMLButtonElement;
+  const links=within(drawer).getAllByRole('link');
+  expect(drawer.querySelectorAll('button:not([disabled]), a[href]')).toHaveLength(9);
+  links.at(-1)?.focus();
+  fireEvent.keyDown(document,{key:'Tab'});
+  expect(document.activeElement).toBe(close);
+  close.focus();
+  fireEvent.keyDown(document,{key:'Tab',shiftKey:true});
+  expect(document.activeElement).toBe(links.at(-1));
+});
+
+it('closes the mobile drawer after a route change and updates the active link',async()=>{
+  const view=render(<Navigation/>);
+  const menu=screen.getByRole('button',{name:'Open navigation menu'});
+  fireEvent.click(menu);
+  mock.pathname='/today/';
+  view.rerender(<Navigation/>);
+  await waitFor(()=>expect(menu.getAttribute('aria-expanded')).toBe('false'));
+  expect(screen.getByRole('link',{name:'Today'}).getAttribute('aria-current')).toBe('page');
+  expect(screen.getByRole('link',{name:'Strategy Catalogue'}).getAttribute('aria-current')).toBeNull();
 });
 
 it('redirects home to Today and the old Rules route to the catalogue',()=>{

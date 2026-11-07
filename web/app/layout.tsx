@@ -23,7 +23,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <TopNavigation />
-        <AuthGate>{children}</AuthGate>
+        <div className="app-content">
+          <AuthGate>{children}</AuthGate>
+        </div>
       </body>
     </html>
   );
