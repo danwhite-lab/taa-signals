@@ -73,10 +73,13 @@ def _quote_cells(quote):
         observed = pd.Timestamp(stamp).date() if stamp else None
     except (ValueError, TypeError, OverflowError):
         observed = None
+    status = ("Unavailable" if not available
+              else f"Published {stamp}, not today's price" if quote.get("valuation_kind") == "fund_nav" and not quote.get("fresh")
+              else "Current" if quote.get("fresh") else "Stale")
     return {"Price per unit (₪ / $)": float(number(quote["price"], positive=True)) if available else None,
             "Price observation date": observed,
             "Price source": "Manual override" if quote.get("field") == "Manual per-unit price" else "Automatic",
-            "Price status": "Unavailable" if not available else "Current" if quote.get("fresh") else "Stale"}
+            "Price status": status}
 
 
 def _preview_positions(account, instruments, rows):
@@ -99,6 +102,8 @@ def _preview_positions(account, instruments, rows):
                         "minimum_ils": str(number(row["Minimum order (₪)"])),
                         "manual_price": str(number(price, positive=True)) if has_price else None,
                         "manual_price_date": price_date if has_price else None}
+            if row.get("Companion of"):
+                position["companion_of"] = row["Companion of"]
             same = position["manual_price"] == old.get("manual_price") and position["manual_price_date"] == old.get("manual_price_date")
             position["manual_entered_at"] = old.get("manual_entered_at") if same else utc_now()
             quote = market_data.unit_quote(instruments[key], position)
@@ -120,7 +125,7 @@ def _preview_positions(account, instruments, rows):
                             "Units to save": float(position["units"]),
                             "Price per unit (₪ / $)": _quote_cells(quote)["Price per unit (₪ / $)"],
                             "Price observation date": _quote_cells(quote)["Price observation date"],
-                            "Price status": ("Current published fund valuation" if quote.get("valuation_kind") == "fund_nav" and quote.get("fresh") else "Current" if quote.get("fresh") else "Stale") if current else "Missing — no conversion"})
+                            "Price status": _quote_cells(quote)["Price status"] if current else "Missing — no conversion"})
         except (ValueError, TypeError, KeyError):
             errors.append(f"{instruments[key]['label']}: check the value, units and dated manual price.")
     return positions, preview, errors
@@ -359,8 +364,10 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     quotes = {k: market_data.unit_quote(instruments[k], account["positions"].get(k, {})) for k in sorted(relevant)}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market_data.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
-    blocked = {k for k, q in quotes.items() if q.get("error") or q.get("price") is None}
-    stale = {k for k, q in quotes.items() if k not in blocked and not q.get("fresh")}
+    usable = {k for k, q in quotes.items() if not q.get("error") and q.get("price") is not None
+              and (q.get("fresh") or q.get("valuation_kind") == "fund_nav")}
+    blocked = set(quotes) - usable
+    stale = {k for k, q in quotes.items() if not q.get("error") and q.get("price") is not None and not q.get("fresh")}
     held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
     missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
     needs_rebalance_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
@@ -441,7 +448,7 @@ def render_rebalance_page(portfolios, known_instruments, ticker_items, replaceme
     # Preserve the allocator and its price rules. Skipping an UNHELD fund
     # does not alter account value; keep remaining target weights unchanged.
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible and not unsaved)
+    ready = bool(portfolio and not errors and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and rebalance_fx.get("fresh") and eligible and not unsaved)
     allocation_mode = validate_allocation_mode(st.session_state.get("rebalance_allocation_mode", DEFAULT_ALLOCATION_MODE))
     context = {"portfolio": portfolio, "targets": targets, "quotes": quotes, "fx": fx, "allocation_mode": allocation_mode,
                "new_money": str(number(new_money)), "excluded": sorted(blocked), "editor": editor_state, "companion_anchor_map": anchor_map}

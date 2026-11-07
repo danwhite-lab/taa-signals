@@ -8,15 +8,16 @@ from haa.rebalance_holdings import security, empty_account, compare_holdings, ma
 @pytest.fixture(autouse=True)
 def clear_quote_cache():
     cached = market.fetch_unit_quote
-    cached.clear()
+    cached.clear(); market.LAST_AVAILABLE_QUOTES.clear(); market.LAST_AVAILABLE_FX = None
     yield
-    cached.clear()
+    cached.clear(); market.LAST_AVAILABLE_QUOTES.clear(); market.LAST_AVAILABLE_FX = None
 
 
 def fund_publication(identifier='5117700'):
     # Synthetic prices; public identifiers/ISINs are not account holdings.
     identities = {'5117700': ('IL0051177009', 1), '5131792': ('IL0051317928', 4),
-                  '5140850': ('IL0051408503', 4), '5141627': ('IL0051416274', 4)}
+                  '5140850': ('IL0051408503', 4), '5141627': ('IL0051416274', 4),
+                  '5139837': ('IL0051398373', 4), '5142476': ('IL0051424765', 4)}
     isin, fund_type = identities[identifier]
     return {'fundId': int(identifier), 'isin': isin, 'fundTypeId': fund_type,
             'mutualFundSubType': 1, 'deleted': False, 'mergingLiquidationStatus': None,
@@ -82,10 +83,10 @@ def test_fx_is_dated_and_direction_is_ils_per_usd(monkeypatch):
     quote = market.fx_quote({})
     assert quote['fresh'] and quote['price'] == '3.5'
     quote = market.fx_quote({'manual_fx': '3.6', 'manual_fx_date': '2026-10-01'})
-    assert not quote['fresh'] and quote['source'] == 'Manual ILS per USD'
+    assert quote['fresh'] and quote['source'] == 'Manual ILS per USD'
 
 
-@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627'])
+@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627', '5139837', '5142476'])
 def test_verified_fund_conversion_is_native_per_unit_and_dated(identifier):
     quote = market.quote_from_maya_fund(fund_publication(identifier), security(identifier, 'TASE'), '2026-10-16T08:00:00Z')
     assert quote['price'] == '1.2567'
@@ -99,7 +100,7 @@ def test_verified_fund_conversion_is_native_per_unit_and_dated(identifier):
     assert 'not a live execution price' in quote['source']
 
 
-@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627'])
+@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627', '5139837', '5142476'])
 def test_funds_route_to_maya_not_exchange_csv_or_a_proxy(monkeypatch, identifier):
     from tasekit.api import TaseClient
     calls = []
@@ -149,7 +150,7 @@ def test_fund_transport_failure_does_not_fallback_and_manual_override_still_wins
     assert quote['field'] == 'Manual per-unit price'
 
 
-@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627'])
+@pytest.mark.parametrize('identifier', ['5117700', '5131792', '5140850', '5141627', '5139837', '5142476'])
 def test_maya_quotes_value_units_and_size_buys_without_altering_freshness_rules(identifier):
     instrument = security(identifier, 'TASE')
     key = instrument['id']

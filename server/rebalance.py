@@ -215,10 +215,12 @@ def snapshot(workspace, account, portfolios, request):
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
-    # A published but late price remains usable. Keep "blocked" exclusively
-    # for prices that cannot value a holding at all.
-    blocked = {k for k in relevant if quotes[k].get("error") or quotes[k].get("price") is None}
-    stale = {k for k in relevant if k not in blocked and not quotes[k].get("fresh")}
+    # A published but late allowlisted fund NAV remains usable. Other stale
+    # quote kinds keep the existing completed-session requirement.
+    usable = {k for k in relevant if not quotes[k].get("error") and quotes[k].get("price") is not None
+              and (quotes[k].get("fresh") or quotes[k].get("valuation_kind") == "fund_nav")}
+    blocked = relevant - usable
+    stale = {k for k in relevant if not quotes[k].get("error") and quotes[k].get("price") is not None and not quotes[k].get("fresh")}
     held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
     missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
     needs_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
@@ -253,7 +255,7 @@ def snapshot(workspace, account, portfolios, request):
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
     eligible = {k: w for k, w in targets.items() if k not in blocked}
-    ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and eligible)
+    ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and rebalance_fx.get("fresh") and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
     context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account), "companion_anchor_map": anchor_map}

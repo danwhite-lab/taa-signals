@@ -1,12 +1,17 @@
 """Frozen fake accounts only; exact Decimal comparisons and no network."""
 from copy import deepcopy
 from decimal import Decimal
+import json
+from pathlib import Path
 from uuid import uuid4
+import pandas as pd
 import pytest
 
 from test_api import client
 from test_private_api import signed_in, HEADERS
 from server import rebalance as page, private_api as private
+from server import rebalance_quotes as quote_market
+from server.rebalance_quotes import unit_quote as actual_unit_quote
 from haa.rebalance_holdings import (empty_account, security, make_buy_plan,
     compare_holdings, apply_purchases, fingerprint, rebalance_targets)
 
@@ -279,6 +284,58 @@ def test_editor_conversion_whole_units_manual_date_cash_and_precision(book, monk
     assert "date" in post("editor", body).json()["errors"][0]
     body["rows"][0].update({"Manual price per unit": None, "Enter as": "Units", "Units": "1.5", "Units edited": True})
     assert "whole" in post("editor", body).json()["errors"][0]
+
+
+def test_api_automatically_values_late_ex_us_and_russell_fund_navs(book, monkeypatch):
+    remote, instruments, targets, _, _ = book
+    payloads = {
+        identifier: json.loads((Path(__file__).parent / "fixtures" / f"maya_fund_{identifier}.json").read_text())
+        for identifier in ("5139837", "5142476")
+    }
+    funds = [
+        security("5139837", "TASE", "ILS", "Russell 2000 Israel"),
+        security("5142476", "TASE", "ILS", "Ex-US Israel"),
+    ]
+    instruments.update({fund["id"]: fund for fund in funds})
+    targets.clear(); targets.update({fund["id"]: .5 for fund in funds})
+    remote["payload"]["holdings_account"]["positions"] = {
+        fund["id"]: {**fund, "units": "1000", "manual_price": None, "manual_price_date": None}
+        for fund in funds
+    }
+    monkeypatch.setattr(page.market, "unit_quote", actual_unit_quote)
+    monkeypatch.setattr(quote_market, "last_completed_session", lambda *args, **kwargs: pd.Timestamp("2026-11-05"))
+    monkeypatch.setattr(quote_market, "fetch_unit_quote", lambda instrument: quote_market.quote_from_maya_fund(
+        payloads[instrument["identifier"]], instrument, "2026-11-05T08:00:00Z"))
+
+    state = client.get("/api/rebalance", headers=HEADERS).json()
+    expected = {"TASE:5139837": ("1.0885", "2026-11-04"), "TASE:5142476": ("0.9776", "2026-11-03")}
+    for key, (price, stamp) in expected.items():
+        assert state["quotes"][key]["price"] == price
+        assert state["quotes"][key]["as_of"] == stamp
+        assert state["quotes"][key]["valuation_kind"] == "fund_nav"
+        assert state["quotes"][key]["fresh"] is False
+        assert state["quotes"][key]["expected_through"] == "2026-11-05"
+        assert key in state["stale"] and key not in state["blocked"]
+    assert state["ready"] is True
+
+    russell = remote["payload"]["holdings_account"]["positions"]["TASE:5139837"]
+    russell.update(manual_price="2.5", manual_price_date="2020-01-02")
+    manual = client.get("/api/rebalance", headers=HEADERS).json()["quotes"]["TASE:5139837"]
+    assert manual["price"] == "2.5" and manual["as_of"] == "2020-01-02"
+    assert manual["field"] == "Manual per-unit price" and manual["fresh"] is True
+    russell.update(manual_price=None, manual_price_date=None)
+
+    state = client.get("/api/rebalance", headers=HEADERS).json()
+    assert all(row["Price date"] is None for row in state["rows"])
+    rows = deepcopy(state["rows"])
+    row = next(row for row in rows if row["Security"] == "TASE:5139837")
+    row.update({"Enter as": "Value", "Value (₪ / $)": "1088.50"})
+    converted = post("editor", request(remote, rows=rows, cash="0")).json()
+    assert converted["errors"] == []
+    assert Decimal(converted["account"]["positions"]["TASE:5139837"]["units"]) == Decimal("1000")
+    preview = next(row for row in converted["preview"] if row["Fund"] == "Russell 2000 Israel")
+    assert preview["Price observation date"] == "2026-11-04"
+    assert preview["Price status"] == "Published 2026-11-04, not today's price"
 
 
 def test_editor_noop_returns_exact_saved_account(book):

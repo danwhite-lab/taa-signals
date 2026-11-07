@@ -1,0 +1,13 @@
+{
+  "fundId": 5139837,
+  "isin": "IL0051398373",
+  "fundTypeId": 4,
+  "mutualFundSubType": 1,
+  "deleted": false,
+  "mergingLiquidationStatus": null,
+  "redemptionPrice": 108.85,
+  "ratesAsOf": "2026-11-04",
+  "features": [
+    {"title": "יחידות הקרן נקובות ב- $", "enabled": false}
+  ]
+}

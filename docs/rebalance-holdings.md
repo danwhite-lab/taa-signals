@@ -86,10 +86,12 @@ quotes remain blank, not zero or today's date.
 Value is entered in the
 fund's native currency (ILS or USD), not an implied FX conversion. The live draft
 preview shows the represented current value and units side by side before saving.
-Value divided by a current actual per-unit quote produces units; TASE entries
+Value divided by a usable actual per-unit quote produces units; TASE entries
 round down to whole units, explicitly disclosed, without crediting any difference
-to cash. Exact units can be entered directly. Missing, stale or undated prices
-never support value conversion. Manual prices and their actual dates are entered
+to cash. Exact units can be entered directly. A late allowlisted MAYA fund
+valuation remains usable with its published date and an explicit not-today
+label; other stale automatic quote kinds and missing or undated prices do not
+support value conversion. Manual prices and their actual dates are entered
 in that fund's row; new dates start empty. Draft edits are not saved until Save
 holdings, and buy sizing is paused while those edits are unsaved. Stored holdings
 contain units, not an entered account valuation.
@@ -115,9 +117,11 @@ Adjusted Close is never substituted. TASE documents listed-security price
 units as 0.01 ILS:
 https://market.tase.co.il/en/market_data/securities
 
-Three explicitly verified ILS mutual funds use the official public MAYA details
+Six explicitly verified ILS mutual funds use the official public MAYA details
 endpoint (`/api/v1/funds/mutual/<id>`) instead of an exchange close: Ayalon Kaspit
-5117700, Harel government bonds 5131792, and MTF Momentum 5140850. MAYA's
+5117700, Harel government bonds 5131792, MTF Momentum 5140850, Tachlit Gold
+5141627, Harel Russell 2000 5139837, and IBI MSCI AC World ex USA USD-Hedged
+5142476. MAYA's
 `redemptionPrice` is a percentage of their ILS 1 nominal unit: divide by 100
 to obtain ILS per actual held unit. This is an explicit per-fund allowlist, not
 a heuristic for arbitrary mutual funds. Before conversion the adapter verifies
@@ -129,20 +133,26 @@ The resulting quote is labelled Published fund redemption valuation, not a live
 or guaranteed execution/purchase price. Raw quote, units and divisor are shown
 in price details. MTF's holdings route takes precedence over its historical-data
 classification; strategy/backtest data routing is unchanged. Five-minute caching,
-strict completed-session freshness and explicit manual override precedence are
-unchanged. Clear an existing manual price and its date, then Save holdings, to
+completed-session freshness labelling and explicit manual override precedence
+are unchanged. A late allowlisted fund valuation has no age cutoff: it remains
+usable with its actual `ratesAsOf` date and is never relabelled as current.
+Clear an existing manual price and its date, then Save holdings, to
 resume automatic pricing. There is no silent migration of existing overrides.
 
-Verification (checked 17 October 2026):
+Verification (rechecked 7 November 2026):
 
 - [5117700 prospectus referenced by MAYA](https://mayafiles.tase.co.il/RPdf/784001-785000/P784415-00.pdf), page 1: ILS 1 nominal unit; current MAYA metadata identifies the same fund/ISIN as Ayalon. Its old manager/name is not used as a substitute fund.
 - [5131792 financial statements](https://mayafiles.tase.co.il/rpdf/1587001-1588000/P1587744-00.pdf), pages 4 and 10: units of ILS 1 nominal and redemption quoted as a percentage.
 - [5140850 prospectus](https://mayafiles.tase.co.il/rpdf/1682001-1683000/P1682265-00.pdf), page 2: ILS 1 nominal unit. The supplied broker example also independently reconciled the published ILA quote divided by 100 against units and account valuation; no actual holdings are stored in this documentation or tests.
+- 5139837: [annual report 1732868](https://mayafiles.tase.co.il/rpdf/1732001-1733000/P1732868-00.pdf), page 1, states ILS 1 nominal units; its redemption price is quoted as a percentage of nominal, including 97.32 on 31 December 2024, matching MAYA history. Live MAYA metadata rechecked as active/unmerged, ISIN IL0051398373, non-dollar units, redemption 108.85 dated 4 November 2026.
+- 5142476: [prospectus 1737913](https://mayafiles.tase.co.il/rpdf/1737001-1738000/P1737913-00.pdf), page 1, states ILS 1 nominal units and first offering on 6 May 2026; the fund's own official MAYA history begins on that date at exactly 100.00, reconciling the published percentage scale to ILS 1 per unit. Live MAYA metadata rechecked as active/unmerged, ISIN IL0051424765, non-dollar units, redemption 97.76 dated 3 November 2026. Residual: no later fund report located in this review separately repeats that this fund's redemption price is a percentage of nominal; the allowlist evidence is the official prospectus-to-own-history reconciliation.
 
-Live public-read verification found published dates of 15 October for cash/bonds
-and 14 October for MTF, older than the latest completed TASE session on 16 October.
-Those observations remain stale; the adapter does not invent a publication lag
-exception or label them current just because they are the latest available.
+Live public-read verification found the two new funds' publication dates older
+than the latest completed TASE session. Those observations remain visibly stale;
+the adapter does not invent a publication date or label them current merely
+because they are the latest available. Unlike an exchange close, however, an
+allowlisted published fund valuation remains usable for holdings valuation and
+value-to-unit conversion with its actual date and no age cutoff.
 
 The free public endpoints are not guaranteed live or complete. For other funds
 (including unverified MAYA redemption feeds and USD-denominated TASE funds), native
@@ -158,25 +168,25 @@ Prices and target calculations cache for five minutes. Refresh clears only
 this page's quote/target caches. Every quote shows its actual observation date,
 source, price field and retrieval/entry timestamp. The completed-session check
 uses the existing US and TASE calendars, including holidays and market close
-times. An observation older than the most recent completed session is flagged
-and blocks sizing for that fund. No assumed mutual-fund publication lag is
-silently excused. Delayed fund publication may therefore require a dated broker
-observation. A manual observation can be intraday and is identified as manual,
+times. An observation older than the most recent completed session is flagged.
+For allowlisted `fund_nav` quotes only, the dated published valuation remains
+usable; other stale automatic prices keep their existing restrictions. No
+assumed publication date is invented. A manual observation can be intraday and is identified as manual,
 not mislabelled as an exchange close. Future dates are rejected for valuation.
 
 A single short warning directs users to the affected editor rows. Each row's
 manual-price observation date starts empty and must be entered explicitly;
 the app never assigns today's date to a copied price by default. An
-unpriced or stale target with zero units can be excluded while sizing the other
+unpriced target with zero units can be excluded while sizing the other
 funds, retaining their original weights (no redistribution). If the affected
 fund has units, its value is necessary to calculate account weights: sizing
 remains blocked until it has a usable quote. No account value is guessed.
 
 USD values use a dated, indicative Yahoo ILS=X quote (ILS per USD), or an
-explicitly entered dated broker FX rate. Stale/missing FX blocks sizing just as
-stale/missing holding prices do. These are not promised broker conversion or
-execution rates. Manual overrides remain in force until cleared and become
-visibly stale rather than being refreshed to today's date automatically.
+explicitly entered dated broker FX rate. Stale/missing FX keeps its existing
+sizing rules. These are not promised broker conversion or execution rates.
+Manual overrides remain in force until cleared, retain their entered date and
+are never rewritten from the automatic feed.
 
 ## Buy list and confirmation
 

@@ -686,3 +686,27 @@ it("summarizes manual, stale and unavailable prices without exposing raw JSON by
   expect(within(panel).getByText("Manual")).toBeTruthy();
   expect(within(panel).getByText("Unavailable",{selector:"td"})).toBeTruthy();
 });
+
+it("shows automatic dated published valuations for the ex-US and Russell funds", async () => {
+  const funds = {
+    "TASE:5139837": {id:"TASE:5139837",identifier:"5139837",market:"TASE",currency:"ILS",label:"Russell 2000 Israel"},
+    "TASE:5142476": {id:"TASE:5142476",identifier:"5142476",market:"TASE",currency:"ILS",label:"Ex-US Israel"},
+  };
+  const fundRows = Object.values(funds).map(fund => ({...row,Security:fund.id,Fund:fund.label,Currency:"ILS",Units:"1000","Manual price per unit":null,"Price date":null}));
+  const fundQuotes = {
+    "TASE:5139837": {price:"1.0885",as_of:"2026-11-04",expected_through:"2026-11-05",fresh:false,valuation_kind:"fund_nav",field:"Published fund redemption valuation"},
+    "TASE:5142476": {price:"0.9776",as_of:"2026-11-03",expected_through:"2026-11-05",fresh:false,valuation_kind:"fund_nav",field:"Published fund redemption valuation"},
+  };
+  const next = {...state,rows:fundRows,instruments:{...state.instruments,...funds},quotes:fundQuotes,stale:Object.keys(funds),
+    comparison:Object.values(funds).map(fund=>({id:fund.id,Fund:fund.label,target_display:"50.00%",actual_display:"50.00%",Status:"On target"}))};
+  mock.request.mockResolvedValue(next); render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  expect(screen.getByText(text.staleFundNav.replace("{date}","2026-11-04").replace("{session}","2026-11-05"))).toBeTruthy();
+  expect(screen.getByText(text.staleFundNav.replace("{date}","2026-11-03").replace("{session}","2026-11-05"))).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab",{name:text.actionTabs.details}));
+  const panel=screen.getByRole("tabpanel");
+  expect(within(panel).getAllByText("Automatic")).toHaveLength(2);
+  expect(within(panel).getAllByText("Published fund valuation")).toHaveLength(2);
+  expect(within(panel).getAllByText("4 Nov 2026")).toHaveLength(2);
+  expect(within(panel).getByText("3 Nov 2026")).toBeTruthy();
+});

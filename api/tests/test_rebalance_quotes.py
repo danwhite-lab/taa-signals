@@ -2,6 +2,7 @@
 import ast
 from copy import deepcopy
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -69,13 +70,27 @@ def test_allowlist_conversion_and_stale_future_parity(original, identifier, stam
     assert actual["as_of"] == stamp and actual["is_execution_price"] is False
 
 
+@pytest.mark.parametrize("identifier", ["5117700", "5139837", "5142476"])
 @pytest.mark.parametrize("change", [{"fundId": 0}, {"isin": "BAD"}, {"fundTypeId": 9}, {"mutualFundSubType": 2}, {"deleted": True},
     {"mergingLiquidationStatus": "Merged"}, {"features": []}, {"features": [{"title": "יחידות הקרן נקובות ב- $", "enabled": True}]},
     {"ratesAsOf": None}, {"ratesAsOf": "bad"}, {"redemptionPrice": 0}, {"redemptionPrice": "NaN"}])
-def test_identity_change_fails_closed_exactly(original, change):
+def test_identity_change_fails_closed_exactly(original, identifier, change):
     for module in (port, original):
         with pytest.raises((ValueError, TypeError)):
-            module.quote_from_maya_fund({**publication(), **change}, security("5117700", "TASE"), "2026-10-16T08:00:00Z")
+            module.quote_from_maya_fund({**publication(identifier), **change}, security(identifier, "TASE"), "2026-11-05T08:00:00Z")
+
+
+@pytest.mark.parametrize("identifier,expected,stamp", [
+    ("5139837", "1.0885", "2026-11-04"),
+    ("5142476", "0.9776", "2026-11-03"),
+])
+def test_new_fund_fixture_uses_exact_live_redemption_value_and_date(identifier, expected, stamp):
+    published = json.loads((ROOT / "api" / "tests" / "fixtures" / f"maya_fund_{identifier}.json").read_text())
+    quote = port.quote_from_maya_fund(published, security(identifier, "TASE"), "2026-11-05T08:00:00Z")
+    assert quote["price"] == expected
+    assert quote["as_of"] == stamp
+    assert quote["raw_published_value"] == str(published["redemptionPrice"])
+    assert quote["quote_divisor"] == "100" and quote["valuation_kind"] == "fund_nav"
 
 
 def test_agorot_raw_close_not_adjusted_and_last_bad_row_not_filled(original):
