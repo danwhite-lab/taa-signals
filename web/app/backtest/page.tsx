@@ -53,9 +53,10 @@ const resultTabs = ["overview", "charts", "statistics", "history"] as const;
 
 function BacktestResults({ result, onDownloadError }: { result: Results; onDownloadError: () => void }) {
   const [tab, setTab] = useState<(typeof resultTabs)[number]>("overview");
-  const [rollingYears, setRollingYears] = useState(() =>
-    result.rolling?.find(item => item.years === 5)?.years ?? result.rolling?.at(-1)?.years);
-  const rollingChart = result.rolling?.find(item => item.years === rollingYears);
+  const [rollingYears, setRollingYears] = useState<number>();
+  const rollingChart = result.rolling?.find(item => item.years === rollingYears)
+    ?? result.rolling?.find(item => item.years === 5)
+    ?? result.rolling?.at(-1);
 
   // These labels are emitted by the current API for history and provenance tables.
   const historyLabels = new Set<string>([multiText.dailySignals, multiText.plainSources]);
@@ -131,7 +132,7 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
       {!!result.rolling?.length && <details className="backtest-result-detail">
         <summary>{multiText.rolling}</summary>
         <p>{multiText.rollingCaption}</p>
-        <label>{multiText.rollingPeriod}<select value={rollingYears} onChange={event => setRollingYears(Number(event.target.value))}>
+        <label>{multiText.rollingPeriod}<select value={rollingChart?.years} onChange={event => setRollingYears(Number(event.target.value))}>
           {result.rolling.map(item => <option key={item.years} value={item.years}>{item.label}</option>)}
         </select></label>
         {rollingChart && <Lines value={rollingChart.chart} title={rollingChart.label} />}

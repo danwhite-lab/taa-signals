@@ -226,3 +226,60 @@ it.each([false, true])("organizes results and keeps requests unchanged with Exte
   expect(source).toContain('from "../../content/backtest.json"');
   expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);
 });
+
+it("selects an available rolling period after rerunning Extended History", async () => {
+  const oneYear = { years: 1, label: "One-year returns", table, chart };
+  const threeYears = { years: 3, label: "Three-year returns", table, chart };
+  const fiveYears = { years: 5, label: "Five-year returns", table, chart };
+  const responses = [
+    { ...result, rolling: [oneYear, fiveYears] },
+    { ...result, rolling: [oneYear, threeYears] },
+    { ...result, rolling: [] },
+    result,
+  ];
+  mock.request.mockImplementation(async (path: string) => {
+    if (path === "/api/backtest/config?mode=deep") return {
+      models: [],
+      proxies: [{ key: "century_momentum", label: "Century proxy", caveat: "Proxy caveat" }],
+      single_options: ["century_momentum"], blend_options: ["century_momentum"],
+      benchmarks: [{ key: "sp500", label: "S&P 500", caveat: "Benchmark caveat" }],
+    };
+    if (path === "/api/backtest/validate") return { valid: true, message: words.weightSuccess };
+    if (path === "/api/backtest") return responses.shift();
+    return options;
+  });
+  render(<BacktestPage />);
+  fireEvent.click(screen.getByRole("switch", { name: text.extendedHistory }));
+
+  async function runAndOpenCharts() {
+    const run = screen.getByRole("button", { name: text.run });
+    await waitFor(() => expect(run).toHaveProperty("disabled", false));
+    fireEvent.click(run);
+    await waitFor(() => expect(run).toHaveProperty("disabled", false));
+    fireEvent.click(await screen.findByRole("tab", { name: words.resultTabs.charts }));
+    const charts = within(screen.getByRole("tabpanel", { name: words.resultTabs.charts }));
+    const rolling = charts.queryByText(words.rolling, { selector: "summary" });
+    if (rolling) fireEvent.click(rolling);
+    return charts;
+  }
+
+  let charts = await runAndOpenCharts();
+  let period = charts.getByLabelText(words.rollingPeriod);
+  expect(period).toHaveProperty("value", "5");
+  fireEvent.change(period, { target: { value: "1" } });
+  expect(charts.getByRole("img", { name: oneYear.label })).toBeTruthy();
+  fireEvent.change(period, { target: { value: "5" } });
+  expect(charts.getByRole("img", { name: fiveYears.label })).toBeTruthy();
+
+  charts = await runAndOpenCharts();
+  period = charts.getByLabelText(words.rollingPeriod);
+  expect(period).toHaveProperty("value", "3");
+  expect(charts.getByRole("img", { name: threeYears.label })).toBeTruthy();
+  expect(charts.queryByRole("img", { name: fiveYears.label })).toBeNull();
+
+  for (const caseLabel of ["empty", "missing"]) {
+    charts = await runAndOpenCharts();
+    expect(charts.queryByText(words.rolling), caseLabel).toBeNull();
+    expect(charts.queryByLabelText(words.rollingPeriod)).toBeNull();
+  }
+});
