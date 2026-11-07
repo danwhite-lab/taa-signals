@@ -301,6 +301,39 @@ it("manual price dates start empty and explicit dates are sent unchanged", async
   expect(body.rows[0]["Price date"]).toBe("2026-10-12"); expect(body.rows[0]["Manual price per unit"]).toBe("9.123456");
 });
 
+it("surfaces editor validation errors when Save holdings is rejected", async () => {
+  await ready();
+  const validation = "Russell 2000 Israel: enter the date of the price you are copying.";
+  mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/editor"
+    ? { errors: [validation], preview: [{ Fund: "Russell 2000 Israel" }], account: null }
+    : state);
+  fireEvent.change(screen.getByLabelText(text.cash), { target: { value: "17" } });
+  fireEvent.click(screen.getByRole("button", { name: text.save }));
+  expect((await screen.findAllByRole("alert")).some(alert => alert.textContent?.includes(validation))).toBe(true);
+  expect(mock.save).not.toHaveBeenCalled();
+  expect(screen.getByText(text.unsaved)).toBeTruthy();
+});
+
+it("surfaces the validation fallback for an empty-error null-account save response", async () => {
+  await ready();
+  mock.request.mockImplementation(async (path: string) => path === "/api/rebalance/editor"
+    ? { errors: [], preview: [], account: null }
+    : state);
+  fireEvent.change(screen.getByLabelText(text.cash), { target: { value: "17" } });
+  fireEvent.click(screen.getByRole("button", { name: text.save }));
+  expect((await screen.findAllByRole("alert")).some(alert => alert.textContent?.includes(text.validation))).toBe(true);
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
+it("keeps the successful Save holdings path unchanged", async () => {
+  await ready();
+  fireEvent.click(screen.getByRole("button", { name: text.save }));
+  await waitFor(() => expect(mock.save).toHaveBeenCalledExactlyOnceWith(state.workspace_revision, candidate));
+  await screen.findByText(text.saved);
+  await waitFor(() => expect(screen.getByRole("button", { name: text.save })).toHaveProperty("disabled", false));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 it("save conflict preserves draft, pauses writes and shows no saved confirmation", async () => {
   await ready(); mock.save.mockRejectedValue(new RebalanceError(409, text.paused));
   fireEvent.change(screen.getByLabelText(text.cash), { target: { value: "17" } });
