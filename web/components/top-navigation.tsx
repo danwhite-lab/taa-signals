@@ -14,6 +14,8 @@ export default function TopNavigation() {
   const [isMobile, setIsMobile] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const firstLink = useRef<HTMLAnchorElement>(null);
+  const drawer = useRef<HTMLElement>(null);
+  const restoreMenuFocus = useRef(false);
   const previousPath = useRef(pathname);
 
   useEffect(() => {
@@ -33,23 +35,55 @@ export default function TopNavigation() {
   }, [pathname]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    firstLink.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-        menuButton.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
+    const content = document.querySelector<HTMLElement>(".app-content");
+    const backgroundIsInert = isMobile && isOpen;
+    content?.toggleAttribute("inert", backgroundIsInert);
+    return () => content?.removeAttribute("inert");
+  }, [isMobile, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen && restoreMenuFocus.current) {
+      restoreMenuFocus.current = false;
+      menuButton.current?.focus();
+    }
   }, [isOpen]);
 
-  const closeMenu = () => setIsOpen(false);
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    firstLink.current?.focus();
+    const containFocus = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(drawer.current?.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]") ?? []);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!drawer.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", containFocus);
+    return () => document.removeEventListener("keydown", containFocus);
+  }, [isMobile, isOpen]);
+
+  function closeMenu() {
+    restoreMenuFocus.current = true;
+    setIsOpen(false);
+  }
 
   return (
     <>
-      <header className="mobile-nav-header">
+      <header className="mobile-nav-header" inert={isMobile && isOpen ? true : undefined}>
         <div className="brand">{navigation.brand} <TestLoginBadge /></div>
         <button
           ref={menuButton}
@@ -63,8 +97,9 @@ export default function TopNavigation() {
           <span aria-hidden="true">☰</span>
         </button>
       </header>
-      {isOpen && <button className="sidebar-overlay" type="button" aria-label={navigation.closeMenu} onClick={closeMenu} />}
+      {isOpen && <button className="sidebar-overlay" type="button" tabIndex={-1} aria-label={navigation.closeMenu} onClick={closeMenu} />}
       <aside
+        ref={drawer}
         id="primary-navigation-drawer"
         className={`app-sidebar${isOpen ? " is-open" : ""}`}
         aria-hidden={isMobile && !isOpen ? true : undefined}
@@ -72,7 +107,7 @@ export default function TopNavigation() {
       >
         <div className="sidebar-heading">
           <div className="brand">{navigation.brand} <TestLoginBadge /></div>
-          <button className="sidebar-close" type="button" aria-label={navigation.closeMenu} onClick={() => { closeMenu(); menuButton.current?.focus(); }}>
+          <button className="sidebar-close" type="button" aria-label={navigation.closeMenu} onClick={closeMenu}>
             <span aria-hidden="true">×</span>
           </button>
         </div>

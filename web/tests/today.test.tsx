@@ -253,6 +253,15 @@ it("uses content-file words with no browser financial/date math or user-data wri
   expect(source).toContain('from "../../content/today.json"');
   expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);
   expect(source).not.toMatch(/parseFloat|toFixed|new Date|Math\.|localStorage|sessionStorage|setInterval|method:|\/api\/workspace/);
-  const navigation = readFileSync("./components/top-navigation.tsx", "utf8");
-  expect(navigation).toContain('const pages = ["Today",');
+  const navigation = JSON.parse(readFileSync("./content/navigation.json", "utf8"));
+  expect(navigation.pages).toEqual([
+    { label: "Today", href: "/today/" },
+    { label: "Signals", href: "/signals/" },
+    { label: "Portfolio", href: "/portfolio/" },
+    { label: "Rebalance Holdings", href: "/rebalance-holdings/" },
+    { label: "Backtest", href: "/backtest/" },
+    { label: "Research", href: "/research/" },
+    { label: "Compare", href: "/compare/" },
+    { label: "Strategy Catalogue", href: "/strategy-catalogue/" },
+  ]);
 });

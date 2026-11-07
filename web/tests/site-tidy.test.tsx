@@ -36,7 +36,7 @@ it('uses the catalogue nav link and plain Signalboard title while keeping TEST L
 
 it('keeps the closed mobile drawer out of the accessibility tree, then manages focus and Escape',async()=>{
   vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
-  render(<Navigation/>);
+  render(<><Navigation/><div className="app-content"><a href="/background">Background control</a></div></>);
   const menu=screen.getByRole('button',{name:'Open navigation menu'});
   await waitFor(()=>expect(document.querySelector('.app-sidebar')?.getAttribute('aria-hidden')).toBe('true'));
   expect(screen.queryByRole('navigation',{name:'Primary navigation'})).toBeNull();
@@ -44,9 +44,29 @@ it('keeps the closed mobile drawer out of the accessibility tree, then manages f
   fireEvent.click(menu);
   expect(menu.getAttribute('aria-expanded')).toBe('true');
   expect(document.activeElement).toBe(screen.getByRole('link',{name:'Today'}));
+  expect(document.querySelector('.mobile-nav-header')?.hasAttribute('inert')).toBe(true);
+  await waitFor(()=>expect(document.querySelector('.app-content')?.hasAttribute('inert')).toBe(true));
   fireEvent.keyDown(document,{key:'Escape'});
   await waitFor(()=>expect(menu.getAttribute('aria-expanded')).toBe('false'));
+  expect(document.querySelector('.mobile-nav-header')?.hasAttribute('inert')).toBe(false);
+  expect(document.querySelector('.app-content')?.hasAttribute('inert')).toBe(false);
   expect(document.activeElement).toBe(menu);
+});
+
+it('contains forward and reverse Tab focus inside the open mobile drawer',async()=>{
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  render(<><Navigation/><div className="app-content"><button>Background control</button></div></>);
+  fireEvent.click(screen.getByRole('button',{name:'Open navigation menu'}));
+  const drawer=document.querySelector('.app-sidebar') as HTMLElement;
+  const close=drawer.querySelector('.sidebar-close') as HTMLButtonElement;
+  const links=within(drawer).getAllByRole('link');
+  expect(drawer.querySelectorAll('button:not([disabled]), a[href]')).toHaveLength(9);
+  links.at(-1)?.focus();
+  fireEvent.keyDown(document,{key:'Tab'});
+  expect(document.activeElement).toBe(close);
+  close.focus();
+  fireEvent.keyDown(document,{key:'Tab',shiftKey:true});
+  expect(document.activeElement).toBe(links.at(-1));
 });
 
 it('closes the mobile drawer after a route change and updates the active link',async()=>{
