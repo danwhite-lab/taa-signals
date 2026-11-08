@@ -1,6 +1,7 @@
 "use client";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import text from "../content/backtest.json";
+import styles from "./backtest-assumptions.module.css";
 
 export type FeeAssumptions = { fees_enabled: boolean; ils_fee_percent: number; ils_minimum_fee: number; usd_flat_fee: number };
 export const defaultFees: FeeAssumptions = { fees_enabled: true, ils_fee_percent: .05, ils_minimum_fee: 2, usd_flat_fee: 5 };
@@ -9,8 +10,8 @@ export function AssumptionRow({ children }: { children: ReactNode }) {
   return <div className="assumption-row">{children}</div>;
 }
 
-export function Toggle({ checked, onChange, disabled, children }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; children: ReactNode }) {
-  return <label className="toggle-label"><input className="toggle-switch" type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />{children}</label>;
+export function Toggle({ checked, onChange, disabled, children, id }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; children: ReactNode; id?: string }) {
+  return <label className="toggle-label"><input id={id} className="toggle-switch" type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} />{children}</label>;
 }
 
 export function AmountAndDates({ initial, start, end, dca, contribution, title = "Amount and dates" }: {
@@ -33,10 +34,20 @@ export function CostsAndTax({ children }: { children: ReactNode }) {
 export function TaxControls({ enabled, rate, onEnabled, onRate, label = text.taxEnabled, rateLabel = text.taxRate, disabled = false, hideRate = false, step, leading }:
   { enabled: boolean; rate: number; onEnabled: (value: boolean) => void; onRate: (value: number) => void;
     label?: string; rateLabel?: string; disabled?: boolean; hideRate?: boolean; step?: number; leading?: ReactNode }) {
-  return <AssumptionRow>
+  const taxId = useId();
+  if (hideRate) return <AssumptionRow>
     {leading}
     <Toggle checked={enabled} disabled={disabled} onChange={onEnabled}>{label}</Toggle>
-    {!hideRate && <label>{rateLabel}<input type="number" min="0" max="100" step={step} disabled={!enabled || disabled} value={rate} onChange={e => onRate(e.target.valueAsNumber)} /></label>}
+  </AssumptionRow>;
+  return <AssumptionRow>
+    {leading}
+    <div className={styles.taxRow}>
+      <label className={styles.taxLabel} htmlFor={taxId}>{label}</label>
+      <div className={styles.taxControls}>
+        <label className={styles.rate}><span className="visually-hidden">{rateLabel}</span><input aria-label={rateLabel} type="number" min="0" max="100" step={step} disabled={!enabled || disabled} value={rate} onChange={e => onRate(e.target.valueAsNumber)} /><span aria-hidden="true">{text.taxRateSuffix}</span></label>
+        <Toggle id={taxId} checked={enabled} disabled={disabled} onChange={onEnabled}>{null}</Toggle>
+      </div>
+    </div>
   </AssumptionRow>;
 }
 
