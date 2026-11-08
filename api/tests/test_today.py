@@ -12,6 +12,7 @@ from test_signals import fixtures, AS_OF
 from server import today as page, private_api as private, cache
 from haa import data, portfolio_signals
 from haa.portfolio import aggregate_holdings_by_currency, convert_currency, execution_security_label
+from haa.rebalance_holdings import empty_account, security
 from haa.signals import month_to_date_snapshot, latest_actionable_signal, latest_preview_signal
 
 LABELS = ["HAA-Simple", "Orthogonal Alpha (BTAL/QLD)", "Inflation Compass Standard",
@@ -206,6 +207,38 @@ def fake_public(weights=None, preview=True, trade=False, date="2024-05-31"):
       "decision": {"trade": trade}, "holding": "Fake SPY 100%", "status": "Ready · fake"}, "reason": None,
       "preview": {"weights": weights, "price_as_of": "2024-06-13", "allocation": "Fake SPY 100%"} if preview else None,
       "preview_reason": "Mock unavailable" if not preview else None, "warnings": [], "fallback_warnings": [], "cache": {"hit": None, "warnings": []}, "timing": {}}
+
+
+def test_rebalance_actions_preserve_gap_cutoff_order_amounts_and_pot(monkeypatch):
+    labels = ["HAA-Simple", "Orthogonal Alpha (BTAL/QLD)", "Inflation Compass Standard", "Buy and Hold SPY"]
+    sleeves = dict(zip(labels, [
+        fake_public({"SPY": 1.}, trade=True),
+        fake_public({"SPY": 1.}),
+        fake_public({"IEF": 1.}),
+        fake_public({"QQQ": 1.}, trade=True),
+    ]))
+    monkeypatch.setattr(page, "public_sleeve", lambda label, *_: sleeves[label])
+    monkeypatch.setattr(page.market, "unit_quote", lambda *_: {"price": "1", "fresh": True})
+    monkeypatch.setattr(page.market, "fx_quote", lambda *_: {"price": "1", "fresh": True})
+    account = empty_account()
+    account["cash_ils"] = "444.60"
+    for ticker, units in [("SPY", "37555.40"), ("IEF", "38000"), ("QQQ", "24000"), ("GLD", "9000")]:
+        holding = security(ticker, "US")
+        account["positions"][holding["id"]] = {**holding, "units": units, "outside_rebalance": ticker == "GLD"}
+
+    result = page.compose(fake_portfolio(labels), account, "code", CLOCK)
+    assert result["action_notice"] is None
+    assert result["pot_total"] == 100_000
+    comparison = {row["id"]: row for row in result["comparison"]}
+    assert {key: row["Gap (₪)"] for key, row in comparison.items()} == {
+        "US:QQQ": 1000, "US:IEF": -13000, "US:SPY": 12444.60,
+    }
+    assert result["actions"] == [
+        {"id": "US:IEF", "fund": comparison["US:IEF"]["Fund"], "amount_text": "about ₪13,000",
+         "direction": "over", "moved_here": []},
+        {"id": "US:SPY", "fund": comparison["US:SPY"]["Fund"], "amount_text": "about ₪12,445",
+         "direction": "buy", "moved_here": ["HAA-Simple"]},
+    ]
 
 
 @pytest.mark.parametrize("separator", ["-", "–", "—"])

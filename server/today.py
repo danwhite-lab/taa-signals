@@ -193,7 +193,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
     clock = utc_now() if clock is None else pd.Timestamp(clock)
     defaults = [p for p in portfolios if isinstance(p, dict) and p.get("is_default") is True]
     has_holdings = bool(account and (account.get("positions") or number(account.get("cash_ils", 0))))
-    result = {"has_default": bool(defaults), "has_holdings": has_holdings, "caption": None, "issues": [], "signals": [], "comparison": None, "moves": None, "pot_total": None,
+    result = {"has_default": bool(defaults), "has_holdings": has_holdings, "caption": None, "issues": [], "signals": [], "comparison": None, "actions": [], "action_notice": None, "pot_total": None,
               "monthly_action": "unavailable", "latest_caption": None, "stale": False,
               "previews": [], "preview_caption": None, "warnings": [], "public_sleeves": [], "timing": {}}
     if not defaults:
@@ -284,7 +284,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
                                          "Actual %": None, "Gap (₪)": None, "Status": "Cannot price",
                                          "price_as_of": quotes[key].get("as_of"), "price_fresh": quotes[key].get("fresh")}
                                         for key in sorted(visible - excluded) if not account["positions"].get(key, {}).get("companion_of")]
-                result["moves"] = ["Some holdings cannot be priced. Add a dated manual price on Rebalance Holdings to calculate changes."]
+                result["action_notice"] = "cannot_price"
             else:
                 comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"], anchor_map)
                 rows = []
@@ -296,22 +296,23 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
                     rows.append(row)
                 result["comparison"], result["pot_total"] = rows, float(total)
                 threshold = float(total) * .01
-                moves = []
+                actions = []
                 for row in sorted(rows, key=lambda item: abs(item.get("Gap (₪)") or 0), reverse=True):
                     gap = row.get("Gap (₪)")
                     if gap is None or abs(gap) <= threshold:
                         continue
-                    action = f"Buy about ₪{gap:,.0f} of {row['Fund']}" if gap > 0 else f"{row['Fund']} is about ₪{abs(gap):,.0f} over target"
                     # A target may be shared by several sleeves; name every sleeve that moved into it.
                     moved_here = [s["name"] for s in valid_sleeves if s["name"] in changed_models
                                   and row["id"] in sleeve_target_ids(s)]
-                    if moved_here:
-                        action += f". This month, {', '.join(moved_here)} now points here."
-                    moves.append(action)
-                result["moves"] = moves or ["Nothing to do - holdings match the target."]
+                    actions.append({"id": row["id"], "fund": row["Fund"],
+                                    "amount_text": f"about ₪{abs(gap):,.0f}",
+                                    "direction": "buy" if gap > 0 else "over", "moved_here": moved_here})
+                result["actions"] = actions
+                if not actions:
+                    result["action_notice"] = "nothing_to_do"
         except Exception:
             result["comparison"] = None
-            result["moves"] = ["Holdings could not be valued. Check Rebalance Holdings; sleeve signals are still shown."]
+            result["action_notice"] = "valuation_failed"
     result["monthly_action"] = "changed" if changed_models else "unchanged" if valid else "unavailable"
     if signal_dates:
         newest_signal_date = max(signal_dates)
