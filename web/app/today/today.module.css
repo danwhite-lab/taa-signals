@@ -8,6 +8,12 @@
   hyphens: none;
 }
 
+/* The monthly action list always shows every row; the page scrolls instead. */
+.actions.actions {
+  max-height: none;
+  overflow-x: auto;
+}
+
 .actions table th, .actions table td {
   white-space: normal;
 }
