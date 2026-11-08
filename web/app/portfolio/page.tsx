@@ -43,9 +43,9 @@ function NumberField({ label, value, disabled, decimals, onChange }: { label: st
     }} />;
 }
 
-function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, models, modelsError, reloadModels, openModels, changeName, changePayload }:
-  { name: string; json: string; isDefault: boolean; defaultOnSave: boolean; disabled: boolean; models: string[] | null; modelsError: string;
-    reloadModels: () => void; openModels: () => void; changeName: (name: string) => void; changePayload: (payload: Record<string, unknown>) => void }) {
+function PortfolioSummary({ name, json, disabled, models, modelsError, reloadModels, openModels, changePayload }:
+  { name: string; json: string; disabled: boolean; models: string[] | null; modelsError: string;
+    reloadModels: () => void; openModels: () => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
@@ -60,12 +60,10 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
   const available = models?.filter(model => !sleeves?.some(row => row.name === model)).sort(byLabel) ?? [];
   const editOptions = editing === null ? [] : (models?.filter(model => model === sleeves?.[editing]?.name || !sleeves?.some((row, index) => index !== editing && row.name === model)).sort(byLabel) ?? []);
   function editSleeves(next: unknown[]) { if (payload) changePayload({ ...payload, sleeves: next }); }
-  return <section className={styles.summary} aria-label="Portfolio summary">
+  return <div className={styles.summary} role="region" aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
-    {(isDefault || defaultOnSave) && <span className={styles.badge}>{isDefault ? "Default" : "Default on save"}</span>}
-    {!payload && <p role="alert">Summary unavailable: enter valid Portfolio JSON below. Your draft has not been changed.</p>}
+    {!payload && <p role="alert">{words.invalidSummary}</p>}
     <div className={styles.settings} role="group" aria-label={words.settings}>
-    <label>Portfolio name<input value={name} maxLength={80} disabled={disabled} onChange={event => changeName(event.target.value)} /></label>
     <details className={styles.modelSetting} onToggle={event => { if (event.currentTarget.open) openModels(); }}><summary>Add a sleeve</summary>{modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
     <div className={styles.addSleeve}>
       <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
@@ -90,7 +88,7 @@ function PortfolioSummary({ name, json, isDefault, defaultOnSave, disabled, mode
     </table></div> : <p>Sleeve summary unavailable: enter a sleeve list in Portfolio JSON.</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
 
-  </section>;
+  </div>;
 }
 
 export default function Portfolio() {
@@ -105,19 +103,17 @@ export default function Portfolio() {
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [email, setEmail] = useState("");
-  const [preferredName, setPreferredName] = useState("");
+  const [editingName, setEditingName] = useState(false);
   const [models, setModels] = useState<string[] | null>(null);
   const [modelsError, setModelsError] = useState("");
   const inFlight = useRef(false);
   const dirty = name !== (selected?.name ?? "") || json !== (selected ? JSON.stringify(selected.payload, null, 2) : "")
     || makeDefault !== (selected?.is_default ?? false);
-  const preferenceDirty = preferredName !== String(workspace?.payload.portfolio_name ?? "");
   async function load() {
     const [saved, , user] = await Promise.all([api<Workspace>("/api/workspace"),
       api<SavedPortfolio[]>("/api/portfolios").then(list => { setPortfolios(list); return list; }), api<{ email: string }>("/api/me")]);
     setWorkspace(saved); setEmail(user.email);
-    setPreferredName(String(saved.payload.portfolio_name ?? ""));
-    setSelected(null); setName(""); setJson(""); setMakeDefault(false); setUncertain(false);
+    setSelected(null); setName(""); setJson(""); setMakeDefault(false); setEditingName(false); setUncertain(false);
   }
   useEffect(() => { void act(load); }, []); // Initial read; refresh remains explicit after mount.
   async function loadModels() {
@@ -136,14 +132,17 @@ export default function Portfolio() {
     finally { setBusy(false); inFlight.current = false; }
   }
   function choose(item: SavedPortfolio | null) {
-    setSelected(item); setName(item?.name ?? "");
+    setSelected(item); setName(item?.name ?? ""); setEditingName(false);
     setJson(item ? JSON.stringify(item.payload, null, 2) : "");
     setMakeDefault(item?.is_default ?? false); setMessage(""); setError("");
   }
   function requestChoose(item: SavedPortfolio | null) {
     if (!dirty || window.confirm("Discard unsaved portfolio edits?")) {
       choose(item);
-      if (!item) setJson(JSON.stringify({ version: 1, name: "", sleeves: [] }, null, 2));
+      if (!item) {
+        setJson(JSON.stringify({ version: 1, name: "", sleeves: [] }, null, 2));
+        setEditingName(true);
+      }
     }
   }
   function changeName(next: string) {
@@ -191,7 +190,7 @@ export default function Portfolio() {
     <h1>Saved portfolios</h1>
     <p>{email}</p>
     <div className="actions"><button className="btn btn-secondary" disabled={busy} onClick={() => {
-      if ((!dirty && !preferenceDirty) || window.confirm("Discard unsaved edits and reload saved data?")) void act(load);
+      if (!dirty || window.confirm("Discard unsaved edits and reload saved data?")) void act(load);
     }}>Reload saved data</button>
       <button className="btn btn-secondary" disabled={busy} onClick={() => void act(async () => {
         const { error } = await supabaseBrowser().auth.signOut();
@@ -199,40 +198,58 @@ export default function Portfolio() {
       })}>Sign out</button></div>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {uncertain && <p>Saving is paused until you reload, so a stale device or uncertain response cannot overwrite saved data.</p>}
-    <section><h2>Your library</h2>
-      {busy && <p role="status">Loading saved data…</p>}
-      {!busy && !portfolios.length && !error && <p>No saved portfolios loaded.</p>}
-      <button className="btn btn-primary" disabled={busy || uncertain} onClick={() => requestChoose(null)}>New portfolio</button>
-      <ul className="saved-list" aria-label="Saved portfolios">{savedOrder(portfolios).map(item => <li key={item.id}><button className={`btn list-row${selected?.id === item.id ? " is-selected" : ""}`} aria-label={item.name} disabled={busy || uncertain} aria-pressed={selected?.id === item.id}
-        onClick={() => requestChoose(item)}>
-        <span className="row-name" title={item.name}>{item.name}</span>{item.is_default && <span className="list-tag">Default</span>}<small className="list-date">Updated {date(item.updated_at)}</small></button></li>)}</ul>
-    </section>
-    {(selected || json) && <PortfolioSummary key={selected?.id ?? 'new'} name={name} json={json} isDefault={selected?.is_default ?? false}
-      defaultOnSave={makeDefault} disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
-      openModels={() => { if (models === null && !modelsError) void loadModels(); }}
-      changeName={changeName} changePayload={payload => setJson(JSON.stringify(payload, null, 2))}/>}
-    <section><h2>{selected ? "Edit saved portfolio" : "Save a portfolio"}</h2>
-      {selected && <p role="status">Loaded: {selected.name}</p>}
-      <p>Edit the fields above or use Advanced JSON. Values stay in sync; no holdings are created or changed.</p>
-      {!selected && !json && <label>Portfolio name<input value={name} maxLength={80} disabled={busy || uncertain} onChange={event => changeName(event.target.value)} /></label>}
-      <details className={styles.advanced} key={selected?.id ?? "new"}><summary>Advanced: edit JSON</summary>
-        <label>Portfolio JSON<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => editJson(event.target.value)} /></label>
-      </details>
-      <label><input type="checkbox" checked={makeDefault} disabled={busy || uncertain}
-        onChange={event => setMakeDefault(event.target.checked)} /> Make this the default when saving</label>
-      <p>Leaving this unchecked preserves existing defaults; it does not clear a default portfolio.</p>
-      <div className="actions"><button className="btn btn-secondary" disabled={busy || uncertain || !workspace} onClick={() => void save()}>Save portfolio</button>
-        {selected && <button className="btn btn-destructive" disabled={busy || uncertain} onClick={() => void remove()}>Delete portfolio</button>}</div>
-    </section>
-    <section><h2>Synced workspace</h2><p>Loaded revision: {workspace?.revision ?? "Not loaded"}. Shared holdings and unmigrated settings stay intact.</p>
-      <label>Workspace portfolio name<input value={preferredName} maxLength={80} disabled={busy || uncertain}
-        onChange={event => setPreferredName(event.target.value)} /></label>
-      <button className="btn btn-secondary" disabled={busy || uncertain || !workspace} onClick={() => void act(async () => {
-        if (!workspace) return;
-        setWorkspace(await api<Workspace>("/api/workspace", { method: "PUT", body: JSON.stringify({
-          revision: workspace.revision, payload: { portfolio_name: preferredName },
-        }) })); setMessage("Workspace saved.");
-      }, true)}>Save workspace preference</button>
+    <section aria-label={words.settings}>
+      <div className={styles.controls}>
+        {busy && <p role="status">Loading saved data…</p>}
+        {!busy && !portfolios.length && !error && <p>No saved portfolios loaded.</p>}
+        <div className={styles.controlRow}>
+          <label className={styles.portfolioPicker}>{words.savedPortfolios}
+            <select value={selected?.id ?? ""} disabled={busy || uncertain} onChange={event => {
+              const next = portfolios.find(item => item.id === event.target.value);
+              if (next && next.id !== selected?.id) requestChoose(next);
+            }}>
+              <option value="" disabled>{words.choosePortfolio}</option>
+              {savedOrder(portfolios).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className={styles.defaultControl}>
+            <input type="checkbox" checked={makeDefault} disabled={busy || uncertain}
+              aria-describedby="portfolio-default-note" onChange={event => setMakeDefault(event.target.checked)} />
+            {words.defaultLabel}
+          </label>
+          {selected && <button className="btn btn-secondary" type="button" disabled={busy || uncertain}
+            aria-expanded={editingName} onClick={() => setEditingName(value => !value)}>{words.renamePortfolio}</button>}
+        </div>
+        {selected && <p className={styles.portfolioMeta} role="status">
+          <span className="visually-hidden">{words.loadedPortfolio.replace("{name}", selected.name)}</span>
+          {selected.is_default && <span className="list-tag">{words.defaultLabel}</span>}
+          {!selected.is_default && makeDefault && <span className="list-tag">{words.defaultOnSave}</span>}
+          <small>{words.updatedPortfolio.replace("{date}", date(selected.updated_at))}</small>
+        </p>}
+        {!selected && makeDefault && <span className="list-tag">{words.defaultOnSave}</span>}
+        <p className={styles.portfolioMeta} id="portfolio-default-note">{words.preserveDefault}</p>
+        {editingName && <label>{words.portfolioName}
+          <input value={name} maxLength={80} disabled={busy || uncertain} autoFocus
+            onChange={event => changeName(event.target.value)} />
+        </label>}
+        <div className="actions">
+          <button className="btn btn-primary" type="button" disabled={busy || uncertain} onClick={() => requestChoose(null)}>{words.newPortfolio}</button>
+          <button className="btn btn-secondary" type="button" disabled={busy || uncertain || !workspace} onClick={() => void save()}>
+            {selected ? words.saveChanges : words.savePortfolio}
+          </button>
+          {selected && <button className="btn btn-destructive" type="button" disabled={busy || uncertain} onClick={() => void remove()}>
+            {words.deletePortfolio}
+          </button>}
+        </div>
+        <details className={styles.advanced} key={selected?.id ?? "new"}><summary>{words.advancedJson}</summary>
+          <p>{words.jsonHelp}</p>
+          <label>{words.portfolioJson}<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => editJson(event.target.value)} /></label>
+        </details>
+      </div>
+      {(selected || json) && <PortfolioSummary key={selected?.id ?? "new"} name={name} json={json}
+        disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
+        openModels={() => { if (models === null && !modelsError) void loadModels(); }}
+        changePayload={payload => setJson(JSON.stringify(payload, null, 2))} />}
     </section>
   </main>;
 }
