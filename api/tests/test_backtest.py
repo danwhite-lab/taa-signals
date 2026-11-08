@@ -134,7 +134,8 @@ def test_exact_engine_parity_tax_deposits_whole_ledger_and_rows(signed_in, monke
     assert actual["engine_parameters"]["transaction_cost"] == .0005
     assert actual["engine_parameters"]["monthly_contribution"] == deposit
     assert actual["engine_parameters"]["tax_rate"] == .25
-    assert any(page.MINIMUM_NOTE == text for text in actual["warnings"])
+    assert any(page.MINIMUM_NOTE == text for text in actual["captions"])
+    assert page.MINIMUM_NOTE not in actual["warnings"]
     assert len(actual["summary"]["columns"]) == (4 if tax_enabled else 3)
     assert len(response.content) < 3_000_000
 
@@ -249,3 +250,34 @@ def test_real_fallback_warning_visible_and_main_payload_is_small(signed_in, monk
 
 def test_bad_token_is_401(signed_in):
     assert client.post("/api/backtest", headers={"Authorization": "Bearer invalid-mock-token"}, json={}).status_code == 401
+
+
+def test_methodology_notes_are_captions_but_source_warnings_remain_visible(signed_in,monkeypatch):
+    prices,metadata,_warnings,opens=bundle('HAA-Simple')
+    source_warning='Mock source warning retained above result tabs'
+    monkeypatch.setattr(page,'load_data',lambda selected:(prices,metadata,[source_warning],opens))
+    response=client.post('/api/backtest',headers=HEADERS,json={'label':'HAA-Simple','initial':10000,'fee_value':.05})
+    assert response.status_code==200,response.text
+    value=response.json()
+    for note in (page.TAX_NOTE,page.MINIMUM_NOTE):
+        assert value['captions'].count(note)==1
+        assert note not in value['warnings']
+    assert source_warning in value['warnings']
+    assert page.RESULTS.warm[value['cache']['key']]['kind']=='single-backtest-v2'
+    download=client.get('/api/backtest/download',headers=HEADERS,params={'key':value['cache']['key'],'kind':'audit'})
+    assert download.status_code==200
+
+
+def test_pending_fund_tail_is_a_warning_instead_of_methodology(monkeypatch):
+    selected=definition_for_label('A-RVol Shifter V3 Cash-Only Israel')
+    prices,_,_=fixtures(selected.label)
+    original=selected.model_class.decisions
+    def pending(self,*args,**kwargs):
+        decisions=original(self,*args,**kwargs)
+        decisions.attrs['pending_price_dates']=['2024-06-17']
+        return decisions
+    monkeypatch.setattr(selected.model_class,'decisions',pending)
+    warnings=[]
+    *_,captions=page.prepare(selected,prices,warnings=warnings)
+    assert any('Latest fund prices are still pending.' in warning for warning in warnings)
+    assert not any('Latest fund prices are still pending.' in caption for caption in captions)

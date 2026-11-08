@@ -227,7 +227,7 @@ def run(request, code):
         params["sleeves"] = sorted(order, key=lambda s: (s["model"], s["weight"]))
         params["execution_order"] = order
         params.update(code=code, utc_date=str(datetime.now(timezone.utc).date()), completed_cutoff=cutoff,
-                      source_metadata=digest(table(metadata)), content_version=digest(WORDS), presentation=f"backtest-{'portfolio' if request.mode == 'portfolio' else 'deep-history'}-v1")
+                      source_metadata=digest(table(metadata)), content_version=digest(WORDS), presentation=f"backtest-{'portfolio' if request.mode == 'portfolio' else 'deep-history'}-v2")
         if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             began = perf_counter()

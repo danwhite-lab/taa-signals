@@ -112,7 +112,8 @@ def load_data(selected):
     return prices, metadata, warnings, opens
 
 
-def prepare(selected, all_prices):
+def prepare(selected, all_prices, *, warnings=None):
+    warnings = [] if warnings is None else warnings
     strategy = selected.model_class()
     benchmark = getattr(strategy, "benchmark_asset", "SPY")
     assets = tuple(dict.fromkeys((*getattr(strategy, "data_assets", ASSETS), benchmark)))
@@ -141,7 +142,7 @@ def prepare(selected, all_prices):
             common_start = first_trading_day_after(prices, available.index.min(), strategy.data_assets)
         common_end = available.attrs["completed_through"]
         if available.attrs.get("pending_price_dates"):
-            captions.append(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
+            warnings.append(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
         if common_start is None or common_start > common_end:
             raise ValueError("No completed post-signal execution session is available.")
     end_limit = common_end if daily or actual_window else prices.index.max()
@@ -160,7 +161,7 @@ def options(label, usd_equivalents=False):
     selected = usd.resolve(label) if usd_equivalents else definition(label)
     try:
         prices, metadata, warnings, opens = load_data(selected)
-        strategy, prices, monthly, monthly_input, bounds, captions = prepare(selected, prices)
+        strategy, prices, monthly, monthly_input, bounds, captions = prepare(selected, prices, warnings=warnings)
         return clean({"models": [{f.name: getattr(m, f.name) for f in fields(m) if f.name != "model_class"}
                                  for m in MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)],
                       "label": label, "currency": selected.execution_currency, "bounds": bounds,
@@ -239,7 +240,8 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
               "periods": preview(audit), "tax_events": preview(result.tax_events), "annual": preview(annual), "monthly": preview(monthly_returns),
               "tax_event_count": len(result.tax_events), "report_rows": len(nav), "monthly_rows": len(result.monthly),
               "first_date": nav.index.min().isoformat(), "last_date": nav.index.max().isoformat(),
-              "captions": captions_for(strategy, decisions, result, benchmark), "warnings": ([MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []) + [TAX_NOTE] + ([strategy.risk_warning] if hasattr(strategy, "risk_warning") else []),
+              "captions": captions_for(strategy, decisions, result, benchmark) + [TAX_NOTE] + ([MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []),
+              "warnings": [strategy.risk_warning] if hasattr(strategy, "risk_warning") else [],
               "data_validation": table(metadata.loc[list(prices.columns)].join(data.date_ranges(prices))),
               "calculated_at": datetime.now(timezone.utc).isoformat(), "calculation_timing": timing,
               "data_origin": "Existing live loaders; no cached/live price splice or proxy substitution."}
@@ -247,7 +249,7 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
         public["actual_execution_start"] = result.audit.execution_date.min().isoformat()
         public["captions"].append(f"Actual TASE execution starts {result.audit.execution_date.min():%Y-%m-%d}. ILS-hedged utilities (MTF 1150507); actual fund history only.")
     from .price_warnings import annotate_price_warnings
-    return clean(annotate_price_warnings({"kind": "single-backtest-v1", "public": public, "downloads": downloads}, result.price_warnings))
+    return clean(annotate_price_warnings({"kind": "single-backtest-v2", "public": public, "downloads": downloads}, result.price_warnings))
 
 
 def run(request, code):
@@ -259,7 +261,7 @@ def run(request, code):
     try:
         all_prices, metadata, warnings, opens = load_data(selected)
         loaded = perf_counter()
-        strategy, prices, monthly, monthly_input, bounds, range_captions = prepare(selected, all_prices)
+        strategy, prices, monthly, monthly_input, bounds, range_captions = prepare(selected, all_prices, warnings=warnings)
         start = request.start or date.fromisoformat(bounds["start_min"])
         end = request.end or date.fromisoformat(bounds["end_max"])
         if not date.fromisoformat(bounds["start_min"]) <= start <= date.fromisoformat(bounds["start_max"]):
@@ -273,7 +275,7 @@ def run(request, code):
         version = data_version(rows)
         params = {**request.model_dump(mode="json"), "code": code, "utc_date": str(datetime.now(timezone.utc).date()),
                   "completed_cutoff": str(strategy.completed_cutoff()) if hasattr(strategy, "completed_cutoff") else None,
-                  "source_metadata": digest(table(metadata)), "warnings": warnings}
+                  "source_metadata": digest(table(metadata)), "warnings": warnings, "presentation": "single-backtest-v2"}
         if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             signal_start = perf_counter()
@@ -332,6 +334,6 @@ def download(key, kind):
                 bundle = rows[0]["result"] if rows else None
             except Exception:
                 bundle = None
-    if not bundle or bundle.get("kind") not in {"single-backtest-v1", "backtest-portfolio-v1", "backtest-deep-history-v1"} or kind not in bundle["downloads"]:
+    if not bundle or bundle.get("kind") not in {"single-backtest-v2", "backtest-portfolio-v2", "backtest-deep-history-v2"} or kind not in bundle["downloads"]:
         raise HTTPException(404, "Full download unavailable. Run the backtest again.")
     return bundle["downloads"][kind]

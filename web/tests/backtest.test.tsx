@@ -27,11 +27,18 @@ const result = { label: "HAA-Simple", currency: "USD", settings: { tax_enabled: 
   timing: { engine_seconds: .01 }, calculation_timing: { engine_seconds: .01 }, downloads: [{ kind: "tax_events", label: "Mock ledger download", filename: "mock.csv" }] };
 
 afterEach(() => { cleanup(); mock.request.mockReset(); mock.download.mockReset(); });
-function ready() {
+async function ready() {
   mock.download.mockResolvedValue(undefined);
-  mock.request.mockImplementation(async (path: string) => path.startsWith("/api/backtest/options") ? options : result);
+  mock.request.mockImplementation(async (path: string,init?:RequestInit) => {
+    if(path.startsWith("/api/backtest/config"))return {models:options.models};
+    if(path.startsWith("/api/backtest/options"))return options;
+    if(path==="/api/backtest/validate")return JSON.parse(String(init?.body)).initial<1?{valid:false,message:text.validationError}:{valid:true,message:words.weightSuccess};
+    return result;
+  });
   render(<BacktestPage />);
-  return screen.findByRole("button", { name: text.run });
+  const run=await screen.findByRole("button", { name: text.run });
+  await waitFor(()=>expect(run).toHaveProperty("disabled",false));
+  return run;
 }
 
 it("is withheld by the existing login gate", async () => {
@@ -46,16 +53,14 @@ it("defaults to tax ON at 25% and currency-specific broker fees, with the other 
   expect(screen.getByLabelText(text.taxEnabled)).toHaveProperty("checked", true);
   expect(screen.getByLabelText(text.taxRate)).toHaveProperty("value", "25");
   expect(screen.getByLabelText("Trading fees")).toHaveProperty("checked", true);
-  expect(screen.getByRole("heading", {name:"Amount and dates"})).toBeTruthy();
-  expect(screen.getByRole("heading", {name:"Costs and tax"})).toBeTruthy();
+  expect(screen.getByRole("heading", {name:words.parametersTitle})).toBeTruthy();
   expect(screen.getByText("Start", {selector:"label"})).toBeTruthy();
   expect(screen.getByText("End", {selector:"label"})).toBeTruthy();
-  expect(screen.getByText(text.start, {selector:".assumption-hint"})).toBeTruthy();
+  expect(screen.getByText(words.portfolioStart, {selector:".assumption-hint"})).toBeTruthy();
   expect(screen.getByLabelText(text.ilsFeePercent)).toHaveProperty("value", "0.05");
   expect(screen.getByLabelText(text.ilsMinimumFee)).toHaveProperty("value", "2");
   expect(screen.getByLabelText(text.usdFlatFee)).toHaveProperty("value", "5");
-  expect(screen.getByRole("radio", { name: text.portfolio })).toHaveProperty("disabled", false);
-  expect(screen.getByRole("radio", { name: text.deep })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("switch", {name:text.extendedHistory})).toHaveProperty("disabled",false);
   expect(screen.queryByText(text.reference)).toBeNull();
 });
 
@@ -121,7 +126,8 @@ it("sends editable currency fees, disables them explicitly and shows both fee to
   fireEvent.change(screen.getByLabelText(text.ilsFeePercent), {target:{value:'.1'}});
   fireEvent.change(screen.getByLabelText(text.ilsMinimumFee), {target:{value:'3'}});
   fireEvent.change(screen.getByLabelText(text.usdFlatFee), {target:{value:'6'}});
-  mock.request.mockResolvedValue({...result, fees:{currency:'USD',enabled:true,pre_tax:24,after_tax:18}});
+  const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>path==='/api/backtest'?{...result,fees:{currency:'USD',enabled:true,pre_tax:24,after_tax:18}}:original(path,init));
   fireEvent.click(screen.getByRole('button',{name:text.run}));
   await screen.findByText('Total fees paid (USD)');
   expect(screen.getByText('Pre-tax backtest: 24.00')).toBeTruthy();
@@ -139,11 +145,12 @@ it("sends editable currency fees, disables them explicitly and shows both fee to
 
 it("prevents a second run and shows progress while waiting", async () => {
   let resolve!: (result: unknown) => void;
-  mock.request.mockImplementation((path: string) => path.startsWith("/api/backtest/options") ? Promise.resolve(options) : new Promise(done => { resolve = done; }));
+  mock.request.mockImplementation((path: string) => path.startsWith('/api/backtest/config')?Promise.resolve({models:options.models}):path.startsWith('/api/backtest/options')?Promise.resolve(options):path==='/api/backtest/validate'?Promise.resolve({valid:true,message:words.weightSuccess}):new Promise(done=>{resolve=done;}));
   render(<BacktestPage />);
   const run = await screen.findByRole("button", { name: text.run });
+  await waitFor(()=>expect(run).toHaveProperty("disabled",false));
   fireEvent.click(run); fireEvent.click(run);
-  expect(screen.getByText(text.longRun)).toBeTruthy();
+  expect(await screen.findByText(text.longRun)).toBeTruthy();
   expect(mock.request.mock.calls.filter(([path]) => path === "/api/backtest")).toHaveLength(1);
   await act(async () => resolve(result));
   await screen.findByRole("table", { name: text.summary });
@@ -151,7 +158,7 @@ it("prevents a second run and shows progress while waiting", async () => {
 
 it("shows timeout without partial results", async () => {
   await ready();
-  mock.request.mockImplementation(async (path: string) => { if (path === "/api/backtest") throw new Error(text.timeout); return options; });
+  mock.request.mockImplementation(async (path: string) => { if (path === "/api/backtest") throw new Error(text.timeout); if(path==="/api/backtest/validate")return {valid:true,message:words.weightSuccess}; return options; });
   fireEvent.click(screen.getByText(text.run));
   await screen.findByText(text.timeout);
   expect(screen.queryByRole("table", { name: text.summary })).toBeNull();
@@ -173,7 +180,7 @@ it.each([false, true])("organizes results and keeps requests unchanged with Exte
     if (path === "/api/backtest/validate") return { valid: true, message: words.weightSuccess };
     if (path === "/api/backtest/models") return { models: options.models };
     return {
-      ...result, periods, warnings: ["Result warning"], data_validation: table, data_origin: "Source metadata",
+      ...result, periods, captions:["Mock result caption", "Methodology tax note", words.sourceCaption, words.sleeveFeeCaption], warnings: ["Result warning"], data_validation: table, data_origin: "Source metadata",
       usd_equivalents: { enabled: !deep, currency: "USD", mapping_version: "test", mappings: [] },
       extra_tables: [{ label: words.selected, value: table }, { label: words.dailySignals, value: table }],
       extra_charts: [{ label: words.syntheticCurve, value: chart }],
@@ -186,7 +193,7 @@ it.each([false, true])("organizes results and keeps requests unchanged with Exte
   const run = screen.getByRole("button", { name: text.run });
   await waitFor(() => expect(run).toHaveProperty("disabled", false));
   fireEvent.click(run);
-  await screen.findByRole("heading", { name: words.resultsComplete });
+  await screen.findByRole("heading", { name: result.label });
   const callsAfterRun = mock.request.mock.calls.length;
   const tab = (name: string) => screen.getByRole("tab", { name });
   const panel = (name: string) => within(screen.getByRole("tabpanel", { name }));
@@ -194,6 +201,9 @@ it.each([false, true])("organizes results and keeps requests unchanged with Exte
   expect(overview.getAttribute("aria-selected")).toBe("true");
   expect(panel(words.resultTabs.overview).getByRole("table", { name: text.summary })).toBeTruthy();
   const tablist = screen.getByRole("tablist", { name: text.results });
+  expect(screen.getByText(text.testedPeriod.replace("{start}","1 Jan 2020").replace("{end}","28 Jun 2024"))).toBeTruthy();
+  expect(panel(words.resultTabs.overview).queryByText(text.calculatedNow,{exact:false})).toBeNull();
+  expect(screen.getByText("Mock result caption").closest('[role="tabpanel"]')?.id).toBe('backtest-result-panel-history');
   expect(screen.getByText("Result warning").compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
   fireEvent.keyDown(overview, { key: "ArrowRight" });
@@ -217,7 +227,16 @@ it.each([false, true])("organizes results and keeps requests unchanged with Exte
   expect(history.getByText("mock.csv")).toBeTruthy();
   expect(history.getAllByText(/bytes$/).map(node => node.textContent)).toEqual(["512 bytes"]);
   expect(screen.getByText("Result warning")).toBeTruthy();
-  expect(screen.getByText("Mock result caption")).toBeTruthy();
+  const howRan=history.getByText(text.howRan,{selector:"summary"}).closest("details")!;
+  expect(howRan.open).toBe(false);
+  fireEvent.click(within(howRan).getByText(text.howRan));
+  expect(within(howRan).getByText("Mock result caption")).toBeTruthy();
+  expect(within(howRan).getByText("Methodology tax note")).toBeTruthy();
+  expect(within(howRan).queryByText(words.sourceCaption)).toBeNull();
+  expect(within(howRan).queryByText(words.sleeveFeeCaption)).toBeNull();
+  expect(history.getByText(text.calculatedNow,{exact:false})).toBeTruthy();
+  expect(screen.getAllByText(text.calculatedNow,{exact:false})).toHaveLength(1);
+  expect(screen.queryByText(/Some engine captions describe features of the Streamlit app/)).toBeNull();
   if (!deep) expect(screen.getByText(usdWords.banner)).toBeTruthy();
   expect(mock.request.mock.calls).toHaveLength(callsAfterRun);
   fireEvent.click(history.getByRole("button", { name: "Mock ledger download" }));
