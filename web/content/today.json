@@ -29,6 +29,15 @@
   "noHoldings": "To see what to buy, add your funds on the Rebalance Holdings page.",
   "potTotal": "Your rebalancing pot: about {amount}",
   "fund": "Fund",
+  "buy": "Buy",
+  "aboveTarget": "Above target",
+  "movedHere": "This month, {sleeves} now points here.",
+  "fullComparison": "Full target vs current comparison",
+  "actionNotices": {
+    "cannot_price": "Some holdings cannot be priced. Add a dated manual price on Rebalance Holdings to calculate changes.",
+    "valuation_failed": "Holdings could not be valued. Check Rebalance Holdings; sleeve signals are still shown.",
+    "nothing_to_do": "Nothing to do - holdings match the target."
+  },
   "target": "Target %",
   "now": "Now %",
   "gap": "Gap (ILS)",

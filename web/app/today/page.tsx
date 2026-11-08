@@ -12,8 +12,9 @@ import styles from "./today.module.css";
 type Allocation = { name: string; security_number: string | null; weight_text: string | null };
 type Signal = { label: string | null; weight_text: string | null; holding_display: Allocation[]; regime: string | null; status_code: "ok" | "check_data" | "unavailable"; holding: string | null; status: string | null; error_code: string | null };
 type Comparison = { id: string; Fund: string; "Target %": number | null; "Actual %": number | null; "Gap (₪)": number | null; Status: string; price_as_of?: string | null; price_fresh?: boolean };
+type Action = { id: string; fund: string; amount_text: string; direction: "buy" | "over"; moved_here: string[] };
 type Preview = { label: string | null; allocation: string | null; allocation_display?: Allocation[]; kind?: keyof typeof text.previewKinds | null; change: "yes" | "no" | null; price_as_of: string | null; reason: string | null; error_code: string | null };
-type Today = { has_default: boolean; has_holdings: boolean; caption: string | null; issues: string[]; signals: Signal[]; comparison: Comparison[] | null; moves: string[] | null; pot_total: number | null;
+type Today = { has_default: boolean; has_holdings: boolean; caption: string | null; issues: string[]; signals: Signal[]; comparison: Comparison[] | null; actions: Action[]; action_notice: keyof typeof text.actionNotices | null; pot_total: number | null;
   monthly_action: "changed" | "unchanged" | "unavailable"; latest_caption: string | null; stale: boolean;
   previews: Preview[]; preview_caption: string | null; warnings: string[];
   public_sleeves: HistorySleeve[]; timing: unknown };
@@ -85,11 +86,24 @@ export default function TodayPage() {
           <td>{numbers(row.holding_display)}</td>
           <td>{row.status_code === "ok" ? null : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>
       <section><h2>{text.whatToDo}</h2>{!value.has_holdings ? <p className="signal-warning"><Link href="/rebalance-holdings/">{text.noHoldings}</Link></p> : <>
-        {value.moves?.map((move, index) => <p key={index}>{move}</p>)}
+        {value.action_notice && <p>{text.actionNotices[value.action_notice]}</p>}
+        {value.actions.length > 0 && <div className={`signal-table-scroll ${styles.actions}`}>
+          <table aria-label={text.whatToDo}>
+            <thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.buy}</th><th>{text.aboveTarget}</th></tr></thead>
+            <tbody>{value.actions.map(row => <tr key={row.id}>
+              <td>{row.fund}{row.moved_here.length > 0 && <small className={styles.secondary}>
+                {text.movedHere.replace("{sleeves}", () => row.moved_here.join(", "))}
+              </small>}</td>
+              <td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td>
+              <td>{row.direction === "buy" ? row.amount_text : text.dash}</td>
+              <td>{row.direction === "over" ? row.amount_text : text.dash}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
         {value.pot_total !== null && <p>{text.potTotal.replace("{amount}", fmt.number(value.pot_total, true))}</p>}
-        {value.comparison && <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.whatToDo}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
+        {value.comparison && <details><summary>{text.fullComparison}</summary><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.fullComparison}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
           {value.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
-        </tbody></table></div>}</>}</section>
+        </tbody></table></div></details>}</>}</section>
       <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}
         <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.preview}><thead><tr><th>{text.sleeve}</th><th>{text.projectedAllocation}</th><th>{text.securityNumber}</th><th>{text.change}</th><th>{text.priceThrough}</th></tr></thead>

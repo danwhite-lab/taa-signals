@@ -15,7 +15,8 @@ import AuthGate from "../components/AuthGate";
 import { ApiError } from "../lib/api";
 import { historyTable, historyCsv } from "../app/today/history-sources";
 
-const payload = { has_default: true, caption: "Fake portfolio · private synced portfolio", issues: [],
+const payload = { has_default: true, has_holdings: false, actions: [], action_notice: null, comparison: null, pot_total: null,
+  caption: "Fake portfolio · private synced portfolio", issues: [],
   signals: [{ label: "Fake sleeve", weight_text: "40.00%", holding: "Fake holding 100%", status: "Ready · fake", error_code: null,
     holding_display:[{name:"Fake holding",security_number:null,weight_text:null}],regime:"fake",status_code:"ok",
     amounts:[{holding:"Fake holding",amount:2500,currency:"USD"},{holding:"Fake local holding",amount:6000,currency:"ILS"}] }],
@@ -157,14 +158,56 @@ it("does not mount or fetch Today before the existing login gate admits it", asy
   render(<AuthGate><Page /></AuthGate>); await screen.findByText("Sign in with Google"); expect(mock.response).not.toHaveBeenCalled();
 });
 
-it("renders only server-formatted currency amounts and starts with preview collapsed", async () => {
-  mock.response.mockImplementation(async () => json(payload)); render(<Page />);
+it("renders server-formatted actions and keeps the complete comparison and preview closed", async () => {
+  const comparison = [
+    { id: "TASE:5140850", Fund: "Mock MTF fund", "Target %": 0.5, "Actual %": 0.38, "Gap (₪)": 12444.6 },
+    { id: "US:IEF", Fund: "Mock bonds", "Target %": 0.25, "Actual %": 0.38, "Gap (₪)": -13000 },
+    { id: "US:BIL", Fund: "Below threshold", "Target %": 0.25, "Actual %": 0.24, "Gap (₪)": 1000 },
+  ];
+  mock.response.mockImplementation(async () => json({ ...payload, has_holdings: true, pot_total: 100000, comparison, actions: [
+    { id: "US:IEF", fund: "Mock bonds", direction: "over", amount_text: "about ₪13,000", moved_here: [] },
+    { id: "TASE:5140850", fund: "Mock MTF fund", direction: "buy", amount_text: "about ₪12,445", moved_here: ["Fake sleeve"] },
+  ] })); render(<Page />);
   await screen.findByText(payload.caption);
-  expect(screen.getByText("2,500.00 USD")).toBeTruthy(); expect(screen.getByText("6,000.00 ILS")).toBeTruthy();
+  const table = within(screen.getByRole("table", { name: text.whatToDo }));
+  expect(table.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual(["Fund", "Security No.", "Buy", "Above target"]);
+  const [, over, buy] = table.getAllByRole("row");
+  const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map(cell => cell.textContent);
+  expect(cells(over)).toEqual(["Mock bonds", "IEF", text.dash, "about ₪13,000"]);
+  expect(cells(buy).slice(1)).toEqual(["5140850", "about ₪12,445", text.dash]);
+  const note = within(buy).getByText("This month, Fake sleeve now points here.");
+  expect(note.tagName).toBe("SMALL");
+  expect(table.getAllByText(/now points here/)).toEqual([note]);
+  expect(table.queryByText("Below threshold")).toBeNull();
+  expect(screen.getAllByText(/Your rebalancing pot/)).toHaveLength(1);
+  const details = screen.getByText(text.fullComparison).closest("details")!;
+  expect(details.open).toBe(false);
+  details.open = true;
+  const fullTable = within(details).getByRole("table", { name: text.fullComparison });
+  expect(within(fullTable).getAllByRole("columnheader").map(cell => cell.textContent))
+    .toEqual(["Fund", "Security No.", "Target %", "Now %", "Gap (ILS)", "Price date"]);
+  expect(within(fullTable).getAllByRole("row")).toHaveLength(4);
+  expect(within(fullTable).getByText("Below threshold")).toBeTruthy();
   expect(screen.getByText(text.preview).closest("details")).toHaveProperty("open", false);
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
   expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([text.refresh]);
   expect(mock.response).toHaveBeenCalledWith("/api/today?preview=false");
+});
+
+it.each(["nothing_to_do", "cannot_price", "valuation_failed"] as const)("keeps the %s notice outside the collapsed comparison", async action_notice => {
+  mock.response.mockResolvedValue(json({ ...payload, has_holdings: true, action_notice,
+    comparison: action_notice === "valuation_failed" ? null : [] }));
+  render(<Page />);
+  expect((await screen.findByText(text.actionNotices[action_notice])).closest("details")).toBeNull();
+  expect(screen.queryByRole("table", { name: text.whatToDo })).toBeNull();
+});
+
+it("links to Rebalance Holdings when the account has no holdings", async () => {
+  mock.response.mockResolvedValue(json(payload));
+  render(<Page />);
+  const link = await screen.findByRole("link", { name: text.noHoldings });
+  expect(link.getAttribute("href")).toBe("/rebalance-holdings");
+  expect(screen.queryByRole("table", { name: text.whatToDo })).toBeNull();
 });
 
 it("loads provisional preview only on opening and keeps action before the merged sleeve table",async()=>{
