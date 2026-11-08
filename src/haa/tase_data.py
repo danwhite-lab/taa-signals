@@ -204,7 +204,7 @@ class TasePriceSource:
                     frame = download_published_eod_closes(security_id) if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS else security.history(years=self._history_years)
                 field, label = select_etf_price_field(frame, asset)
                 source = f"TASE via tasekit ({label})"
-                if self._use_published_closes and asset in RVOL_PUBLISHED_CLOSE_ASSETS:
+                if self._use_published_closes and (asset in RVOL_PUBLISHED_CLOSE_ASSETS or self._history_years > PUBLIC_HISTORY_YEARS):
                     source += "; published no-trade valuations retained (not guaranteed fills)"
             else:
                 # tasekit maps a regular mutual fund's Close to Maya's

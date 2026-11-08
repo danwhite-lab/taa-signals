@@ -55,7 +55,7 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     drawdowns = units.div(units.cummax().clip(lower=initial)).sub(1)
     monthly_returns = pd.DataFrame({label: result.monthly[{"pre_tax_value": "pre_tax_monthly_return", "after_tax_value": "after_tax_monthly_return", "benchmark_value": "benchmark_monthly_return"}[column]] for label, column in mapping.items()})
     annual = pd.DataFrame({label: annual_returns(monthly_returns[label]) for label in monthly_returns})
-    captions, warnings, downloads, extra_tables, extra_charts = [], ([base.MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []), {}, [], []
+    captions, warnings, downloads, extra_tables, extra_charts = ([base.MINIMUM_NOTE] if request.fees_enabled is None and request.fee_value else []), [], {}, [], []
     if not proxy:
         warnings += [risk for sleeve in request.sleeves
                      if (risk := getattr(selected_definition(sleeve.model).model_class, "risk_warning", None))]
@@ -180,4 +180,4 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
                   drawdown_title=W["proxyBlendDrawdown" if proxy and blend else "proxyDrawdown" if proxy else "drawdownTitle"],
                   summary_title=W["performanceDetails"] if proxy else None)
     from .price_warnings import annotate_price_warnings
-    return clean(annotate_price_warnings({"kind": "backtest-deep-history-v1" if proxy else "backtest-portfolio-v1", "public": public, "downloads": downloads}, result.price_warnings))
+    return clean(annotate_price_warnings({"kind": "backtest-deep-history-v2" if proxy else "backtest-portfolio-v2", "public": public, "downloads": downloads}, result.price_warnings))

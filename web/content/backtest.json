@@ -55,7 +55,6 @@
   "settings": "Settings actually used by the engine",
   "configuredSettings": "Configured backtest settings (percentage inputs are in percent)",
   "engineSettings": "Engine inputs (percentage costs and tax rates are fractions)",
-  "legacyCaptions": "Some engine captions describe features of the Streamlit app.",
   "settingLabels": {
     "label": "Model",
     "start": "Start date",
@@ -91,5 +90,8 @@
   "value": "Value",
   "date": "Date",
   "download": "Download",
-  "disclaimer": "Historical backtest only; not investment advice. You are responsible for any trading decision and execution."
+  "disclaimer": "Historical backtest only; not investment advice. You are responsible for any trading decision and execution.",
+  "testedPeriod": "{start} to {end}",
+  "howRan": "How this backtest ran",
+  "taxRateSuffix": "%"
 }

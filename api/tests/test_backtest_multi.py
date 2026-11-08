@@ -102,7 +102,8 @@ def assert_report(response, direct, initial=10000., proxy=False):
     audit = direct.audit if direct.audit is not None else direct.monthly
     assert value["periods"] == clean(base.preview(audit))
     assert value["tax_events"] == clean(base.preview(direct.tax_events))
-    assert (base.MINIMUM_NOTE in value['warnings']) == bool(value['settings']['fee_value'])
+    assert (base.MINIMUM_NOTE in value['captions']) == bool(value['settings']['fee_value'])
+    assert base.MINIMUM_NOTE not in value['warnings']
     assert response.headers["cache-control"] == "no-store, private"
     assert len(response.content) < 3_000_000
     return value
@@ -365,3 +366,14 @@ def test_original_static_words_stay_verbatim_except_transfer_loading_caption():
     for key in ("sleeveCaption", "deepLoadCaption", "proxyCaption", "benchmarkHelp", "weightSuccess", "duplicateProxy", "dailySingle", "mixedCaption", "taxCaption", "dailyCaption", "syntheticTax", "unsupportedFees", "monthlyReset", "mixedNone", "mixedCap", "mixedAnnual", "mixedTax", "proxyWarning", "blendWarning", "dailyMetrics", "sourceCaption", "sleeveFeeCaption", "plainCaption", "rollingCaption"):
         assert page.WORDS[key] in literals, key
     assert 'saved transfer rule with its parameters' in page.WORDS['loadCaption']
+
+
+def test_legacy_minimum_fee_note_moves_to_methodology_and_result_kind_is_v2(signed_in,monkeypatch):
+    labels=('HAA-Simple','Buy and Hold SPY')
+    live_fixture(monkeypatch,labels)
+    response=client.post('/api/backtest',headers=HEADERS,json=body(labels,fee_value=.05))
+    assert response.status_code==200,response.text
+    value=response.json()
+    assert value['captions'].count(base.MINIMUM_NOTE)==1
+    assert base.MINIMUM_NOTE not in value['warnings']
+    assert base.RESULTS.warm[value['cache']['key']]['kind']=='backtest-portfolio-v2'

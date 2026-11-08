@@ -141,8 +141,18 @@ def live_inputs(request):
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"), benchmark)))
     strict = tuple(dict.fromkeys(a for d in definitions if getattr(d.model_class, "signal_calendar", None) == "XNYS" for a in d.model_class.us_data_assets))
     # Loader-only union descriptor. All decisions still use the original class.
-    context = SimpleNamespace(model_class=lambda: SimpleNamespace(data_assets=assets, benchmark_asset=benchmark,
-        us_data_assets=strict, signal_calendar="XNYS" if strict else None))
+    class PortfolioInputs:
+        data_assets = assets
+        benchmark_asset = benchmark
+        us_data_assets = strict
+        signal_calendar = "XNYS" if strict else None
+
+    years = [d.model_class.tase_history_years for d in definitions if hasattr(d.model_class, "tase_history_years")]
+    if years:
+        # As for single IC runs, full published-close history bypasses the short
+        # daily snapshot; first loads are slower, with the 5-minute cache retained.
+        PortfolioInputs.tase_history_years = max(years)
+    context = SimpleNamespace(model_class=PortfolioInputs)
     bars = mixed and not local
     loaded = signals.load_inputs(context, daily_bars=bars)
     prices, metadata, warnings = loaded[:3]
@@ -217,7 +227,7 @@ def run(request, code):
         params["sleeves"] = sorted(order, key=lambda s: (s["model"], s["weight"]))
         params["execution_order"] = order
         params.update(code=code, utc_date=str(datetime.now(timezone.utc).date()), completed_cutoff=cutoff,
-                      source_metadata=digest(table(metadata)), content_version=digest(WORDS), presentation=f"backtest-{'portfolio' if request.mode == 'portfolio' else 'deep-history'}-v1")
+                      source_metadata=digest(table(metadata)), content_version=digest(WORDS), presentation=f"backtest-{'portfolio' if request.mode == 'portfolio' else 'deep-history'}-v2")
         if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             began = perf_counter()

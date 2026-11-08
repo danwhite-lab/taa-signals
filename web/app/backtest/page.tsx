@@ -76,12 +76,10 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
 
   return <section className="backtest-results" aria-label={text.results}>
     <header className="backtest-results-heading">
-      <h2>{multiText.resultsComplete}</h2>
-      <p>{result.label}</p>
+      <h2>{result.label}</h2>
+      <p>{text.testedPeriod.replace("{start}", fmt.date(result.value_chart.start)).replace("{end}", fmt.date(result.value_chart.end))}</p>
     </header>
     <UsdBanner value={result.usd_equivalents} />
-    <p>{text.legacyCaptions}</p>
-    {result.captions.map((value, index) => !sectionCaptions.has(value) && <div key={index}><Markdown>{value}</Markdown></div>)}
     {result.warnings.map((value, index) => <p key={index} className="signal-warning">{value}</p>)}
 
     <div className="backtest-result-tabs" role="tablist" aria-label={text.results}>
@@ -104,7 +102,6 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
     </div>
 
     <div className="backtest-result-panel" {...panel("overview")}>
-      <p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
       {!!result.cards?.length && <div className="backtest-result-cards">
         {result.cards.map(card => <section key={card.label}>
           <h3>{card.label}</h3>
@@ -161,6 +158,9 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
     </div>
 
     <div className="backtest-result-panel" {...panel("history")}>
+      <details className="backtest-result-detail"><summary>{text.howRan}</summary>
+        {result.captions.map((value, index) => !sectionCaptions.has(value) && <div key={index}><Markdown>{value}</Markdown></div>)}
+      </details>
       <details className="backtest-result-detail"><summary>{text.ledger}</summary>
         <DataTable value={result.tax_events} label={text.ledger} />
       </details>
@@ -184,6 +184,7 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
           </li>)}
         </ul>
       </section>
+      <p>{result.cache.hit ? text.cached : text.calculatedNow} · {text.calculated}: {result.calculated_at}</p>
       <details className="backtest-result-detail"><summary>{text.timing}</summary>
         <pre>{fmt.json(result.timing)}</pre><h3>{text.originalTiming}</h3><pre>{fmt.json(result.calculation_timing)}</pre>
       </details>

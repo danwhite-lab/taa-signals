@@ -39,6 +39,10 @@ def inputs(strategy, daily_bars, compute):
               "benchmark": getattr(strategy, "benchmark_asset", "SPY"),
               "strict": list(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None)=="XNYS" else [],
               "daily_bars": daily_bars, "code": engine_revision()}
+    # Compare/Research can request the same instruments with the default window.
+    # Keep those keys unchanged, but isolate longer published-close bundles.
+    years = getattr(strategy, "tase_history_years", None)
+    if years is not None: params["tase_history_years"] = years
     def build():
         with span("download_seconds"): result = compute()
         if result[2] or result[0].empty or result[0].isna().all().any(): raise Degraded(result)

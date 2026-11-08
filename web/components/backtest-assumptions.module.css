@@ -1,0 +1,5 @@
+.taxRow { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; min-width: 0; }
+.taxRow .taxLabel { flex: 1 1 8rem; min-width: 0; margin: 0; }
+.taxControls { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; }
+.taxRow .rate { display: inline-flex; align-items: center; gap: .25rem; margin: 0; }
+.taxRow .rate input { width: 4.5rem; max-width: 4.5rem; margin: 0; }
