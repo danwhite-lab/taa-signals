@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import words from "../content/backtest-multi.json";
 import text from "../content/backtest.json";
@@ -277,4 +277,38 @@ it('restores reference replay only for a legacy one-sleeve request',async()=>{
  await waitFor(()=>expect(run).toHaveBeenCalled());
  expect(run.mock.calls[0][0]).toMatchObject({label:'HAA-Simple',reference_replay:true});
  expect(run.mock.calls[0][0]).not.toHaveProperty('mode');
+});
+
+it('keeps the compact tax controls independent and preserves an edited rate across saved transfer-rule loads',async()=>{
+  const {run}=setup('portfolio');await screen.findByText('Fake portfolio');
+  const rate=screen.getByRole('spinbutton',{name:text.taxRate});
+  const toggle=screen.getByRole('switch',{name:text.taxEnabled});
+  expect(rate).toHaveProperty('value','25');
+  fireEvent.change(rate,{target:{value:'31.5'}});
+  const label=document.querySelector(`label[for="${toggle.id}"]`)!;
+  fireEvent.click(label);expect(rate).toHaveProperty('disabled',true);expect(rate).toHaveProperty('value','31.5');
+  fireEvent.click(toggle);expect(rate).toHaveProperty('disabled',false);
+  const original=mock.request.getMockImplementation()!;
+  mock.request.mockImplementation(async(path,init)=>path==='/api/backtest/load'?{
+    sleeves:[{id:1,model:'HAA-Simple',weight:80},{id:2,model:'A-RVol Shifter V3 Cash-Only',weight:20}],
+    initial:3000,warnings:[],sleeve_rebalance_mode:'rvol_cap',rebalance_sleeve:2,rebalance_cap:17.5,rebalance_target:9.25,
+  }:original(path,init));
+  fireEvent.click(screen.getByRole('button',{name:words.load}));
+  const advanced=screen.getByText(words.advancedTitle).closest('details')!;
+  await waitFor(()=>expect(advanced.textContent).toContain(words.rules.rvol_cap));
+  expect(advanced.open).toBe(false);
+  expect(screen.getByLabelText(words.rule).closest('details.portfolio-advanced')).toBe(advanced);
+  fireEvent.click(within(advanced).getByText(words.advancedTitle));
+  expect(screen.getByRole('combobox',{name:words.rule})).toHaveProperty('value','rvol_cap');
+  expect(screen.getByLabelText(words.capSleeve)).toHaveProperty('value','2');
+  fireEvent.change(screen.getByLabelText(words.cap),{target:{value:'18.5'}});
+  fireEvent.change(screen.getByLabelText(words.target),{target:{value:'8.25'}});
+  fireEvent.click(within(advanced).getByText(words.advancedTitle));
+  fireEvent.click(within(advanced).getByText(words.advancedTitle));
+  expect(screen.getByLabelText(words.cap)).toHaveProperty('value','18.5');
+  expect(screen.getByLabelText(words.target)).toHaveProperty('value','8.25');
+  expect(rate).toHaveProperty('value','31.5');
+  fireEvent.click(screen.getByRole('button',{name:text.run}));
+  await waitFor(()=>expect(run).toHaveBeenCalled());
+  expect(run.mock.calls[0][0]).toMatchObject({tax_enabled:true,tax_rate:31.5,sleeve_rebalance_mode:'rvol_cap',rebalance_sleeve:2,rebalance_cap:18.5,rebalance_target:8.25});
 });

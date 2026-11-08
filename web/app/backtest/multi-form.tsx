@@ -264,7 +264,7 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
 
       <fieldset className="backtest-parameter-group" disabled={formDisabled}>
         {mode === "deep" ? <><label title={words.benchmarkHelp}>{words.benchmark}<select value={form.benchmark} onChange={event => change({ benchmark: event.target.value })}>
-            {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : transferControls}
+            {config?.benchmarks.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}</select></label><p>{config?.benchmarks.find(b => b.key === form.benchmark)?.caveat}</p></> : null}
         <div className="backtest-date-grid">
           <DateField label={words.startDate} hint={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart}><input aria-label={mode === "portfolio" ? words.portfolioStart : sleeves.length > 1 ? words.blendStart : words.proxyStart} type="date" min={singleOptions?.bounds.start_min} max={singleOptions?.bounds.start_max} value={form.start} onChange={event => change({ start: event.target.value })} /></DateField>
           <DateField label={words.endDate} hint={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd}><input aria-label={mode === "portfolio" ? words.portfolioEnd : sleeves.length > 1 ? words.blendEnd : words.proxyEnd} type="date" min={singleOptions?.bounds.end_min} max={singleOptions?.bounds.end_max} value={form.end} onChange={event => change({ end: event.target.value })} /></DateField>
@@ -272,6 +272,7 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
         {legacySingle && singleOptions?.reference_replay_available && <><label>{text.reference}<input type="checkbox" checked={form.reference_replay} onChange={event => change({reference_replay:event.target.checked})} /></label><p>{singleOptions.reference_caption}</p></>}
         <details className="portfolio-advanced">
           <summary><strong>{words.advancedTitle}</strong><span>{advancedSummary}</span></summary>
+          {mode === "portfolio" && transferControls}
           <Fees compact value={form} onChange={change} />
           <details><summary>{words.settingsHelp}</summary><p>{words.dateHelp}</p></details>
         </details>
