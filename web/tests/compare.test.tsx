@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import text from "../content/compare.json";
 const mock=vi.hoisted(()=>({request:vi.fn(),download:vi.fn()}));
@@ -15,15 +15,32 @@ const report={gate:"available",mode:"models",tax_enabled:true,success:"All resul
   tables:Object.fromEntries(["summary_pre","summary_after","annual_pre","annual_after","monthly_pre","monthly_after","allocation"].map(key=>[key,table])),charts:{},warnings:[],cache:{key:"fake-key",hit:null},timing:{},data_validation:table,
   downloads:[{kind:"monthly-returns",label:text.downloads["monthly-returns"],filename:"haa_model_comparison_monthly_returns.csv"},{kind:"audit:HAA-Simple",label:"Download HAA-Simple common-period audit CSV",filename:"haa-simple_comparison_audit.csv"}]};
 afterEach(()=>{cleanup();mock.request.mockReset();mock.download.mockReset();});
-async function ready(){
-  mock.request.mockImplementation(async(path:string)=>path==="/api/compare/options"?options:report);
-  mock.download.mockResolvedValue(undefined);render(<Page/>);return screen.findByRole("button",{name:text.run});
+function reply(path: string) {
+  if (path === "/api/compare/options?kind=models") return {models: options.models};
+  if (path === "/api/compare/options?kind=portfolios") return {portfolios: options.portfolios};
+  if (path === "/api/portfolios") return [];
+  if (path === "/api/usd-equivalents/options") return {currency:"USD", mapping_version:"mock", mappings:[],
+    bounds:{start_min:"2020-01-31",start_max:"2026-10-30",end_min:"2020-01-31",end_max:"2026-10-30"}};
+  return report;
 }
-function select(label:string,values:string[]){
+async function openChoices(label: string) {
+  const summary = screen.getByText(label, {selector:"summary"});
+  const details = summary.closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  await within(details).findAllByRole("checkbox");
+}
+async function ready() {
+  mock.request.mockImplementation(async (path:string) => reply(path));
+  mock.download.mockResolvedValue(undefined);
+  render(<Page/>); await openChoices(text.models);
+  select(text.models, options.defaults.models);
+  return screen.findByRole("button",{name:text.run});
+}
+function select(label:string, values:string[]) {
   const group=screen.getByRole("group",{name:label});
-  for(const input of Array.from(group.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
-    const value=label===text.models?input.parentElement!.textContent:input.value;
-    if(input.checked!==values.includes(value!))fireEvent.click(input);
+  for(const input of within(group).getAllByRole("checkbox") as HTMLInputElement[]) {
+    if(input.checked!==values.includes(input.value))fireEvent.click(input);
   }
 }
 
@@ -33,13 +50,14 @@ it("uses the existing sign-in gate",async()=>{
 
 it('sorts saved portfolios default-first without changing the selected set',async()=>{
   const portfolios=[{id:'b',name:'beta'},{id:'a',name:'Alpha'},{id:'z',name:'Zulu'}];
-  mock.request.mockImplementation(async(path)=>path==='/api/compare/options'?{...options,portfolios,defaults:{...options.defaults,mode:'portfolios'}}:[{id:'z',is_default:true}]);
-  render(<Page/>);const group=await screen.findByRole('group',{name:text.saved});
+  mock.request.mockImplementation(async(path)=>path==="/api/compare/options?kind=portfolios"?{portfolios}:[{id:"z",is_default:true}]);
+  render(<Page/>);fireEvent.click(screen.getByRole('radio',{name:text.modes.portfolios}));await openChoices(text.saved);
+  const group=screen.getByRole('group',{name:text.saved});
   expect(Array.from(group.querySelectorAll('label')).map(l=>l.textContent)).toEqual(['Zulu','Alpha','beta']);
   expect(Array.from(group.querySelectorAll<HTMLInputElement>('input')).every(input=>!input.checked)).toBe(true);
 });
 it("loads options only and preserves independent tax-off defaults",async()=>{
-  await ready();expect(mock.request).toHaveBeenCalledTimes(2);expect(mock.request.mock.calls[0][0]).toBe("/api/compare/options");
+  await ready();expect(mock.request).toHaveBeenCalledTimes(1);expect(mock.request.mock.calls[0][0]).toBe("/api/compare/options?kind=models");
   expect(screen.getByLabelText(text.tax)).toHaveProperty("checked",false);expect(screen.getByLabelText(text.rate)).toHaveProperty("disabled",true);
   expect(screen.getByLabelText(text.initial)).toHaveProperty("value","100000");expect(screen.getByLabelText(text.start)).toHaveProperty("value","");
   expect(screen.getByText(text.modelsCaption)).toBeTruthy();expect(screen.getByText(text.dateHelp)).toBeTruthy();
@@ -79,7 +97,7 @@ it.each([text.initial,text.contribution,text.fee,text.start,text.end,text.rate])
 it("clears on tax, model, mode, method and saved selections",async()=>{
   fireEvent.click(await ready());await screen.findByText(text.completed);fireEvent.click(screen.getByLabelText(text.tax));expect(screen.queryByText(text.completed)).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);select(text.models,["Inflation Compass Standard","Mock ILS model"]);expect(screen.queryByText(text.completed)).toBeNull();
-  fireEvent.click(screen.getByRole("radio",{name:text.modes.portfolios}));select(text.saved,["fake-a","fake-b"]);
+  fireEvent.click(screen.getByRole("radio",{name:text.modes.portfolios}));await openChoices(text.saved);select(text.saved,["fake-a","fake-b"]);
   mock.request.mockResolvedValue({...report,mode:"portfolios",success:null,downloads:[{kind:"portfolio-returns",label:text.downloads["portfolio-returns"],filename:"portfolio_comparison.csv"}]});
   fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);
   expect(screen.getByText(text.closing)).toBeTruthy();expect(screen.getByText(text.savedCaption)).toBeTruthy();expect(screen.getByText(text.methodCaption)).toBeTruthy();
@@ -89,8 +107,9 @@ it("clears on tax, model, mode, method and saved selections",async()=>{
 });
 it("guards duplicate requests and disables controls in flight",async()=>{
   let resolve!:(value:unknown)=>void;
-  mock.request.mockImplementation((path:string)=>path==="/api/compare/options"?Promise.resolve(options):path==="/api/portfolios"?Promise.resolve([]):new Promise(done=>{resolve=done;}));
-  render(<Page/>);const run=await screen.findByRole("button",{name:text.run});fireEvent.click(run);fireEvent.click(run);
+  mock.request.mockImplementation((path:string)=>path!=="/api/compare"?Promise.resolve(reply(path)):new Promise(done=>{resolve=done;}));
+  render(<Page/>);await openChoices(text.models);select(text.models,options.defaults.models);
+  const run=await screen.findByRole("button",{name:text.run});fireEvent.click(run);fireEvent.click(run);
   expect(mock.request.mock.calls.filter(([path])=>path==="/api/compare")).toHaveLength(1);expect(run).toHaveProperty("disabled",true);
   expect(screen.getByRole("radiogroup",{name:text.mode}).closest("fieldset")).toHaveProperty("disabled",true);
   expect(screen.getByText(text.progress)).toBeTruthy();resolve(report);await screen.findByText(text.completed);
@@ -111,7 +130,7 @@ it("shows and sends deposits in both modes without changing the entered amount",
   fireEvent.click(screen.getByRole("button",{name:text.run}));await screen.findByText(text.completed);
   expect(JSON.parse(mock.request.mock.calls.find(([path])=>path==="/api/compare")![1].body).monthly_contribution).toBe(250);
   fireEvent.click(screen.getByRole("radio",{name:text.modes.portfolios}));
-  select(text.saved,["fake-a","fake-b"]);
+  await openChoices(text.saved);select(text.saved,["fake-a","fake-b"]);
   expect(screen.getByLabelText(text.contribution)).toHaveProperty("value","250");
   expect(screen.getByText(text.portfolioContributionCaption)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(text.contribution),{target:{value:"350"}});
@@ -134,26 +153,30 @@ it("keeps fee, tax toggle and rate in one costs row, with the rate disabled unti
   expect(fields).toEqual([screen.getByLabelText(text.initial),screen.getByLabelText(text.contribution),screen.getByLabelText(text.start),screen.getByLabelText(text.end)]);
 });
 
-it("groups catalogue families and models A-Z, searches case-insensitively and retains hidden selections",async()=>{
-  const models=[...options.models,{label:"haa Alpha",strategy:"HAA",benchmark:"SPY",execution_currency:"USD"}].reverse();
-  mock.request.mockImplementation(async(path:string)=>path==="/api/compare/options"?{...options,models}:[]);
-  render(<Page/>);await screen.findByRole("button",{name:text.run});
+it("starts empty and keeps selections when searching, filtering or closing the picker",async()=>{
+  const models=[...options.models,{label:"HAA-Simple Israel",strategy:"HAA",benchmark:"SPY",execution_currency:"ILS"}].reverse();
+  mock.request.mockImplementation(async(path:string)=>path==="/api/compare/options?kind=models"?{models}:report);
+  render(<Page/>);
+  expect(mock.request).not.toHaveBeenCalled();
+  expect(screen.getByText("0 selected")).toBeTruthy();
+  expect(screen.queryByRole("button",{name:text.run})).toBeNull();
+  await openChoices(text.models);
   const picker=screen.getByRole("group",{name:text.models});
-  expect(within(picker).getAllByRole("heading").map(n=>n.textContent)).toEqual(["HAA","Inflation Compass",text.otherGroup]);
-  expect(within(screen.getByRole("region",{name:"HAA"})).getAllByRole("checkbox").map(n=>n.parentElement!.textContent)).toEqual(["haa Alpha","HAA-Simple"]);
-  fireEvent.change(screen.getByLabelText(text.search),{target:{value:"mOCK"}});
-  expect(within(picker).getAllByRole("heading").map(n=>n.textContent)).toEqual([text.otherGroup]);
-  expect(within(picker).getAllByRole("checkbox")).toHaveLength(2);
-  expect(screen.getByText(text.selectedCount.replace("{count}","2"))).toBeTruthy();
+  expect(within(picker).getAllByRole("heading").map(n=>n.textContent)).toEqual(["HAA","Inflation Compass","Other models"]);
+  select(text.models,["HAA-Simple","Inflation Compass Standard"]);
+  fireEvent.change(screen.getByRole("searchbox"),{target:{value:"sIMPLE"}});
+  fireEvent.click(screen.getByRole("button",{name:/^Israel$/}));
+  expect(within(picker).getAllByRole("checkbox")).toHaveLength(1);
+  expect(screen.getByText("2 selected")).toBeTruthy();
   expect(screen.getByRole("button",{name:text.run})).toBeTruthy();
-  fireEvent.change(screen.getByLabelText(text.search),{target:{value:""}});
-  expect(within(picker).getAllByRole("checkbox")).toHaveLength(5);
-  expect(screen.getByRole("checkbox",{name:"HAA-Simple"})).toHaveProperty("checked",true);
-  expect(screen.getByRole("checkbox",{name:"Inflation Compass Standard"})).toHaveProperty("checked",true);
-  fireEvent.click(screen.getByRole("checkbox",{name:"Mock ILS model"}));
-  fireEvent.change(screen.getByLabelText(text.search),{target:{value:"haa"}});
-  expect(screen.getByText(text.hint)).toBeTruthy();
-  expect(screen.queryByRole("combobox",{name:text.mode})).toBeNull();
+  expect(mock.request).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(screen.getByRole("searchbox"),{key:"Escape"});
+  expect(screen.getByText(text.models,{selector:"summary"}).closest("details")?.open).toBe(false);
+  expect(screen.getByText("2 selected")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:text.run}));
+  await screen.findByText(text.completed);
+  const call=mock.request.mock.calls.find(([path])=>path==="/api/compare")!;
+  expect(JSON.parse(call[1].body).models).toEqual(["HAA-Simple","Inflation Compass Standard"]);
 });
 
 it.each([text.initial,text.contribution,text.fee])('sends zero rather than null when %s is cleared',async label=>{
@@ -162,4 +185,14 @@ it.each([text.initial,text.contribution,text.fee])('sends zero rather than null 
   const body=JSON.parse(mock.request.mock.calls.find(([path])=>path==='/api/compare')![1].body);
   const field=label===text.initial?'initial':label===text.contribution?'monthly_contribution':'fee_pct';
   expect(body[field]).toBe(0);
+});
+
+it("defers the existing USD availability request while the model chooser is open", async () => {
+  await ready();
+  fireEvent.click(screen.getByRole("switch",{name:"Test USD equivalents"}));
+  fireEvent.change(screen.getByRole("searchbox"),{target:{value:"HAA"}});
+  expect(mock.request.mock.calls.some(([path])=>path==="/api/usd-equivalents/options")).toBe(false);
+  fireEvent.keyDown(screen.getByRole("searchbox"),{key:"Escape"});
+  await screen.findByText("2 selected");
+  await waitFor(() => expect(mock.request.mock.calls.some(([path])=>path==="/api/usd-equivalents/options")).toBe(true));
 });

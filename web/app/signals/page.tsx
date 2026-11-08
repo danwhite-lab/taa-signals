@@ -1,5 +1,7 @@
 "use client";
 
+import SearchPicker from "../../components/SearchPicker";
+
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
@@ -131,28 +133,9 @@ export default function SignalsPage() {
       .catch((problem: Error) => { if (!controller.signal.aborted) setError(problem.message); });
     return () => controller.abort();
   }, [models, label, attempt]);
-  const selected = models.find(model => model.label === label);
-  const strategies = [...new Set(models.map(model => model.strategy))].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-  const variants = [...new Set(models.filter(model => model.strategy === selected?.strategy).map(model => model.variant))];
-  const implementations = models.filter(model => model.strategy === selected?.strategy && model.variant === selected?.variant);
-  function choose(strategy: string, requestedVariant?: string) {
-    const candidates = models.filter(model => model.strategy === strategy);
-    const preferred = requestedVariant ?? selected?.variant;
-    const variant = candidates.some(model => model.variant === preferred) ? preferred : candidates[0].variant;
-    const group = candidates.filter(model => model.variant === variant);
-    setLabel((group.find(model => model.implementation === selected?.implementation) ?? group[0]).label);
-  }
   return <main className="signals-page">
     <p className="eyebrow">Strategy signals</p>
-    {selected && <div className="signal-selector">
-      <label>Strategy<select value={selected.strategy} onChange={event => choose(event.target.value)}>
-        {strategies.map(strategy => <option key={strategy}>{strategy}</option>)}</select></label>
-      <label>Variant<select value={selected.variant ?? ""} disabled={variants.length === 1 && variants[0] === null}
-        onChange={event => choose(selected.strategy, event.target.value)}>
-        {variants.map(variant => <option key={variant ?? "none"} value={variant ?? ""}>{variant ?? "No variants"}</option>)}</select></label>
-      <label>Implementation<select value={label} onChange={event => setLabel(event.target.value)}>
-        {implementations.map(model => <option key={model.label} value={model.label}>{model.implementation}</option>)}</select></label>
-    </div>}
+    {models.length > 0 && <SearchPicker models={models} value={label} onSelect={setLabel} />}
     {error && <section role="alert"><h1>Signals could not be loaded</h1><p>{error}</p>
       <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></section>}
     {!payload && !error && <p role="status">Loading signals from the existing Python engine…</p>}

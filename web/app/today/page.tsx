@@ -7,6 +7,7 @@ import text from "../../content/today.json";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
 import HistorySources, { type HistorySleeve } from "./history-sources";
+import { fundName, modelCaption } from "../../lib/picker-display";
 import styles from "./today.module.css";
 
 type Allocation = { name: string; security_number: string | null; weight_text: string | null };
@@ -21,8 +22,8 @@ type Today = { has_default: boolean; has_holdings: boolean; caption: string | nu
 
 const issue = (key: string | null) => key ? (text.errors as Record<string, string>)[key] ?? text.unavailable : null;
 const requestError = (status: number) => (text.requestErrors as Record<string, string>)[String(status)] ?? `${text.httpError} (${status}). ${text.unchanged}`;
-const sleeveName = (label: string | null) => label ? (text.shortNames as Record<string, string>)[label] ?? label : text.unavailable;
-const names = (parts: Allocation[] | undefined) => parts?.map((part, i) => <div key={i}>{part.name}{part.weight_text && ` ${part.weight_text}`}</div>);
+const sleeveName = (label: string | null) => label ? modelCaption(label) : text.unavailable;
+const names = (parts: Allocation[] | undefined) => parts?.map((part, i) => <div key={i}>{part.security_number ? fundName(`TASE:${part.security_number}`, part.name) : part.name}{part.weight_text && ` ${part.weight_text}`}</div>);
 const numbers = (parts: Allocation[] | undefined) => parts?.length ? parts.map((part, i) => <div key={i}>{part.security_number ?? text.noSecurityNumber}</div>) : text.noSecurityNumber;
 
 export default function TodayPage() {
@@ -91,8 +92,8 @@ export default function TodayPage() {
           <table aria-label={text.whatToDo}>
             <thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.buy}</th><th>{text.aboveTarget}</th></tr></thead>
             <tbody>{value.actions.map(row => <tr key={row.id}>
-              <td>{row.fund}{row.moved_here.length > 0 && <small className={styles.secondary}>
-                {text.movedHere.replace("{sleeves}", () => row.moved_here.join(", "))}
+              <td>{fundName(row.id, row.fund)}{row.moved_here.length > 0 && <small className={styles.secondary}>
+                {text.movedHere.replace("{sleeves}", () => row.moved_here.map(modelCaption).join(", "))}
               </small>}</td>
               <td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td>
               <td>{row.direction === "buy" ? row.amount_text : text.dash}</td>
@@ -102,7 +103,7 @@ export default function TodayPage() {
         </div>}
         {value.pot_total !== null && <p>{text.potTotal.replace("{amount}", fmt.number(value.pot_total, true))}</p>}
         {value.comparison && <details><summary>{text.fullComparison}</summary><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.fullComparison}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
-          {value.comparison.map(row => <tr key={row.id}><td>{row.Fund}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
+          {value.comparison.map(row => <tr key={row.id}><td>{fundName(row.id, row.Fund)}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
         </tbody></table></div></details>}</>}</section>
       <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}

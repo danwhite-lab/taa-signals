@@ -1,4 +1,6 @@
 "use client";
+
+import SearchPicker from "../../components/SearchPicker";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/backtest.json";
@@ -9,6 +11,8 @@ import Fees, { defaultFees, type FeeAssumptions } from "./fee-assumptions";
 import { DateField, Toggle, TaxControls } from "../../components/BacktestAssumptions";
 import { savedChoices } from "../../lib/ui-order";
 import DisplayTable from "../../components/DisplayTable";
+import pickerWords from "../../content/pickers.json";
+import { modelCaption } from "../../lib/picker-display";
 
 type Model = { label: string; strategy: string; variant: string | null; implementation: string; execution_currency?: string };
 type Sleeve = { id: number; model: string; weight: number };
@@ -73,15 +77,6 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
   function edit(id: number, patch: Partial<Sleeve>) {
     setValid(false); setMessage(""); setSleeves(previous => previous.map(s => s.id === id ? { ...s, ...patch } : s)); setWarnings([]); onChange();
   }
-  function choose(s: Sleeve, strategy: string, requestedVariant?: string) {
-    const current = config?.models.find(m => m.label === s.model);
-    const candidates = config?.models.filter(m => m.strategy === strategy) ?? [];
-    const preferred = requestedVariant ?? current?.variant;
-    const variant = candidates.some(m => m.variant === preferred) ? preferred : candidates[0]?.variant;
-    const group = candidates.filter(m => m.variant === variant);
-    const model = group.find(m => m.implementation === current?.implementation) ?? group[0];
-    if (model) edit(s.id, { model: model.label });
-  }
   async function listSaved(signal?: AbortSignal) {
     setLoadingSaved(true); setSavedError("");
     try {
@@ -145,12 +140,23 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
   }
   const availability=useUsdAvailability(mode === "portfolio" && form.usd_equivalents,{mode:"portfolio",models:sleeves.map(s=>s.model)},bounds=>setForm(previous=>fitDates(previous,bounds)));
   const options = config ? (sleeves.length === 1 ? config.single_options : config.blend_options) : [];
+  const proxies = (config?.proxies ?? []).map(proxy => ({
+    key: proxy.key, name: proxy.label, family: pickerWords.proxies, secondary: pickerWords.proxy, aliases: [proxy.caveat],
+  }));
+  const proxyChoices = proxies.filter(proxy => options.includes(proxy.key));
+  const addProxies = proxies.filter(proxy => config?.blend_options.includes(proxy.key) && !sleeves.some(sleeve => sleeve.model === proxy.key));
+  function addSleeve(model: string) {
+    setValid(false); setMessage("");
+    const id = nextId.current++;
+    setSleeves(previous => [...previous, { id, model, weight: 0 }]);
+    onChange();
+  }
   const transferControls = <>
         <label>{words.rule}<select value={form.sleeve_rebalance_mode} onChange={event => change({ sleeve_rebalance_mode: event.target.value,
           ...(event.target.value === "rvol_cap" ? { rebalance_sleeve: sleeves.find(s => s.id === form.rebalance_sleeve && s.model.includes("RVol"))?.id ?? sleeves.find(s => s.model.includes("RVol"))?.id ?? null } : {}) })}>
           {Object.entries(words.rules).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         {form.sleeve_rebalance_mode === "rvol_cap" && <><label>{words.capSleeve}<select value={form.rebalance_sleeve ?? ""} onChange={event => change({ rebalance_sleeve: Number(event.target.value) })}>
-          <option value="" />{sleeves.filter(s => s.model.includes("RVol")).map(s => <option key={s.id} value={s.id}>{s.model} ({s.id})</option>)}</select></label>
+          <option value="" />{sleeves.filter(s => s.model.includes("RVol")).map(s => <option key={s.id} value={s.id}>{modelCaption(s.model)} ({s.id})</option>)}</select></label>
           <label>{words.cap}<input type="number" min="1" max="99" value={form.rebalance_cap} onChange={event => change({ rebalance_cap: event.target.valueAsNumber })} /></label>
           <label>{words.target}<input type="number" min="1" max="98" value={form.rebalance_target} onChange={event => change({ rebalance_target: event.target.valueAsNumber })} /></label></>}
         <details><summary>{words.settingsHelp}</summary><p>{words.mixedCaption}</p><p>{words.taxCaption}</p></details></>;
@@ -192,33 +198,26 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
         </div>}
         {mode === "deep" && <div className="portfolio-sleeves"><table role="table" className="portfolio-sleeves-table" aria-label={words.extendedAllocationTitle}><thead role="rowgroup"><tr role="row">
         <th role="columnheader" scope="col">{words.proxyStrategy}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
-      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => <tr role="row" key={s.id}><td role="cell"><label>{words.proxyStrategy}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value, ...(event.target.value === "rvol_daily" ? { weight: 100 } : {}) })}>
-        {options.map(key => <option key={key} value={key}>{config?.proxies.find(p => p.key === key)?.label}</option>)}</select></label></td>
+      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => <tr role="row" key={s.id}><td role="cell"><SearchPicker choices={proxyChoices} value={s.model} loading={!config}
+        onSelect={model => edit(s.id, { model, ...(model === "rvol_daily" ? { weight: 100 } : {}) })} /></td>
         <td role="cell" className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"} onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label></td>
         <td role="cell"><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove} disabled={sleeves.length === 1} onClick={() => { setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange(); }}>×</button></td>
       </tr>)}</tbody></table></div>}
         {mode === "portfolio" && <div className="portfolio-sleeves"><table role="table" className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead role="rowgroup"><tr role="row">
-        <th role="columnheader" scope="col">{text.strategy}</th><th role="columnheader" scope="col">{text.variant}</th><th role="columnheader" scope="col">{text.implementation}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
-      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => {
-        const current = config?.models.find(m => m.label === s.model);
-        const variants = [...new Set(config?.models.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
-        return <tr role="row" key={s.id}><td role="cell">{!current && <p role="alert">{words.unavailable.replace("{model}", s.model)}</p>}
-            <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(s, event.target.value)}>
-              {[...new Set(config?.models.map(m => m.strategy) ?? [])].sort().map(name => <option key={name}>{name}</option>)}</select></label></td><td role="cell"><label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={event => choose(s, current?.strategy ?? "", event.target.value)}>
-              {variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label></td><td role="cell"><label>{text.implementation}<select value={s.model} onChange={event => edit(s.id, { model: event.target.value })}>
-              {config?.models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label>
+        <th role="columnheader" scope="col">{text.strategy}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
+      </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => (
+        <tr role="row" key={s.id}><td role="cell"><SearchPicker models={config?.models ?? []} value={s.model} loading={!config}
+          onSelect={model => edit(s.id, { model })} />
           </td><td role="cell" className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"}
             onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
           </td><td role="cell"><button className="portfolio-remove" type="button" aria-label={words.removeSleeve.replace("{number}",String(index+1))} title={words.remove}
-          disabled={sleeves.length === 1} onClick={() => {setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange();}}>×</button></td></tr>;
-      })}</tbody></table></div>}
+          disabled={sleeves.length === 1} onClick={() => {setValid(false); setMessage(""); setSleeves(previous => previous.filter(row => row.id !== s.id)); onChange();}}>×</button></td></tr>
+      ))}</tbody></table></div>}
         <div className="portfolio-allocation-bottom">
-          <button className="btn btn-secondary" type="button" title={mode === "deep" ? words.addProxyHelp : words.addHelp}
-            disabled={daily || (mode === "deep" ? sleeves.length >= (config?.blend_options.length ?? 0) : sleeves.length >= 100)} onClick={() => {
-              const model = mode === "deep" ? config?.blend_options.find(key => !sleeves.some(s => s.model === key)) : "HAA-Simple";
-              if (!model) return;
-              setValid(false); setMessage(""); setSleeves(previous => [...previous, { id: nextId.current++, model, weight: 0 }]); onChange();
-            }}>{mode === "deep" ? words.add : words.addSleeve}</button>
+          {mode === "deep" ? <SearchPicker choices={addProxies} value="" caption={words.add}
+            disabled={daily || !addProxies.length || sleeves.length >= (config?.blend_options.length ?? 0)} onSelect={addSleeve} />
+            : <SearchPicker models={config?.models ?? []} value="" caption={words.addSleeve}
+              disabled={sleeves.length >= 100} onSelect={addSleeve} />}
           <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>
         </div>
       </fieldset>

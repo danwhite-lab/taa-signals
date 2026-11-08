@@ -1,4 +1,6 @@
 "use client";
+
+import { ModelResults, ChoiceLabel } from "../../components/SearchPicker";
 import { useRef, useState } from "react";
 import {UsdToggle,UsdBanner,useUsdAvailability,fitDates,type UsdInfo} from "../../components/UsdEquivalents";
 import Markdown from "react-markdown";
@@ -6,15 +8,18 @@ import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import usdWords from "../../content/usd-equivalents.json";
 import text from "../../content/compare.json";
+import pickerStyles from "../../components/search-picker.module.css";
+import pickerWords from "../../content/pickers.json";
 import { compareRequest, compareDownload } from "../../lib/compareApi";
 import { AmountAndDates, DateField, CostsAndTax, TaxControls } from "../../components/BacktestAssumptions";
+import { modelChoice, type ModelOption } from "../../lib/picker-display";
 import { savedChoices } from "../../lib/ui-order";
 
 type Mode = "models" | "portfolios";
 type Settings = {usd_equivalents?:boolean;mode: Mode; models: string[]; portfolio_ids: string[]; method: "monthly" | "daily"; initial: number; monthly_contribution: number; fee_pct: number; tax_enabled: boolean; tax_rate: number; start: string; end: string};
 type Table = {columns: string[]; rows: Record<string, unknown>[]; display_rows?: Record<string, unknown>[]; total_rows?: number; shown_rows?: number};
 type Chart = {series: {label: string; svg_points: string}[]; start: string; end: string; minimum: number; maximum: number; caption: string};
-type Options = {models: {label: string; strategy?: string; benchmark: string; execution_currency: string}[]; portfolios: {id: string; name: string}[]; defaults: Settings};
+type Options = {models: (ModelOption & {benchmark: string; execution_currency: string})[]; portfolios: {id: string; name: string}[]; defaults: Settings};
 type Result = {usd_equivalents?:UsdInfo;gate: string; reason?: string; mode: Mode; tax_enabled: boolean; window: {start: string; end: string; periods: number};
   success: string | null; source_caption: string | null; coverage: Table; tables: Record<string, Table>; charts: Record<string, Chart>;
   downloads: {kind: string; label: string; filename: string}[]; cache: {key: string; hit: string | null}; warnings: string[]; timing: unknown; data_validation: Table};
@@ -35,7 +40,15 @@ export default function ComparePage() {
   const [options,setOptions] = useState<Options>({models:[],portfolios:[],defaults:{mode:"models",models:[],portfolio_ids:[],method:"monthly",initial:100000,monthly_contribution:0,fee_pct:0,tax_enabled:false,tax_rate:25,start:"",end:""}}), [settings,setSettings] = useState<Settings>({mode:"models",models:[],portfolio_ids:[],method:"monthly",initial:100000,monthly_contribution:0,fee_pct:0,tax_enabled:false,tax_rate:25,start:"",end:""});
   const [result,setResult] = useState<Result | null>(null), [error,setError] = useState(""), [running,setRunning] = useState(false), [changed,setChanged] = useState(false), [loadingChoices,setLoadingChoices] = useState(false);
   const inFlight = useRef(false);
-  const [search,setSearch] = useState("");
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const modelPicker = useRef<HTMLDetailsElement>(null);
+  const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
+  function closeModelPicker() {
+    if (modelPicker.current) {
+      modelPicker.current.open = false;
+      modelPicker.current.querySelector("summary")?.focus();
+    }
+  }
   async function loadChoices(kind: Mode) {
     if (loadingChoices || (kind === "models" ? options.models.length : options.portfolios.length)) return;
     setLoadingChoices(true); setError("");
@@ -64,31 +77,38 @@ export default function ComparePage() {
     return item && <button className="btn btn-secondary" key={kind} onClick={()=>void compareDownload(result!.cache.key,kind,item.filename).catch(()=>setError(text.downloadError))}>{item.label}</button>;
   }
   const models=settings.mode!=="portfolios";
-  const availability=useUsdAvailability(!!settings.usd_equivalents,{mode:settings.mode,models:settings.models,portfolio_ids:settings.portfolio_ids,method:settings.method},bounds=>setSettings(previous=>fitDates(previous,bounds)));
+  const picking = models ? modelPickerOpen : portfolioPickerOpen;
+  const availability=useUsdAvailability(!!settings.usd_equivalents,{mode:settings.mode,models:settings.models,portfolio_ids:settings.portfolio_ids,method:settings.method},bounds=>setSettings(previous=>fitDates(previous,bounds)),picking);
   const selected=options.models.filter(m=>settings.models.includes(m.label));
   const mismatch=new Set(selected.map(m=>m.execution_currency)).size>1;
   const enough=(models ? settings.models.length : settings.portfolio_ids.length)>=2;
   const suffix=result?.tax_enabled ? "after" : "pre";
-  const groups = new Map<string, Options["models"]>();
-  for(const model of options.models) {
-    if(!model.label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) continue;
-    const family=model.strategy?.trim() || text.otherGroup;
-    groups.set(family,[...(groups.get(family) ?? []),model]);
-  }
-  const alphabetical=(a:string,b:string)=>a.localeCompare(b,undefined,{sensitivity:"base"});
   return <main className="backtest-page compare-page"><h1>{models ? text.title : text.portfolioTitle}</h1>
     {error && <p role="alert">{error}</p>}
     {error && <button className="btn btn-secondary" disabled={running} onClick={()=>void loadChoices(models ? "models" : "portfolios")}>{text.retry}</button>}
     <>
       <fieldset disabled={running}>
-      <div className="segmented" role="radiogroup" aria-label={text.mode}>{Object.entries(text.modes).map(([key,label])=><label className="segment" key={key}><input type="radio" name="compare-mode" checked={settings.mode===key} value={key} onChange={()=>change({mode:key as Mode})}/>{label}</label>)}</div>
-      {models ? <details onToggle={event => { if (event.currentTarget.open) void loadChoices("models"); }}><summary>{text.models}</summary><fieldset aria-label={text.models}><legend>{text.models}</legend>
-        {loadingChoices && <p role="status">{text.loading}</p>}
-        <label>{text.search}<input type="search" placeholder={text.searchPlaceholder} value={search} onChange={e=>setSearch(e.target.value)}/></label>
-        <p className="compare-selection-count">{text.selectedCount.replace("{count}",String(settings.models.length))}</p>
-        {[...groups].sort(([a],[b])=>alphabetical(a,b)).map(([family,entries])=><section className="compare-model-group" key={family} aria-label={family}><h3>{family}</h3><div>{entries.sort((a,b)=>alphabetical(a.label,b.label)).map(m=><label key={m.label}><input type="checkbox" checked={settings.models.includes(m.label)} onChange={e=>change({models:e.target.checked?[...settings.models,m.label]:settings.models.filter(label=>label!==m.label)})}/>{m.label}</label>)}</div></section>)}
-        </fieldset></details> :
-        <details onToggle={event => { if (event.currentTarget.open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><fieldset aria-label={text.saved}><legend>{text.saved}</legend>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset></details>}
+      <div className="segmented" role="radiogroup" aria-label={text.mode}>{Object.entries(text.modes).map(([key,label])=><label className="segment" key={key}><input type="radio" name="compare-mode" checked={settings.mode===key} value={key} onChange={()=>{ setModelPickerOpen(false); setPortfolioPickerOpen(false); change({mode:key as Mode}); }}/>{label}</label>)}</div>
+      {models ? <div>
+        <p className="compare-selection-count">{text.selectedCount.replace("{count}", String(settings.models.length))}</p>
+        {settings.models.length > 0 && <ul className={pickerStyles.selectionList}>{settings.models.map(label => <li key={label}><ChoiceLabel choice={modelChoice(options.models.find(model => model.label === label) ?? { label })} /></li>)}</ul>}
+        <details ref={modelPicker} onToggle={event => { const open = event.currentTarget.open; setModelPickerOpen(open); if (open) void loadChoices("models"); }}
+          onKeyDown={event => { if (event.key === "Escape" && modelPickerOpen) { event.preventDefault(); closeModelPicker(); } }}>
+          <summary className="btn btn-secondary">{text.models}</summary>
+          {modelPickerOpen && <fieldset aria-label={text.models}><legend>{text.models}</legend>
+            {loadingChoices ? <p role="status">{text.loading}</p> : <ModelResults models={options.models}
+              selected={settings.models} multi autoFocus onSelect={label => change({ models: settings.models.includes(label)
+                ? settings.models.filter(value => value !== label) : [...settings.models, label] })} />}
+            <button type="button" className="btn btn-secondary" onClick={closeModelPicker}>{pickerWords.cancel}</button>
+          </fieldset>}
+        </details>
+      </div> :
+        <div>
+          <p className="compare-selection-count">{text.selectedCount.replace("{count}", String(settings.portfolio_ids.length))}</p>
+          {settings.portfolio_ids.length > 0 && <ul className={pickerStyles.selectionList}>{settings.portfolio_ids.map(id => <li key={id}>
+            {options.portfolios.find(portfolio => portfolio.id === id)?.name ?? id}
+          </li>)}</ul>}
+          <details onToggle={event => { const open = event.currentTarget.open; setPortfolioPickerOpen(open); if (open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><fieldset aria-label={text.saved}><legend>{text.saved}</legend>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset></details></div>}
       </fieldset>
       <UsdToggle checked={!!settings.usd_equivalents} disabled={running} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}
       {!enough ? <p className="signal-info">{models ? text.modelsGate : text.portfoliosGate}</p> : <>
@@ -103,7 +123,7 @@ export default function ComparePage() {
         <CostsAndTax><TaxControls leading={<label>{models ? text.fee : text.portfolioFee}<input type="number" min="0" max="10" step="0.01" value={settings.fee_pct} onChange={e=>change({fee_pct:e.target.value === "" ? 0 : e.target.valueAsNumber})}/></label>}
           enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/></CostsAndTax>
         <p>{text.dateHelp}</p>{models && mismatch && !settings.usd_equivalents && <p className="signal-warning">{text.hint}</p>}
-      </fieldset><button className="btn btn-primary" disabled={running || availability.loading || !!availability.error} onClick={()=>void run()}>{running ? text.running : text.run}</button>
+      </fieldset><button className="btn btn-primary" disabled={running || availability.loading || !!availability.error || (!!settings.usd_equivalents && picking)} onClick={()=>void run()}>{running ? text.running : text.run}</button>
       {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
       </>}
     </>

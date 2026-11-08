@@ -1,4 +1,6 @@
 "use client";
+
+import SearchPicker from "../../components/SearchPicker";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
@@ -45,7 +47,6 @@ export default function ResearchPage() {
   const [error, setError] = useState(""), [loading, setLoading] = useState(false), [loadingModels, setLoadingModels] = useState(!modelsCache), [running, setRunning] = useState(false);
   const [attempt, setAttempt] = useState(0), [elapsed, setElapsed] = useState(0), [changed, setChanged] = useState(false);
   const inFlight = useRef(false);
-  const current = models?.find(model => model.label === label);
   useEffect(() => {
     if (modelsCache) return;
     const controller = new AbortController();
@@ -73,14 +74,6 @@ export default function ResearchPage() {
     return () => clearInterval(timer);
   }, [running]);
   function clear() { if (result) setChanged(true); setResult(null); setError(""); }
-  function choose(strategy: string, requestedVariant?: string) {
-    const candidates = models?.filter(m => m.strategy === strategy) ?? [];
-    const preferred = requestedVariant ?? current?.variant;
-    const variant = candidates.some(m => m.variant === preferred) ? preferred : candidates[0]?.variant;
-    const group = candidates.filter(m => m.variant === variant);
-    const selected = group.find(m => m.implementation === current?.implementation) ?? group[0];
-    if (selected) { setLabel(selected.label); clear(); }
-  }
   async function run() {
     if (inFlight.current || loading || options?.gate !== "available") return;
     if (!Number.isFinite(initial) || initial < 1) { setError(text.invalid); return; }
@@ -92,15 +85,10 @@ export default function ResearchPage() {
     finally { clearTimeout(timer); inFlight.current = false; setRunning(false); }
   }
   const gated = !loading && options?.gate !== "available";
-  const variants = [...new Set(models?.filter(m => m.strategy === current?.strategy).map(m => m.variant) ?? [])];
   function download(kind: string) { const item = result?.downloads.find(d => d.kind === kind); return item && <button className="btn btn-secondary" onClick={() => void researchDownload(result!.cache.key, kind, item.filename).catch(() => setError(text.downloadError))}>{item.label}</button>; }
   return <main className="backtest-page"><h1>{text.title}</h1>
-    {models && <fieldset disabled={running || loadingModels} className="signal-selector">
-      <label>{text.strategy}<select value={current?.strategy ?? ""} onChange={e => choose(e.target.value)}><option value="">{text.chooseStrategy}</option>{[...new Set(models.map(m => m.strategy))].sort().map(s => <option key={s}>{s}</option>)}</select></label>
-      {current && <>
-      <label>{text.variant}<select value={current?.variant ?? ""} disabled={variants.length === 1 && variants[0] === null} onChange={e => choose(current?.strategy ?? "", e.target.value)}>{variants.map(v => <option key={v ?? "none"} value={v ?? ""}>{v ?? text.noVariants}</option>)}</select></label>
-      <label>{text.implementation}<select value={label} onChange={e => {setLabel(e.target.value); clear();}}>{models.filter(m => m.strategy === current?.strategy && m.variant === current?.variant).map(m => <option key={m.label} value={m.label}>{m.implementation}</option>)}</select></label></>}
-    </fieldset>}
+    {models && <SearchPicker models={models} value={label} disabled={running}
+      onSelect={next => { setLabel(next); clear(); }} />}
     {loadingModels && <p role="status">{text.loading}</p>}{loading && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
     {!loading && !loadingModels && error && <button className="btn btn-secondary" onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
     {gated ? <p className="signal-info">{options?.reason}</p> : options?.profile && !loading && <>

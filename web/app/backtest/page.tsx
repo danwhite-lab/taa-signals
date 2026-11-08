@@ -1,5 +1,7 @@
 "use client";
 
+import SearchPicker from "../../components/SearchPicker";
+
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import DisplayTable from "../../components/DisplayTable";
@@ -213,14 +215,14 @@ export default function BacktestPage() {
   const optionsLabel = useRef("");
   const current = models?.find(model => model.label === form.label);
   useEffect(() => {
-    if (modelsCache) return;
+    if (mode !== "single" || modelsCache) return;
     const controller = new AbortController();
     void backtestRequest<{models: Model[]}>("/api/backtest/models", {signal: controller.signal})
       .then(value => { if (!controller.signal.aborted) { modelsCache=value.models; setModels(value.models); } })
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoadingModels(false); });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, mode]);
   useEffect(() => {
     if (mode !== "single" || !form.label) { setLoading(false); return; }
     const preserve = optionsLabel.current === form.label;
@@ -247,14 +249,6 @@ export default function BacktestPage() {
     if (result) setChanged(true);
     setResult(null); setError("");
   }
-  function choose(strategy: string, requestedVariant?: string) {
-    if (!models) return;
-    const candidates = models.filter(model => model.strategy === strategy);
-    const preferred = requestedVariant ?? current?.variant;
-    const variant = candidates.some(model => model.variant === preferred) ? preferred : candidates[0].variant;
-    const group = candidates.filter(model => model.variant === variant);
-    update({ label: (group.find(model => model.implementation === current?.implementation) ?? group[0]).label });
-  }
   async function run() {
     if (inFlight.current || !options) return;
     const b = options.bounds;
@@ -279,9 +273,6 @@ export default function BacktestPage() {
     } catch (failure) { setError(timedOut ? text.timeout : (failure as Error).message); }
     finally { clearTimeout(timeout); inFlight.current = false; setRunning(false); }
   }
-  const strategies = [...new Set(models?.map(model => model.strategy) ?? [])].sort();
-  const variants = [...new Set(models?.filter(model => model.strategy === current?.strategy).map(model => model.variant) ?? [])];
-  const implementations = models?.filter(model => model.strategy === current?.strategy && model.variant === current?.variant) ?? [];
   return <main className="backtest-page"><p className="eyebrow">{text.eyebrow}</p><h1>{text.title}</h1>
     {mode === "single" && <UsdToggle checked={form.usd_equivalents} disabled={running} onChange={usd_equivalents=>update({usd_equivalents})}/> }
     {mode !== "single" && <MultiForm key={mode} mode={mode} running={running} onRun={execute} onChange={() => update({})}
@@ -291,15 +282,10 @@ export default function BacktestPage() {
       }}>{text.extendedHistory}</Toggle>} />}
     {loadingModels && mode === "single" && <p role="status">{text.loading}</p>}
     {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!models && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
-    {mode === "single" && models && <fieldset disabled={running || loadingModels} className="backtest-controls"><legend>{text.single}</legend><label>{text.strategy}<select value={current?.strategy ?? ""} onChange={event => choose(event.target.value)}><option value="">{text.chooseStrategy}</option>{strategies.map(value => <option key={value}>{value}</option>)}</select></label></fieldset>}
+    {mode === "single" && models && <SearchPicker models={models} value={form.label} disabled={running}
+      onSelect={label => update({ label })} />}
     {mode === "single" && options && current && <>
       <fieldset disabled={running} className="backtest-controls"><legend>{text.single}</legend>
-        <div className="signal-selector">
-          <label>{text.strategy}<select value={current.strategy} onChange={event => choose(event.target.value)}>{strategies.map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>{text.variant}<select value={current.variant ?? ""} disabled={variants.length === 1 && variants[0] === null}
-            onChange={event => choose(current.strategy, event.target.value)}>{variants.map(value => <option key={value ?? "none"} value={value ?? ""}>{value ?? text.noVariants}</option>)}</select></label>
-          <label>{text.implementation}<select value={form.label} onChange={event => update({ label: event.target.value })}>{implementations.map(value => <option key={value.label} value={value.label}>{value.implementation}</option>)}</select></label>
-        </div>
         <p className="assumption-hint">{text.currency}: {options.currency}</p>
         <AmountAndDates initial={<label>{text.initial}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="1" value={form.initial} onChange={event => update({ initial: event.target.valueAsNumber })} /></label>} start={<DateField label="Start" hint={text.start}><input aria-label={text.start} type="date" min={options.bounds.start_min} max={options.bounds.start_max} value={form.start} onChange={event => update({ start: event.target.value })} /></DateField>} end={<DateField label="End" hint={text.end}><input aria-label={text.end} type="date" min={options.bounds.end_min} max={options.bounds.end_max} value={form.end} onChange={event => update({ end: event.target.value })} /></DateField>}
           dca={<><Toggle checked={dca} onChange={value => { setDca(value); update({}); }}>{text.dcaEnabled}</Toggle>{dca && <label>{text.dcaAmount}{form.usd_equivalents && ` (${usdWords.unit})`}<input type="number" min="0" value={form.monthly_contribution} onChange={event => update({ monthly_contribution: event.target.valueAsNumber })} /></label>}</>} />

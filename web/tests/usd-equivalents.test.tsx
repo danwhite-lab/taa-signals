@@ -56,12 +56,13 @@ it('multi-sleeve USD runs retain explicit weights and the portfolio body',async(
  expect(mock.compare.mock.calls[0][0]).toBe('/api/usd-equivalents/options');
  expect(JSON.parse(mock.compare.mock.calls[0][1].body)).toMatchObject({usd_equivalents:true,mode:'portfolio'});
  fireEvent.click(screen.getByRole('button',{name:multiWords.addSleeve}));
+ fireEvent.click(await screen.findByRole('button',{name:'HAA Simple · Israel'}));
  const weights=screen.getAllByLabelText(multiWords.weight);
  fireEvent.change(weights[0],{target:{value:'60'}});fireEvent.change(weights[1],{target:{value:'40'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:back.run})).toHaveProperty('disabled',false));
  fireEvent.click(screen.getByRole('button',{name:back.run}));
  await waitFor(()=>expect(run).toHaveBeenCalled());
- expect(run.mock.calls[0][0]).toMatchObject({mode:'portfolio',usd_equivalents:true,initial:100000,sleeves:[{id:1,model:'HAA-Simple',weight:60},{id:2,model:'HAA-Simple',weight:40}],start:'2023-01-31'});
+ expect(run.mock.calls[0][0]).toMatchObject({mode:'portfolio',usd_equivalents:true,initial:100000,sleeves:[{id:1,model:'HAA-Simple',weight:60},{id:2,model:'HAA-Simple Israel',weight:40}],start:'2023-01-31'});
 });
 
 it.each(['models','portfolios'] as const)('Compare %s forwards USD mode and renders mappings',async mode=>{
@@ -74,9 +75,11 @@ it.each(['models','portfolios'] as const)('Compare %s forwards USD mode and rend
  });
  render(<Compare/>);
  if(mode==='portfolios')fireEvent.click(screen.getByRole('radio',{name:compareWords.modes.portfolios}));
- fireEvent.click(screen.getByText(mode==='models'?compareWords.models:compareWords.saved,{selector:'summary'}));
- await screen.findByLabelText(mode==='models'?models[0].label:'Alpha');
- for(const name of mode==='models'?models.map(m=>m.label):['Alpha','Beta'])fireEvent.click(screen.getByLabelText(name));
+ const summary=screen.getByText(mode==='models'?compareWords.models:compareWords.saved,{selector:'summary'});
+ fireEvent.click(summary);
+ const names=mode==='models'?['HAA Simple · Israel','Buy and Hold · Gold Israel · Hedged execution · Unhedged history']:['Alpha','Beta'];
+ for(const name of names)fireEvent.click(await screen.findByRole('checkbox',{name}));
+ fireEvent.click(summary);
  fireEvent.click(screen.getByRole('switch',{name:words.toggle}));
  await screen.findByText(new RegExp(words.available));
  await waitFor(()=>expect(screen.getByRole('button',{name:compareWords.run})).toHaveProperty('disabled',false));

@@ -42,6 +42,7 @@ it("only validates on edits; runs solely on the explicit button, disabled for in
   await waitFor(()=>expect(screen.getByRole("button",{name:text.run})).toHaveProperty("disabled",false));
   expect(run).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText(words.addSleeve));
+  fireEvent.click(await screen.findByRole("button",{name:"HAA Simple · Original"}));
   await screen.findByText(words.positivePortfolio);
   expect(screen.getByRole("button", { name: text.run })).toHaveProperty("disabled", true);
   fireEvent.click(screen.getByRole("button",{name:words.removeSleeve.replace("{number}","2")}));
@@ -69,7 +70,9 @@ it('passes editable fee assumptions and an explicit off switch in portfolio mode
 
 it("retains daily single-proxy restrictions and benchmark caveats", async () => {
   setup("deep"); await waitFor(()=>expect(screen.getByRole("button",{name:text.run})).toHaveProperty("disabled",false));
-  fireEvent.change(screen.getByLabelText(words.proxyStrategy), {target: {value: "rvol_daily"}});
+  fireEvent.click(screen.getByRole("button", {name: "Change"}));
+  fireEvent.change(screen.getByRole("searchbox"), {target: {value: "rvol_daily"}});
+  fireEvent.click(screen.getByRole("group", {name: "Search backtest proxies"}).querySelector("button[data-picker-option]")!);
   await screen.findByLabelText(words.dailyTax);
   expect(screen.getByLabelText(words.dailyTax)).toHaveProperty("disabled", true);
   expect(screen.getByLabelText(words.dailyTax)).toHaveProperty("checked", false);
@@ -201,13 +204,14 @@ it("keeps all added component wording in data files and scopes Today wrapping", 
   expect(readFileSync("./app/today/page.tsx", "utf8")).toContain("signal-table-scroll today-sleeve-table");
 });
 
-it('keeps allocation compact with dependent selectors, a live total, collapsed advanced settings and a footer action',async()=>{
+it('keeps allocation compact with explicit model selection, a live total, collapsed advanced settings and a footer action',async()=>{
  const {run}=setup('portfolio');await waitFor(()=>expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',false));
  const advanced=screen.getByText(words.advancedTitle).closest('details')!;
  expect(advanced.open).toBe(false);expect(advanced.querySelector('summary')?.textContent).toContain('25%');
  const table=screen.getByRole('table',{name:words.allocationTitle});
  expect(table.querySelectorAll('tbody tr')).toHaveLength(1);
  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"HAA Simple · Original"}));
  expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
  expect(screen.getByRole('button',{name:text.run})).toHaveProperty('disabled',true);
  const weights=screen.getAllByLabelText(words.weight);
@@ -216,12 +220,15 @@ it('keeps allocation compact with dependent selectors, a live total, collapsed a
  const richer={...config,models:[...config.models,{label:'HAA Other Israel',strategy:'HAA',variant:'Other',implementation:'Israel'},{label:'GEM Standard',strategy:'GEM',variant:'Standard',implementation:'Original'}]};
  cleanup();mock.request.mockImplementation(async(path:string)=>path.startsWith('/api/backtest/config')?richer:{valid:true,message:words.weightSuccess});
  render(<MultiForm mode="portfolio" running={false} onRun={run} onChange={vi.fn()}/>);
- await waitFor(()=>expect(screen.getByLabelText(text.strategy).querySelectorAll('option')).toHaveLength(2));
- fireEvent.change(screen.getByLabelText(text.variant),{target:{value:'Other'}});
- expect(screen.getByLabelText(text.implementation)).toHaveProperty('value','HAA Other Israel');
- fireEvent.change(screen.getByLabelText(text.strategy),{target:{value:'GEM'}});
- expect(screen.getByLabelText(text.variant)).toHaveProperty('value','Standard');
- expect(screen.getByLabelText(text.implementation)).toHaveProperty('value','GEM Standard');
+ fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+ fireEvent.change(await screen.findByRole("searchbox"), { target: { value: "Other Israel" } });
+ fireEvent.click(screen.getByRole("button", { name: "HAA Other · Israel" }));
+ expect(screen.getByText("Other · Israel")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Change" }));
+ fireEvent.change(screen.getByRole("searchbox"), { target: { value: "GEM" } });
+ fireEvent.click(screen.getByRole("button", { name: "GEM Standard · Original" }));
+ expect(screen.getByText("Standard · Original")).toBeTruthy();
+ expect(mock.request.mock.calls.some(([path]) => path === "/api/backtest/options?label=GEM%20Standard")).toBe(true);
  expect(screen.getByRole('button',{name:text.run}).closest('footer')).toBeTruthy();
  expect(run).not.toHaveBeenCalled();
 });
@@ -238,6 +245,7 @@ it('shows resolved ILS currency for one and multiple sleeves without changing ca
  await screen.findByText(`${text.currency}: ILS`);
  expect(screen.getByText(/₪100,000/)).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"HAA Simple · Original"}));
  const weights=screen.getAllByLabelText(words.weight);fireEvent.change(weights[0],{target:{value:'60'}});fireEvent.change(weights[1],{target:{value:'40'}});
  expect(screen.getByText(`${text.currency}: ILS`)).toBeTruthy();
  expect(screen.getByText(/₪100,000/)).toBeTruthy();

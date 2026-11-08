@@ -24,18 +24,11 @@
 .portfolioMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .settings { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 18px 0; min-width: 0; }
 .settings > label { flex: 1 1 9rem; min-width: 0; margin: 0; font-size: .85rem; }
-.modelSetting { min-width: 0; max-width: 100%; }
-.modelSetting summary { display: inline-block; list-style: none; }
-.modelSetting summary::-webkit-details-marker { display: none; }
-.modelSetting[open] { flex-basis: 100%; }
-.page .modelSetting input, .page .modelSetting select {
-  display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
-  height: 40px; padding: 8px; margin: 6px 0 0; font: inherit; font-size: .9rem;
-  border: 1px solid var(--control-border); border-radius: 5px;
-}
-.modelSetting .addSleeve { flex-wrap: nowrap; margin: 0; gap: 8px; }
-.modelSetting .addSleeve label { margin: 0; font-size: .85rem; }
-.modelSetting .addSleeve button { height: 40px; margin: 0; }
+.modelSetting { display: flex; align-items: start; flex-wrap: wrap; gap: 8px; min-width: 0; max-width: 100%; }
+.modelSetting:has([aria-expanded="true"]) { flex-basis: 100%; }
+.modelSetting:has([aria-expanded="true"]) > button { display: none; }
+.modelSetting > div { flex: 1; min-width: 0; }
+.modelSetting button, .rowActions button { min-height: 44px; }
 .tableScroll { overflow-x: auto; max-width: 100%; }
 .sleeves { width: 100%; border-collapse: collapse; table-layout: auto; }
 .sleeves th, .sleeves td { padding: 12px 8px; border-bottom: 1px solid var(--divider); text-align: left; }
@@ -43,16 +36,11 @@
 .sleeves th:last-child, .sleeves td:last-child { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .sleeves tfoot { font-weight: 700; }
 .sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 7rem; font-variant-numeric: tabular-nums; }
-.sleeves input { width: 7rem; box-sizing: border-box; }
+.sleeves td:nth-child(2) input { width: 7rem; box-sizing: border-box; }
 .sleeves button { min-width: 2.5rem; }
 .rowActions { display: flex; gap: 6px; justify-content: flex-end; }
 .editor fieldset { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; border: 0; padding: 0; }
-.editor label { flex: 1 1 16rem; }
-.editor select { display: block; width: 100%; }
-.addSleeve { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 16px; }
-.addSleeve label { flex: 1 1 16rem; min-width: 0; }
-.addSleeve select { display: block; width: 100%; max-width: 100%; min-width: 0; padding: 10px; box-sizing: border-box; }
-.addSleeve button { min-width: 2.5rem; margin-bottom: 8px; }
+.editor fieldset > div:first-of-type { flex: 1 1 100%; min-width: 0; }
 .warning { border-left: 3px solid var(--warning); background: var(--warning-soft); padding: 12px; line-height: 1.6; }
 @media (max-width: 600px) {
   .portfolioPicker { flex-basis: 100%; }
@@ -62,5 +50,6 @@
   .sleeves th, .sleeves td { padding: 10px 3px; }
   .sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 0; width: 5.5rem; }
   .sleeves th:last-child, .sleeves td:last-child { width: 4rem; }
-  .sleeves input { width: 100%; padding: 6px; }
+  .sleeves td:nth-child(2) input { width: 100%; padding: 6px; }
+  .rowActions { flex-wrap: wrap; }
 }
