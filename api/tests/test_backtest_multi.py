@@ -102,7 +102,8 @@ def assert_report(response, direct, initial=10000., proxy=False):
     audit = direct.audit if direct.audit is not None else direct.monthly
     assert value["periods"] == clean(base.preview(audit))
     assert value["tax_events"] == clean(base.preview(direct.tax_events))
-    assert (base.MINIMUM_NOTE in value['warnings']) == bool(value['settings']['fee_value'])
+    assert (base.MINIMUM_NOTE in value['captions']) == bool(value['settings']['fee_value'])
+    assert base.MINIMUM_NOTE not in value['warnings']
     assert response.headers["cache-control"] == "no-store, private"
     assert len(response.content) < 3_000_000
     return value
