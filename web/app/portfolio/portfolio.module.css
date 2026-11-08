@@ -2,9 +2,26 @@
 .page li { flex-wrap: wrap; min-width: 0; }
 .page button { max-width: 100%; white-space: normal; overflow-wrap: normal; word-break: normal; }
 .page input, .page textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
-.summary { margin: 24px 0; min-width: 0; }
+.summary { margin-top: 16px; min-width: 0; }
 .summary h2 { line-height: 1.5; white-space: normal; overflow-wrap: normal; word-break: normal; }
-.badge { display: inline-block; padding: 4px 10px; border: 1px solid var(--success-border); border-radius: 12px; background: var(--success-soft); color: var(--success); font-size: .85rem; }
+.controls { display: grid; gap: 10px; min-width: 0; }
+.controls p, .page .controls label, .controls .advanced { margin: 0; }
+.controlRow { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
+.portfolioPicker { flex: 1 1 16rem; min-width: 0; }
+.portfolioPicker select {
+  display: block; width: 100%; min-width: 0; min-height: 40px; margin-top: 6px; padding: 8px;
+  border: 1px solid var(--control-border); border-radius: 5px; font: inherit;
+}
+.page .defaultControl { display: inline-flex; align-items: center; align-self: end; gap: 6px; min-height: 40px; }
+.defaultControl input {
+  appearance: none; width: 1rem; height: 1rem; margin: 0;
+  border: 1px solid var(--control-border); border-radius: 50%;
+}
+.defaultControl input:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 45%, var(--surface) 50%);
+}
+.portfolioMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .settings { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 18px 0; min-width: 0; }
 .settings > label { flex: 1 1 9rem; min-width: 0; margin: 0; font-size: .85rem; }
 .modelSetting { flex: 2 1 17rem; min-width: 0; }
@@ -36,7 +53,9 @@
 .warning { border-left: 3px solid var(--warning); background: var(--warning-soft); padding: 12px; line-height: 1.6; }
 .advanced { margin: 18px 0; }
 .advanced summary { cursor: pointer; font-weight: 600; }
+.controls .advanced p { margin: 8px 0; }
 @media (max-width: 600px) {
+  .portfolioPicker { flex-basis: 100%; }
   .settings > label, .modelSetting { flex: 1 1 100%; width: 100%; }
   .sleeves { table-layout: fixed; }
   .sleeves th:first-child, .sleeves td:first-child { min-width: 0; }
