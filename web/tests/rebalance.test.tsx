@@ -627,7 +627,7 @@ it('keeps blocking errors and data warnings visible across all Action tabs',asyn
     fireEvent.click(screen.getByRole('tab',{name}));
     expect(screen.getByRole('alert').textContent).toContain(warning);
     expect(screen.getByRole('alert').closest('[role="tabpanel"]')).toBeNull();
-    expect(screen.getByText(text.stalePrices.replace('{funds}',item.label+' (2026-10-15)')).closest('[role="tabpanel"]')).toBeNull();
+    expect(screen.getByText(text.stalePricesOne.replace('{count}','1')).closest('[role="tabpanel"]')).toBeNull();
     expect(screen.getByRole('button',{name:text.generate})).toHaveProperty('disabled',true);
   }
 });
@@ -709,4 +709,33 @@ it("shows automatic dated published valuations for the ex-US and Russell funds",
   expect(within(panel).getAllByText("Published fund valuation")).toHaveLength(2);
   expect(within(panel).getAllByText("4 Nov 2026")).toHaveLength(2);
   expect(within(panel).getByText("3 Nov 2026")).toBeTruthy();
+});
+
+
+it.each([1,2,3])('collapses %i older quotes into a counted notice with unchanged labels and dates',async count=>{
+  const ids=Array.from({length:count},(_,index)=>'TASE:STALE-'+index);
+  const staleInstruments=Object.fromEntries(ids.map((id,index)=>[id,{...item,id,label:'Older fund '+index}]));
+  const staleQuotes=Object.fromEntries(ids.map((id,index)=>[id,{price:'10',as_of:'2026-11-0'+(index+1),fresh:false}]));
+  mock.request.mockResolvedValue({...state,stale:ids,blocked:[other.id],instruments:{...state.instruments,...staleInstruments},quotes:{...state.quotes,...staleQuotes}});
+  render(<Page/>);await screen.findByText(text.holdings);
+  const summary=screen.getByText((count===1?text.stalePricesOne:text.stalePricesMany).replace('{count}',String(count)),{selector:'summary'});
+  const notice=summary.closest('details')!;
+  expect(notice.open).toBe(false);expect(notice.classList.contains('signal-warning')).toBe(true);
+  expect(notice.closest('.rebalance-step-content')).toBeNull();
+  fireEvent.click(summary);expect(notice.open).toBe(true);
+  expect(within(notice).getAllByRole('listitem').map(node=>node.textContent)).toEqual(ids.map((id,index)=>
+    text.stalePricesItem.replace('{fund}',staleInstruments[id].label).replace('{date}','2026-11-0'+(index+1))));
+  expect(notice.textContent).not.toContain(other.label);
+  expect(screen.getByText(text.missing+' '+other.label)).toBeTruthy();
+  fireEvent.click(summary);expect(notice.open).toBe(false);
+});
+
+it('keeps step navigation horizontal and content full-width without changing the phone button rules',()=>{
+  const css=readFileSync('./app/globals.css','utf8');
+  const workflow=css.match(/\.rebalance-workflow \{[^}]+\}/)![0];
+  const steps=css.match(/\.rebalance-steps \{[^}]+\}/)![0];
+  expect(workflow).toContain('grid-template-columns: minmax(0, 1fr)');
+  expect(steps).toContain('flex-direction: row');expect(steps).toContain('gap: .5rem');
+  expect(steps).not.toMatch(/sticky|top:/);
+  expect(css).toContain('.rebalance-steps button { flex: 1; text-align: center; padding: .65rem .3rem; }');
 });

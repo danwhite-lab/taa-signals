@@ -450,8 +450,8 @@ a:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px soli
 .today-action-changed { color: var(--warning); }
 .today-action-unchanged { color: var(--success); }
 
-.rebalance-workflow { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
-.rebalance-steps { display: flex; flex-direction: column; gap: .5rem; position: sticky; top: 1rem; }
+.rebalance-workflow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.rebalance-steps { display: flex; flex-direction: row; gap: .5rem; }
 .rebalance-steps button { padding: .8rem; border: 1px solid var(--border); border-radius: .5rem; background: transparent; text-align: left; cursor: pointer; color: inherit; }
 .rebalance-steps button[aria-current="step"] { background: var(--accent); color: var(--surface); }
 .rebalance-plan-chip { border: 1px solid var(--border); border-radius: 2rem; padding: .35rem .7rem; background: transparent; color: inherit; cursor: pointer; }

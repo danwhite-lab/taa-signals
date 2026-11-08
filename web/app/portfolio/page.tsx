@@ -47,7 +47,6 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
   { name: string; json: string; disabled: boolean; models: string[] | null; modelsError: string;
     reloadModels: () => void; openModels: () => void; changePayload: (payload: Record<string, unknown>) => void }) {
   const payload = parseDraft(json);
-  const [adding, setAdding] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [editModel, setEditModel] = useState("");
   const [editWeight, setEditWeight] = useState<number | null>(null);
@@ -57,25 +56,11 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
   }) : null;
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
-  const available = models?.filter(model => !sleeves?.some(row => row.name === model)).sort(byLabel) ?? [];
   const editOptions = editing === null ? [] : (models?.filter(model => model === sleeves?.[editing]?.name || !sleeves?.some((row, index) => index !== editing && row.name === model)).sort(byLabel) ?? []);
   function editSleeves(next: unknown[]) { if (payload) changePayload({ ...payload, sleeves: next }); }
   return <div className={styles.summary} role="region" aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
-    {!payload && <p role="alert">{words.invalidSummary}</p>}
-    <div className={styles.settings} role="group" aria-label={words.settings}>
-    <details className={styles.modelSetting} onToggle={event => { if (event.currentTarget.open) openModels(); }}><summary>Add a sleeve</summary>{modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>Retry model list</button></p> : models === null && <p role="status">Loading available models…</p>}
-    <div className={styles.addSleeve}>
-      <label>Model to add<select aria-label="Model to add" disabled={disabled || !payload || !sleeves || !models}
-        value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
-        <option value="">Choose a model</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
-      </select></label>
-      <button className="btn btn-secondary" type="button" aria-label="Add sleeve" disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
-        editSleeves([...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }]); setAdding("");
-      }}>+</button>
-    </div>
-    </details>
-    </div>
+    {!payload && <p role="alert">{words.summaryUnavailable}</p>}
     {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Actions</th></tr></thead>
       <tbody>{sleeves.map((row, index) => <><tr key={index}><td>{row.name}</td><td>
@@ -85,10 +70,32 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
         onClick={() => { setEditing(index); setEditModel(row.name); setEditWeight(row.weight); openModels(); }}>{words.edit}</button><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
         onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr className={styles.editor}><td colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend>{modelsError ? <p role="alert">{words.modelListError} <button className="btn btn-secondary" type="button" onClick={reloadModels}>{words.retry}</button></p> : models === null ? <p role="status">{words.loadingModels}</p> : <><label>{words.editModel}<select value={editOptions.includes(editModel) ? editModel : row.name} onChange={event => setEditModel(event.target.value)}>{editOptions.map(model => <option key={model} value={model}>{model}</option>)}</select></label><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></>}</fieldset></td></tr>}</>)}</tbody>
       <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td><td /></tr></tfoot>
-    </table></div> : <p>Sleeve summary unavailable: enter a sleeve list in Portfolio JSON.</p>}
+    </table></div> : <p>{words.sleevesUnavailable}</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
 
   </div>;
+}
+
+function AddSleeve({ json, disabled, models, modelsError, reloadModels, openModels, changePayload }:
+  { json: string; disabled: boolean; models: string[] | null; modelsError: string;
+    reloadModels: () => void; openModels: () => void; changePayload: (payload: Record<string, unknown>) => void }) {
+  const payload = parseDraft(json);
+  const [adding, setAdding] = useState("");
+  const sleeves = Array.isArray(payload?.sleeves) ? payload.sleeves : null;
+  const available = models?.filter(model => !sleeves?.some(row => row?.model === model)).sort(byLabel) ?? [];
+  return (
+    <details className={styles.modelSetting} onToggle={event => { if (event.currentTarget.open) openModels(); }}><summary className="btn btn-secondary">{words.addSleeve}</summary>{modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>{words.retry}</button></p> : models === null && <p role="status">{words.loadingModels}</p>}
+    <div className={styles.addSleeve}>
+      <label>{words.modelToAdd}<select aria-label={words.modelToAdd} disabled={disabled || !payload || !sleeves || !models}
+        value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
+        <option value="">{words.chooseModel}</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
+      </select></label>
+      <button className="btn btn-secondary" type="button" aria-label={words.addSleeveButton} disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
+        changePayload({ ...payload, sleeves: [...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }] }); setAdding("");
+      }}>+</button>
+    </div>
+    </details>
+  );
 }
 
 export default function Portfolio() {
@@ -150,11 +157,6 @@ export default function Portfolio() {
     const payload = parseDraft(json);
     if (payload) setJson(JSON.stringify({ ...payload, name: next }, null, 2));
   }
-  function editJson(next: string) {
-    setJson(next);
-    const payload = parseDraft(next);
-    if (payload) setName(typeof payload.name === 'string' ? payload.name : '');
-  }
   async function save() {
     let payload: Record<string, unknown>;
     try {
@@ -214,7 +216,7 @@ export default function Portfolio() {
           </label>
           <label className={styles.defaultControl}>
             <input type="checkbox" checked={makeDefault} disabled={busy || uncertain}
-              aria-describedby="portfolio-default-note" onChange={event => setMakeDefault(event.target.checked)} />
+              onChange={event => setMakeDefault(event.target.checked)} />
             {words.defaultLabel}
           </label>
           {selected && <button className="btn btn-secondary" type="button" disabled={busy || uncertain}
@@ -227,7 +229,6 @@ export default function Portfolio() {
           <small>{words.updatedPortfolio.replace("{date}", date(selected.updated_at))}</small>
         </p>}
         {!selected && makeDefault && <span className="list-tag">{words.defaultOnSave}</span>}
-        <p className={styles.portfolioMeta} id="portfolio-default-note">{words.preserveDefault}</p>
         {editingName && <label>{words.portfolioName}
           <input value={name} maxLength={80} disabled={busy || uncertain} autoFocus
             onChange={event => changeName(event.target.value)} />
@@ -240,11 +241,11 @@ export default function Portfolio() {
           {selected && <button className="btn btn-destructive" type="button" disabled={busy || uncertain} onClick={() => void remove()}>
             {words.deletePortfolio}
           </button>}
+          {(selected || json) && <AddSleeve key={selected?.id ?? "new"} json={json} disabled={busy || uncertain}
+            models={models} modelsError={modelsError} reloadModels={() => void loadModels()}
+            openModels={() => { if (models === null && !modelsError) void loadModels(); }}
+            changePayload={payload => setJson(JSON.stringify(payload, null, 2))} />}
         </div>
-        <details className={styles.advanced} key={selected?.id ?? "new"}><summary>{words.advancedJson}</summary>
-          <p>{words.jsonHelp}</p>
-          <label>{words.portfolioJson}<textarea rows={12} value={json} disabled={busy || uncertain} onChange={event => editJson(event.target.value)} /></label>
-        </details>
       </div>
       {(selected || json) && <PortfolioSummary key={selected?.id ?? "new"} name={name} json={json}
         disabled={busy || uncertain} models={models} modelsError={modelsError} reloadModels={() => void loadModels()}

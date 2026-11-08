@@ -271,7 +271,10 @@ export default function RebalanceHoldings() {
     {state && <>
 
       {!!state.blocked.length && <p className="signal-warning">{text.missing} {state.blocked.map(key => state.instruments[key].label).join(", ")}</p>}
-      {!!staleFunds.length && <p className="signal-warning">{text.stalePrices.replace("{funds}", staleFunds.map(key => `${state.instruments[key].label} (${staleDate(key)})`).join(", "))}</p>}
+      {!!staleFunds.length && <details className="signal-warning">
+        <summary>{(staleFunds.length === 1 ? text.stalePricesOne : text.stalePricesMany).replace("{count}", String(staleFunds.length))}</summary>
+        <ul>{staleFunds.map(key => <li key={key}>{text.stalePricesItem.replace("{fund}", state.instruments[key].label).replace("{date}", staleDate(key))}</li>)}</ul>
+      </details>}
       {!!state.held_blocked.length && <p>{text.heldBlocked}</p>}
       {!!state.replacement_review?.length && <div className="signal-warning"><p>{text.replacementReview}</p>{state.replacement_review.map(item => <button type="button" className="btn btn-secondary" key={item.from} disabled={busy || paused} onClick={() => {
         setRoles(previous => ({...previous, [item.from]: "companion"}));
