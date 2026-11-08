@@ -141,8 +141,18 @@ def live_inputs(request):
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"), benchmark)))
     strict = tuple(dict.fromkeys(a for d in definitions if getattr(d.model_class, "signal_calendar", None) == "XNYS" for a in d.model_class.us_data_assets))
     # Loader-only union descriptor. All decisions still use the original class.
-    context = SimpleNamespace(model_class=lambda: SimpleNamespace(data_assets=assets, benchmark_asset=benchmark,
-        us_data_assets=strict, signal_calendar="XNYS" if strict else None))
+    class PortfolioInputs:
+        data_assets = assets
+        benchmark_asset = benchmark
+        us_data_assets = strict
+        signal_calendar = "XNYS" if strict else None
+
+    years = [d.model_class.tase_history_years for d in definitions if hasattr(d.model_class, "tase_history_years")]
+    if years:
+        # As for single IC runs, full published-close history bypasses the short
+        # daily snapshot; first loads are slower, with the 5-minute cache retained.
+        PortfolioInputs.tase_history_years = max(years)
+    context = SimpleNamespace(model_class=PortfolioInputs)
     bars = mixed and not local
     loaded = signals.load_inputs(context, daily_bars=bars)
     prices, metadata, warnings = loaded[:3]
