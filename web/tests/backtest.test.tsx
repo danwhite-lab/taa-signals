@@ -79,14 +79,14 @@ it("uses the Parameters switch to load and reset each Backtest mode", async () =
   });
   render(<BacktestPage />);
   const history = () => screen.getByRole("switch", { name: text.extendedHistory });
-  await screen.findByRole("option", { name: "HAA" });
+  await screen.findByText("Simple · Original");
   expect(history()).toHaveProperty("checked", false);
   expect(history().closest("section")?.getAttribute("aria-labelledby")).toBe("backtest-parameters-heading");
   expect(screen.queryByRole("radiogroup", { name: text.mode })).toBeNull();
   fireEvent.change(screen.getByLabelText(text.initial), { target: { value: "20000" } });
 
   fireEvent.click(history());
-  await screen.findByRole("option", { name: "Century proxy" });
+  await screen.findByText("Century proxy");
   expect(history()).toHaveProperty("checked", true);
   expect(screen.getByLabelText(text.initial)).toHaveProperty("value", "100000");
   expect(screen.queryByLabelText(text.strategy)).toBeNull();
@@ -99,7 +99,7 @@ it("uses the Parameters switch to load and reset each Backtest mode", async () =
   }
 
   fireEvent.click(history());
-  await screen.findByRole("option", { name: "HAA" });
+  await screen.findByText("Simple · Original");
   expect(history()).toHaveProperty("checked", false);
   expect(screen.queryByLabelText(words.proxyStrategy)).toBeNull();
   expect(screen.queryByRole("table", { name: text.summary })).toBeNull();

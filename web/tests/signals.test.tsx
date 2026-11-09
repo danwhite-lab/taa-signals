@@ -67,7 +67,7 @@ it("downloads exactly the Python-provided CSV and filename", () => {
   expect(clicks).toEqual([{ filename: "engine.csv", href: "blob:mock" }]);
 });
 
-it("uses all three catalogue selectors, defaults to HAA-Simple and requests the exact implementation label", async () => {
+it("uses one searchable chooser, defaults to HAA-Simple and requests the exact implementation label", async () => {
   const rows = [
     { label: "HAA-Simple", strategy: "HAA", variant: "Simple", implementation: "Original" },
     { label: "HAA-Simple Israel", strategy: "HAA", variant: "Simple", implementation: "Israel" },
@@ -77,13 +77,18 @@ it("uses all three catalogue selectors, defaults to HAA-Simple and requests the 
   ];
   mocks.api.mockImplementation(async (path: string) => path === "/api/strategies" ? rows : payload("monthly"));
   render(<SignalsPage />);
-  await screen.findByLabelText("Strategy");
-  expect(screen.getByLabelText("Variant")).toHaveProperty("value", "Simple");
-  expect(screen.getByLabelText("Implementation")).toHaveProperty("value", "HAA-Simple");
-  fireEvent.change(screen.getByLabelText("Implementation"), { target: { value: "HAA-Simple Israel" } });
+  const change = await screen.findByRole("button", { name: "Change" });
+  const before = mocks.api.mock.calls.length;
+  fireEvent.click(change);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "simple israel" } });
+  expect(mocks.api).toHaveBeenCalledTimes(before);
+  fireEvent.click(screen.getByRole("button", { name: "HAA Simple · Israel" }));
   await waitFor(() => expect(mocks.api.mock.calls.some(([path]) => path === "/api/signals?label=HAA-Simple%20Israel")).toBe(true));
-  fireEvent.change(screen.getByLabelText("Strategy"), { target: { value: "Inflation Compass" } });
-  expect(screen.getByLabelText("Implementation")).toHaveProperty("value", "Inflation Compass Standard Israel");
+  expect(document.activeElement).toBe(change);
+  fireEvent.click(change);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "inflation compass" } });
+  fireEvent.click(screen.getByRole("button", { name: "Inflation Compass Standard · Original" }));
+  await waitFor(() => expect(mocks.api.mock.calls.some(([path]) => path === "/api/signals?label=Inflation%20Compass%20Standard")).toBe(true));
 });
 
 it("offers retry when loading fails", async () => {

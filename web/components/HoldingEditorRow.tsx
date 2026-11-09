@@ -1,4 +1,6 @@
 "use client";
+
+import { fundName as displayFundName } from "../lib/picker-display";
 import { useEffect, useRef, useState } from "react";
 import words from "../content/holdings.json";
 import text from "../content/rebalance.json";
@@ -28,7 +30,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   useEffect(() => setConfirmRemoval(false), [portfolioName, target?.id]);
   function fundName(id: string) {
     const identifier = instruments[id]?.identifier || id.split(":").at(-1) || id;
-    const name = instruments[id]?.label;
+    const name = displayFundName(id, instruments[id]?.label ?? identifier);
     return name && name !== id && name !== identifier ? (name.includes(identifier) ? name : `${name} ${identifier}`) : identifier;
   }
   const anchor = String(row["Companion of"] || "");
@@ -53,8 +55,8 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   return <>
     <tr className="compact-holding-row" aria-label={String(row.Fund)}>
       <th scope="row" title={[planStatus, hint].filter(Boolean).join(" · ")}>
-        <span className="compact-fund-name">{String(row.Fund).replace(/\s+[—–-]\s+\d+\s*$/, "")}</span>
-        <small>{security.split(":").at(-1)} · {row.Currency}</small>
+        <span className="compact-fund-name">{displayFundName(security, String(row.Fund))}</span>
+        <small>{instruments[security]?.identifier ?? security.split(":").at(-1)} · {security.split(":")[0]} · {row.Currency}</small>
       </th>
       <td className="numeric"><div className="compact-value-field"><span aria-hidden="true">{currency}</span>{field("Value (₪ / $)", `${words.value} (${currency})`)}</div></td>
       <td className="numeric">{field("Units", words.units)}</td>
@@ -80,7 +82,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
         value={anchor} onChange={event => onEdit(security, "Companion of", event.target.value)}>
         <option value="">{words.none}</option>
         {anchor && !targets.some(t => t.id === anchor) && <option value={anchor}>{words.unmatchedCompanion.replace("{fund}", fundName(anchor))}</option>}
-        {[...targets].filter(t => t.id !== security).sort((a,b) => (a.label || a.id).localeCompare(b.label || b.id, undefined, {sensitivity:"base"})).map(t => <option key={t.id} value={t.id}>{t.label || t.id}</option>)}
+        {[...targets].filter(t => t.id !== security).sort((a,b) => (a.label || a.id).localeCompare(b.label || b.id, undefined, {sensitivity:"base"})).map(t => <option key={t.id} value={t.id}>{displayFundName(t.id, t.label || t.id)}</option>)}
       </select></label>}
       <div className="compact-price-summary" title={String(quote?.source ?? text.unavailable)}>
         <span>{words.price}: {price == null || price === "" ? text.unavailable : `${currency}${fmt.cell(price, "price")}`} · {manual ? text.manual : text.auto} · {fmt.cell(priceDate, "as_of")}</span>

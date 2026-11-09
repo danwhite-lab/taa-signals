@@ -1,12 +1,16 @@
 "use client";
 
+import SearchPicker, { ChoiceLabel } from "../../components/SearchPicker";
+
 import { useEffect, useRef, useState } from "react";
 import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
 import words from "../../content/portfolio.json";
-import { byLabel, savedOrder } from "../../lib/ui-order";
+import pickerWords from "../../content/pickers.json";
+import { isKnownModel, modelChoice } from "../../lib/picker-display";
+import { savedOrder } from "../../lib/ui-order";
 
 function numeric(value: unknown): number | null {
   if (typeof value !== "number" && !(typeof value === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()))) return null;
@@ -56,20 +60,22 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
   }) : null;
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
-  const editOptions = editing === null ? [] : (models?.filter(model => model === sleeves?.[editing]?.name || !sleeves?.some((row, index) => index !== editing && row.name === model)).sort(byLabel) ?? []);
+  const editOptions = editing === null ? [] : (models?.filter(model => model === sleeves?.[editing]?.name || !sleeves?.some((row, index) => index !== editing && row.name === model)) ?? []);
   function editSleeves(next: unknown[]) { if (payload) changePayload({ ...payload, sleeves: next }); }
   return <div className={styles.summary} role="region" aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
     {!payload && <p role="alert">{words.summaryUnavailable}</p>}
-    {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
-      <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Actions</th></tr></thead>
-      <tbody>{sleeves.map((row, index) => <><tr key={index}><td>{row.name}</td><td>
+    {sleeves ? <div className={styles.tableScroll}><table role="table" className={styles.sleeves} aria-label="Portfolio sleeves">
+      <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Sleeve name</th><th role="columnheader" scope="col">Weight</th><th role="columnheader" scope="col">Actions</th></tr></thead>
+      <tbody role="rowgroup">{sleeves.map((row, index) => <><tr role="row" className={styles.sleeveRow} key={index}><td role="cell"><ChoiceLabel choice={(models ? models.includes(row.name) : isKnownModel(row.name))
+        ? modelChoice({ label: row.name }) : { key: row.name, name: row.name, secondary: pickerWords.unavailable }} /></td><td role="cell" className={styles.weightCell}>
         <NumberField label={`Weight for ${row.name} (row ${index + 1})`} value={row.weight} decimals={2} disabled={disabled}
           onChange={value => editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), weight: value } : original))} />
-      </td><td><div className={styles.rowActions}><button className="btn btn-secondary" type="button" aria-label={`${words.edit} ${row.name} (row ${index + 1})`} disabled={disabled}
-        onClick={() => { setEditing(index); setEditModel(row.name); setEditWeight(row.weight); openModels(); }}>{words.edit}</button><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
-        onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr className={styles.editor}><td colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend>{modelsError ? <p role="alert">{words.modelListError} <button className="btn btn-secondary" type="button" onClick={reloadModels}>{words.retry}</button></p> : models === null ? <p role="status">{words.loadingModels}</p> : <><label>{words.editModel}<select value={editOptions.includes(editModel) ? editModel : row.name} onChange={event => setEditModel(event.target.value)}>{editOptions.map(model => <option key={model} value={model}>{model}</option>)}</select></label><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></>}</fieldset></td></tr>}</>)}</tbody>
-      <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td><td /></tr></tfoot>
+      </td><td role="cell"><div className={styles.rowActions}><button className="btn btn-secondary" type="button" aria-label={`${words.edit} ${row.name} (row ${index + 1})`} disabled={disabled}
+        onClick={() => { setEditing(index); setEditModel(row.name); setEditWeight(row.weight); }}>{words.edit}</button><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
+        onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr role="row" className={styles.editor}><td role="cell" colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend><SearchPicker value={editModel} models={editOptions.map(label => ({ label }))} disabled={disabled}
+        onOpen={openModels} loading={models === null} error={modelsError} retry={reloadModels} retryLabel={words.retry} onSelect={setEditModel} /><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></fieldset></td></tr>}</>)}</tbody>
+      <tfoot role="rowgroup"><tr role="row"><th role="rowheader" scope="row">Total</th><td role="cell">{weight(total)}</td><td role="cell" /></tr></tfoot>
     </table></div> : <p>{words.sleevesUnavailable}</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
 
@@ -82,19 +88,16 @@ function AddSleeve({ json, disabled, models, modelsError, reloadModels, openMode
   const payload = parseDraft(json);
   const [adding, setAdding] = useState("");
   const sleeves = Array.isArray(payload?.sleeves) ? payload.sleeves : null;
-  const available = models?.filter(model => !sleeves?.some(row => row?.model === model)).sort(byLabel) ?? [];
+  const available = models?.filter(model => !sleeves?.some(row => row?.model === model)) ?? [];
   return (
-    <details className={styles.modelSetting} onToggle={event => { if (event.currentTarget.open) openModels(); }}><summary className="btn btn-secondary">{words.addSleeve}</summary>{modelsError ? <p role="alert">{modelsError} <button className="btn btn-secondary" type="button" disabled={disabled} onClick={reloadModels}>{words.retry}</button></p> : models === null && <p role="status">{words.loadingModels}</p>}
-    <div className={styles.addSleeve}>
-      <label>{words.modelToAdd}<select aria-label={words.modelToAdd} disabled={disabled || !payload || !sleeves || !models}
-        value={available.includes(adding) ? adding : ""} onChange={event => setAdding(event.target.value)}>
-        <option value="">{words.chooseModel}</option>{available.map(model => <option key={model} value={model}>{model}</option>)}
-      </select></label>
+    <div className={styles.modelSetting}>
+      <SearchPicker caption={words.addSleeve} disabled={disabled || !payload || !sleeves}
+        models={available.map(label => ({ label }))} value={available.includes(adding) ? adding : ""} onSelect={setAdding}
+        onOpen={openModels} loading={models === null} error={modelsError} retry={reloadModels} retryLabel={words.retry} />
       <button className="btn btn-secondary" type="button" aria-label={words.addSleeveButton} disabled={disabled || !sleeves || !available.includes(adding)} onClick={() => {
         changePayload({ ...payload, sleeves: [...(payload!.sleeves as unknown[]), { model: adding, weight: 0 }] }); setAdding("");
       }}>+</button>
     </div>
-    </details>
   );
 }
 
@@ -123,12 +126,16 @@ export default function Portfolio() {
     setSelected(null); setName(""); setJson(""); setMakeDefault(false); setEditingName(false); setUncertain(false);
   }
   useEffect(() => { void act(load); }, []); // Initial read; refresh remains explicit after mount.
+  const modelsInFlight = useRef(false);
   async function loadModels() {
+    if (modelsInFlight.current) return;
+    modelsInFlight.current = true;
     setModelsError("");
     try {
       const config = await api<{ models: { label: string; signal_mode?: string }[] }>("/api/backtest/config?mode=portfolio");
       setModels([...new Set(config.models.map(model => model.label))]);
-    } catch { setModelsError("Available models could not be loaded. Existing drafts are unchanged."); }
+    } catch { setModelsError(words.modelListError); }
+    finally { modelsInFlight.current = false; }
   }
   async function act(operation: () => Promise<void>, mutation = false) {
     if (inFlight.current) return;

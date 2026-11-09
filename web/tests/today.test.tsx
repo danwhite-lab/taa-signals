@@ -63,7 +63,7 @@ it('renders five preview columns, structured names and fixed labels while preser
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;
   const table=within(screen.getByRole('table',{name:text.preview}));
   expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Projected allocation','Security No.','Change vs current','Price data through']);
-  for(const label of ['Gold GLD','Mock local gold','1147875',text.previewKinds.always_held,text.previewKinds.daily_signals,'Mock data unavailable']) expect(table.getByText(label)).toBeTruthy();
+  for(const label of ['Gold · Buy and hold · GLD (USD)','Mock local gold','1147875',text.previewKinds.always_held,text.previewKinds.daily_signals,'Mock data unavailable']) expect(table.getByText(label)).toBeTruthy();
   expect(table.queryByText(/100%/)).toBeNull();
   expect(details.textContent).toContain('Provisional only');
   expect(details.textContent).toContain(payload.preview_caption);

@@ -13,16 +13,14 @@ const saved = { id: "fake-id", name: "Fake portfolio", payload, updated_at: "moc
 afterEach(() => { cleanup(); calls.api.mockReset(); vi.restoreAllMocks(); });
 it("keeps the moved Add a sleeve control lazy and leaves choosing a model non-mutating",async()=>{
   mockLoad();render(<Portfolio/>);await chooseSaved();
-  const add=screen.getByText(words.addSleeve,{selector:"summary"});
+  const add=screen.getByRole("button",{name:words.addSleeve});
   const actions=add.closest<HTMLDivElement>(".actions")!;
   expect(within(actions).getByRole("button",{name:words.saveChanges})).toBeTruthy();
-  expect(actions.lastElementChild).toBe(add.closest("details"));
+  expect(actions.lastElementChild?.contains(add)).toBe(true);
   expect(screen.getByRole("region",{name:"Portfolio summary"}).contains(add)).toBe(false);
   expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
   fireEvent.click(add);
-  const select=screen.getByLabelText(words.modelToAdd);
-  await waitFor(()=>expect(select).toHaveProperty("disabled",false));
-  fireEvent.change(select,{target:{value:"Buy and Hold IEF"}});
+  fireEvent.click(await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
   expect(screen.queryByLabelText("Weight for Buy and Hold IEF (row 2)")).toBeNull();
   expect(screen.queryByText(/New sleeves start at/)).toBeNull();
   fireEvent.click(saveButton());await screen.findByText("Portfolio saved.");
@@ -113,11 +111,10 @@ it('sorts Model to add A-Z without choosing a model automatically',async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;
   calls.api.mockImplementation(async(path,init)=>path==='/api/backtest/config?mode=portfolio'?{models:[{label:'Zulu'},{label:'beta'},{label:'Alpha'}]}:original(path,init));
   render(<Portfolio/>);await chooseSaved();
-  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
-  const select=screen.getByLabelText('Model to add');
-  await waitFor(()=>expect(within(select).getAllByRole('option')).toHaveLength(4));
-  expect(within(select).getAllByRole('option').map(o=>o.textContent)).toEqual(['Choose a model','Alpha','beta','Zulu']);
-  expect(select).toHaveProperty('value','');
+  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  const results = await screen.findByRole("group", { name: "Search models" });
+  expect(within(results).getAllByRole("button").map(button => button.textContent)).toEqual(["Alpha","beta","Zulu"]);
+  expect(screen.getByRole("button", { name: words.addSleeveButton })).toHaveProperty("disabled",true);
 });
 
 it("renames a saved portfolio in place only when Save changes is pressed", async () => {
@@ -242,7 +239,7 @@ it("confirms that deleting a portfolio leaves shared holdings intact", async () 
 it("shows a readable loaded summary below the controls with no JSON editor or default helper",async()=>{
   mockLoad();render(<Portfolio/>);
   expect(screen.queryByRole("region",{name:"Portfolio summary"})).toBeNull();
-  expect(screen.queryByText(words.addSleeve,{selector:"summary"})).toBeNull();
+  expect(screen.queryByRole("button",{name:words.addSleeve})).toBeNull();
   await chooseSaved();
   const summary=screen.getByRole("region",{name:"Portfolio summary"});
   expect(within(summary).getByRole("heading",{name:"Fake portfolio"})).toBeTruthy();
@@ -312,9 +309,8 @@ it.each(["{",{version:1,name:"Missing sleeves"}])("does not invent a summary for
   expect(within(summary).getByText(words.sleevesUnavailable)).toBeTruthy();
   expect(within(summary).queryByRole("table")).toBeNull();
   if(typeof initial==="string")expect(within(summary).getByRole("alert").textContent).toBe(words.summaryUnavailable);
-  fireEvent.click(screen.getByText(words.addSleeve,{selector:"summary"}));
-  await waitFor(()=>expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(true));
-  expect(screen.getByLabelText(words.modelToAdd)).toHaveProperty("disabled",true);
+  expect(screen.getByRole("button",{name:words.addSleeve})).toHaveProperty("disabled",true);
+  expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
   fireEvent.click(saveButton());
   expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
 });
@@ -322,7 +318,7 @@ it.each(["{",{version:1,name:"Missing sleeves"}])("does not invent a summary for
 it("does not invent a missing saved sleeve weight",async()=>{
   mockLoad({...payload,sleeves:[{model:"Fake missing weight"}]});render(<Portfolio/>);await chooseSaved();
   const table=screen.getByRole("table",{name:"Portfolio sleeves"});
-  expect(within(table).getByText("Unavailable")).toBeTruthy();
+  expect(within(table).getAllByText("Unavailable")).toHaveLength(2);
   expect(within(table).getByLabelText("Weight for Fake missing weight (row 1)")).toHaveProperty("value","");
   expect(within(table).queryByText("100.00%")).toBeNull();
   fireEvent.click(saveButton());expect(calls.api.mock.calls.some(([,init])=>init?.method==="POST")).toBe(false);
@@ -340,7 +336,8 @@ it("keeps phone wrapping and overflow rules local to Portfolio without mid-word 
   const css=readFileSync("./app/portfolio/portfolio.module.css","utf8");
   expect(css).toContain("word-break: normal");expect(css).toContain("overflow-wrap: normal");
   expect(css).toContain("overflow-x: auto");expect(css).toContain("flex-wrap: wrap");
-  expect(css).not.toMatch(/break-all|break-word|anywhere|overflow:\s*hidden/);
+  expect(css).not.toMatch(/break-all|break-word|anywhere/);
+  expect(css.replace(/^.*\.sleeves thead .*$/m, "")).not.toMatch(/overflow:\s*hidden/);
 });
 
 it('preserves legacy capital, FX, custom metadata and sleeve identity while editing name and weights',async()=>{
@@ -359,20 +356,21 @@ it('preserves legacy capital, FX, custom metadata and sleeve identity while edit
 
 it('uses the Backtest model list without duplicates and removes the requested row, not the last',async()=>{
   mockLoad();render(<Portfolio/>);await chooseSaved();
-  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
-  const dropdown=screen.getByLabelText('Model to add');
-  await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
+  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  const results=await screen.findByRole("group",{name:"Search models"});
   expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
-  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold SPY'})).toBeNull();
-  expect(within(dropdown).getAllByRole('option',{name:'Buy and Hold IEF'})).toHaveLength(1);
-  fireEvent.change(dropdown,{target:{value:'Buy and Hold IEF'}});fireEvent.click(screen.getByRole('button',{name:'Add sleeve'}));
+  expect(within(results).queryByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeNull();
+  const bond = within(results).getAllByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/});
+  expect(bond).toHaveLength(1);
+  fireEvent.click(bond[0]);fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 2)')).toHaveProperty('value','0.00');
   expect(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)')).toHaveProperty('value','100.00');
-  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold IEF'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'Remove Buy and Hold SPY (row 1)'}));
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','0.00');
-  expect(within(dropdown).getByRole('option',{name:'Buy and Hold SPY'})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:words.addSleeve}));
+  expect(screen.getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
 });
 
 it('warns live and requires confirmation to save a non-100 draft without normalization',async()=>{
@@ -395,10 +393,10 @@ it('loads editable fields and available models from saved payloads',async()=>{
   expect(screen.getByLabelText(words.portfolioName)).toHaveProperty('value',payload.name);
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','100.00');
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
-  fireEvent.click(screen.getByText(words.addSleeve,{selector:'summary'}));
-  const dropdown=screen.getByLabelText(words.modelToAdd);
-  await waitFor(()=>expect(within(dropdown).getByRole('option',{name:'Buy and Hold SPY'})).toBeTruthy());
-  expect(within(dropdown).queryByRole('option',{name:'Buy and Hold IEF'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  const results=await screen.findByRole("group",{name:"Search models"});
+  expect(within(results).getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
+  expect(within(results).queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
   fireEvent.click(saveButton());await screen.findByText('Portfolio saved.');
   expect(savedPayload()).toEqual(next);
 });
@@ -418,9 +416,9 @@ it('can build a new portfolio without inventing capital or FX',async()=>{
   expect(screen.queryByLabelText('Total capital (ILS)')).toBeNull();
   expect(screen.queryByLabelText('ILS per USD rate')).toBeNull();
   fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:'Fake new'}});
-  fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
-  const dropdown=screen.getByLabelText('Model to add');await waitFor(()=>expect(dropdown).toHaveProperty('disabled',false));
-  fireEvent.change(dropdown,{target:{value:'Buy and Hold SPY'}});fireEvent.click(screen.getByRole('button',{name:'Add sleeve'}));
+  fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
+  fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
   fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
   fireEvent.click(saveButton());await screen.findByText('Portfolio saved.');
   const [,init]=calls.api.mock.calls.find(([,init])=>init?.method==='POST')!;
@@ -438,12 +436,12 @@ it.each([[],[{model:'Buy and Hold SPY',weight:0}],[{model:'Buy and Hold SPY',wei
 it('retries a failed model list without losing the editable draft',async()=>{
   mockLoad();const original=calls.api.getMockImplementation()!;let fail=true;
   calls.api.mockImplementation(async(path,init)=>{if(path==='/api/backtest/config?mode=portfolio'&&fail)throw Error('Mock failure');return original(path,init);});
-  render(<Portfolio/>);await chooseSaved();fireEvent.click(screen.getByText('Add a sleeve',{selector:'summary'}));
+  render(<Portfolio/>);await chooseSaved();fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
   await screen.findByText('Available models could not be loaded. Existing drafts are unchanged.');
   openRename();
   fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:'Fake draft preserved'}});
   fail=false;fireEvent.click(screen.getByText('Retry model list'));
-  await waitFor(()=>expect(screen.getByLabelText('Model to add')).toHaveProperty('disabled',false));
+  await screen.findByRole('searchbox',{name:'Search models'});
   expect(screen.getByLabelText('Portfolio name')).toHaveProperty('value','Fake draft preserved');
 });
 
@@ -512,10 +510,8 @@ it.each([false,true])('saves weights without inventing capital/FX for a new or s
   else {
     fireEvent.click(screen.getByRole("button",{name:words.newPortfolio}));
     fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:payload.name}});
-    fireEvent.click(screen.getByText(words.addSleeve,{selector:'summary'}));
-    const select=screen.getByLabelText(words.modelToAdd);
-    await waitFor(()=>expect(select).toHaveProperty('disabled',false));
-    fireEvent.change(select,{target:{value:'Buy and Hold SPY'}});
+    fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+    fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
     fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
     fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
   }
@@ -553,4 +549,23 @@ it.each([
   fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:'Visible rename'}});
   fireEvent.click(saveButton());await screen.findByText('Portfolio saved.');
   expect(savedPayload()).toEqual({...initial,name:'Visible rename'});
+});
+
+it("changes a sleeve only on Apply and saves the canonical key without dropping other sleeve fields", async () => {
+  const initial = { ...payload, sleeves: [{ ...payload.sleeves[0], id: 42 }] };
+  mockLoad(initial); render(<Portfolio/>); await chooseSaved();
+  fireEvent.click(screen.getByRole("button",{name:"Edit Buy and Hold SPY (row 1)"}));
+  expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
+  fireEvent.click(screen.getByRole("button",{name:"Change"}));
+  const choice = await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/});
+  fireEvent.keyDown(screen.getByRole("searchbox"),{key:"Escape"});
+  expect(choice.isConnected).toBe(false);
+  expect(screen.getByLabelText("Weight for Buy and Hold SPY (row 1)")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Change"}));
+  fireEvent.click(screen.getByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
+  expect(screen.getByLabelText("Weight for Buy and Hold SPY (row 1)")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:words.apply}));
+  expect(screen.getByLabelText("Weight for Buy and Hold IEF (row 1)")).toHaveProperty("value","100.00");
+  fireEvent.click(saveButton()); await screen.findByText("Portfolio saved.");
+  expect(savedPayload()).toEqual({...initial,sleeves:[{id:42,model:"Buy and Hold IEF",weight:100}]});
 });

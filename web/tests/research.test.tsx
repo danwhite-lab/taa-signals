@@ -22,10 +22,18 @@ const report = {gate:"available",initial:10000,currency:"USD",profile:options.pr
   charts:{scenarios:null,rolling:null,monte_carlo:null},has_bootstrap:true,warnings:[],cache:{key:"fake-key",hit:null},timing:{},calculation_timing:{},
   downloads:Object.entries(text.downloads).map(([kind,label])=>({kind,label,filename:`fake_${kind}.csv`}))};
 afterEach(()=>{cleanup();mock.request.mockReset();mock.download.mockReset();});
+async function pick(name = "HAA Simple · Original") {
+  fireEvent.click(await screen.findByRole("button",{name:"Choose model"}));
+  fireEvent.click(await screen.findByRole("button",{name}));
+}
+function requestFor(path: string, result = report) {
+  if (path === "/api/research/models") return { models: options.models };
+  return path.startsWith("/api/research/options") ? options : result;
+}
 async function ready() {
-  mock.request.mockImplementation(async(path:string)=>path.startsWith("/api/research/options")?options:report);
+  mock.request.mockImplementation(async(path:string)=>requestFor(path));
   mock.download.mockResolvedValue(undefined);
-  render(<Page/>); return screen.findByRole("button",{name:text.run});
+  render(<Page/>); await pick(); return screen.findByRole("button",{name:text.run});
 }
 
 it("is withheld by the existing login gate", async()=>{
@@ -34,7 +42,7 @@ it("is withheld by the existing login gate", async()=>{
 
 it("does not auto-run, renders initial capital only and keeps explainers collapsed", async()=>{
   await ready();
-  expect(mock.request.mock.calls.every(([path])=>path.startsWith("/api/research/options"))).toBe(true);
+  expect(mock.request.mock.calls.every(([path])=>path.startsWith("/api/research/"))).toBe(true);
   expect(screen.getByLabelText(text.initial)).toHaveProperty("value","100000");
   expect(screen.getByText(text.readTitle).closest("details")).toHaveProperty("open",false);
   expect(screen.getByText(text.scope).closest("details")).toHaveProperty("open",false);
@@ -43,8 +51,9 @@ it("does not auto-run, renders initial capital only and keeps explainers collaps
 });
 
 it("renders only the gate reason instead of research controls/results", async()=>{
-  mock.request.mockResolvedValue({...options,gate:"no_profile",reason:"Mock original unavailability reason",profile:null});
-  render(<Page/>); await screen.findByText("Mock original unavailability reason");
+  mock.request.mockImplementation(async path => path.endsWith("/models") ? {models:options.models}
+    : {...options,gate:"no_profile",reason:"Mock original unavailability reason",profile:null});
+  render(<Page/>); await pick("Unavailable model Original"); await screen.findByText("Mock original unavailability reason");
   expect(screen.queryByText(text.caption)).toBeNull(); expect(screen.queryByText(text.scope)).toBeNull();
   expect(screen.queryByRole("button",{name:text.run})).toBeNull(); expect(screen.queryByLabelText(text.initial)).toBeNull();
 });
@@ -63,8 +72,8 @@ it("renders Python verdict, evidence and six collapsed sections, and downloads P
 
 it("guards duplicate clicks and shows progress", async()=>{
   let resolve!: (value:unknown)=>void;
-  mock.request.mockImplementation((path:string)=>path.startsWith("/api/research/options")?Promise.resolve(options):new Promise(done=>{resolve=done;}));
-  render(<Page/>); const run=await screen.findByRole("button",{name:text.run});
+  mock.request.mockImplementation((path:string)=>path.startsWith("/api/research/")?Promise.resolve(requestFor(path)):new Promise(done=>{resolve=done;}));
+  render(<Page/>); await pick(); const run=await screen.findByRole("button",{name:text.run});
   fireEvent.click(run); fireEvent.click(run);
   expect(mock.request.mock.calls.filter(([path])=>path==="/api/research")).toHaveLength(1);
   expect(run).toHaveProperty("disabled",true); expect(screen.getByText(text.longRun,{exact:false})).toBeTruthy();
@@ -79,7 +88,8 @@ it("shows timeout without a partial result", async()=>{
 it("clears results on model change and preserves declared gated models in selectors", async()=>{
   fireEvent.click(await ready()); await screen.findByText(text.completed);
   mock.request.mockResolvedValue({...options,gate:"no_profile",reason:"Mock original unavailability reason",profile:null});
-  fireEvent.change(screen.getByLabelText(text.strategy),{target:{value:"Unavailable model"}});
+  fireEvent.click(screen.getByRole("button",{name:"Change"}));
+  fireEvent.click(screen.getByRole("button",{name:"Unavailable model Original"}));
   await screen.findByText("Mock original unavailability reason"); expect(screen.queryByText(text.completed)).toBeNull();
 });
 

@@ -162,26 +162,26 @@ it("filters by fields, preserves a hidden selection and performs no requests whi
   mock.request.mockResolvedValue(next);
   fireEvent.click(screen.getByText(text.advanced)); fireEvent.click(screen.getByText(text.reload));
   await waitFor(()=>expect(mock.request.mock.calls.length).toBe(2));
-  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
-  const search=screen.getByRole("combobox",{name:text.search});
-  const list=screen.getByRole("listbox");
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").length).toBeGreaterThan(0));
+  const search=screen.getByRole("searchbox",{name:text.search});
+  const list=screen.getByRole("group",{name:text.search});
   const market=screen.getByRole("group",{name:text.market}), currency=screen.getByRole("group",{name:text.currency});
   const before=mock.request.mock.calls.length;
   for(const [query,label] of [["gOlD",item.label],["ief",other.label],["1234567",local.label]]) {
     fireEvent.change(search,{target:{value:query}});
-    expect(within(list).getAllByRole("option").map(n=>n.textContent)).toHaveLength(1);
+    expect(within(list).getAllByRole("button").map(n=>n.textContent)).toHaveLength(1);
     expect(within(list).getByText(label)).toBeTruthy();
   }
-  fireEvent.keyDown(search,{key:"ArrowDown"}); fireEvent.keyDown(search,{key:"Enter"});
-  expect(screen.getByText(text.selected+": "+local.label)).toBeTruthy();
+  fireEvent.keyDown(search,{key:"ArrowDown"}); fireEvent.keyDown(document.activeElement!,{key:"Enter"});
+  expect(screen.getByText(text.selected,{selector:".chosen-fund"}).textContent).toContain(local.label);
   fireEvent.change(search,{target:{value:""}});
   fireEvent.click(within(market).getByRole("button",{name:"TASE"}));
   fireEvent.click(within(currency).getByRole("button",{name:"USD"}));
-  expect(within(list).getAllByRole("option")).toHaveLength(1);
+  expect(within(list).getAllByRole("button")).toHaveLength(1);
   expect(within(list).getByText(local.label)).toBeTruthy();
   fireEvent.click(within(market).getByRole("button",{name:"US"}));
   fireEvent.click(within(currency).getByRole("button",{name:"ILS"}));
-  expect(screen.getByText(text.noResults)).toBeTruthy();
+  expect(screen.getByText("No matching choices.")).toBeTruthy();
   expect(within(market).getAllByRole("button").filter(b=>b.getAttribute("aria-pressed")==="true")).toHaveLength(1);
   expect(mock.request.mock.calls.length).toBe(before); expect(mock.save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText(text.addSelected));
@@ -201,9 +201,9 @@ it("minus hides the whole row but preserves removal in requests and every other 
   mock.save.mockImplementation(async()=>{savedRemoval=true;return {saved:{revision:2,payload:{holdings_account:candidate}},uncertain:false};});
   fireEvent.click(screen.getByText(text.advanced));fireEvent.click(screen.getByText(text.reload));
   await screen.findByLabelText(text.columns.Units+" "+other.id);
-  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
-  fireEvent.change(screen.getByRole("combobox",{name:text.search}),{target:{value:"gld"}});
-  fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").length).toBeGreaterThan(0));
+  fireEvent.change(screen.getByRole("searchbox",{name:text.search}),{target:{value:"gld"}});
+  fireEvent.click(within(screen.getByRole("group",{name:text.search})).getByText(item.label));
   fireEvent.click(within(screen.getByRole("group",{name:text.market})).getByRole("button",{name:"US"}));
   fireEvent.change(screen.getByLabelText(text.columns.Units+" "+other.id),{target:{value:"9"}});
   fireEvent.change(screen.getByLabelText(text.cash),{target:{value:"13"}});
@@ -218,8 +218,8 @@ it("minus hides the whole row but preserves removal in requests and every other 
   expect(screen.getByLabelText(text.columns.Units+" "+other.id)).toHaveProperty("value","9");
   expect(screen.getByLabelText(text.cash)).toHaveProperty("value","13");
   expect(screen.getByRole('combobox',{name:holdings.role+' '+other.id})).toHaveProperty('value','outside');
-  expect(screen.getByRole("combobox",{name:text.search})).toHaveProperty("value","gld");
-  expect(screen.getByText(text.selected+": "+item.label)).toBeTruthy();
+  expect(screen.getByRole("searchbox",{name:text.search})).toHaveProperty("value","gld");
+  expect(screen.getByText(text.selected,{selector:".chosen-fund"})).toBeTruthy();
   fireEvent.click(screen.getByText(text.previewAction));
   await waitFor(()=>expect(mock.request.mock.calls.some(([p,b])=>p==="/api/rebalance/editor"&&b.rows[0].Remove)).toBe(true));
   fireEvent.click(screen.getByText(text.save));await waitFor(()=>expect(mock.save).toHaveBeenCalled());
@@ -239,7 +239,7 @@ it("re-adding a hidden holding restores its exact draft without appending a dupl
   fireEvent.click(screen.getByRole("button",{name:"Remove "+item.label}));
   expect(screen.getByRole("table",{name:text.holdings})).toBeTruthy();
   expect(within(screen.getByRole("table",{name:text.holdings})).queryAllByRole("row").filter(node=>node.hasAttribute("aria-label"))).toHaveLength(0);
-  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));fireEvent.click(within(screen.getByRole("listbox")).getByText(item.label));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").length).toBeGreaterThan(0));fireEvent.click(within(screen.getByRole("group",{name:text.search})).getByText(item.label));
   fireEvent.click(screen.getByText(text.addSelected));
   await screen.findByLabelText(text.columns.Units+" "+item.id);
   expect(within(screen.getByRole("table",{name:text.holdings})).getAllByRole("row").filter(node=>node.hasAttribute("aria-label"))).toHaveLength(1);
@@ -259,8 +259,8 @@ async function ready() {
 }
 
 it('sorts known securities by label and leaves the empty choice selected',async()=>{
-  await ready(); fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
-  expect(screen.getAllByRole("option").filter(node=>node.parentElement?.getAttribute("role")==="listbox").map(node=>node.textContent)).toEqual([other.label+"US · IEF · USD",item.label+"US · GLD · USD"]);
+  await ready(); fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").length).toBeGreaterThan(0));
+  expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").map(node=>node.textContent)).toEqual([other.label+" IEF · US · USD",item.label+" GLD · US · USD"]);
   expect(screen.getByRole("button",{name:text.addSelected})).toHaveProperty("disabled",true);
 });
 
@@ -274,8 +274,8 @@ it("last edited value/units wins, outside edits invalidate the plan, and draft a
   fireEvent.change(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`), { target: { value: "125" } });
   expect(screen.getByRole("button",{name:text.generate,hidden:true})).toHaveProperty("disabled", true);
   expect(screen.queryByText(text.leftover+": 5.00")).toBeNull();
-  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("listbox")).getAllByRole("option").length).toBeGreaterThan(0));
-  fireEvent.click(within(screen.getByRole("listbox")).getByText(other.label));
+  fireEvent.click(screen.getByText(text.add)); await waitFor(() => expect(within(screen.getByRole("group",{name:text.search})).getAllByRole("button").length).toBeGreaterThan(0));
+  fireEvent.click(within(screen.getByRole("group",{name:text.search})).getByText(other.label));
   fireEvent.click(screen.getByText(text.addSelected)); await screen.findByLabelText(`${text.columns.Units} US:IEF`);
   expect(screen.getByLabelText(`${text.columns["Value (₪ / $)"]} US:GLD`)).toHaveProperty("value", "125");
   chooseRole(item.id,holdings.roles.outside);
@@ -738,4 +738,31 @@ it('keeps step navigation horizontal and content full-width without changing the
   expect(steps).toContain('flex-direction: row');expect(steps).toContain('gap: .5rem');
   expect(steps).not.toMatch(/sticky|top:/);
   expect(css).toContain('.rebalance-steps button { flex: 1; text-align: center; padding: .65rem .3rem; }');
+});
+
+it("shows the actual TASE identifier and currency through comparison, sale, buy and record", async () => {
+  const fund = { id: "TASE:1189596", identifier: "1189596", market: "TASE", currency: "ILS", label: "World Value Israel — 1189596" };
+  const localState = {...state, instruments: {...state.instruments,[fund.id]:fund},
+    comparison: [{...state.comparison[0], id:fund.id, Fund:fund.label}],
+    sell_review: [{id:fund.id,action:"sell",before_units:"2",after_units:"0"}]};
+  const localPlan = {...plan, orders:[{...plan.orders[0],id:fund.id}]};
+  mock.request.mockImplementation(async (path:string) => path === "/api/rebalance/plan" ? {state:localState,plan:localPlan}
+    : path === "/api/rebalance/record" ? {account:candidate} : localState);
+  mock.save.mockResolvedValue({saved:{revision:2,payload:{holdings_account:candidate}},uncertain:false});
+  render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  for (const tab of [text.actionTabs.balance,text.actionTabs.sell]) {
+    fireEvent.click(screen.getByRole("tab",{name:tab}));
+    expect(within(screen.getByRole("tabpanel")).getByText("1189596 · TASE · ILS")).toBeTruthy();
+  }
+  fireEvent.click(screen.getByRole("button",{name:text.generate}));
+  const record = await screen.findByText(text.record);
+  expect(within(screen.getByRole("tabpanel")).getByText("1189596 · TASE · ILS")).toBeTruthy();
+  fireEvent.click(record);
+  expect(screen.getAllByText("1189596 · TASE · ILS", {selector:".record-order small"})).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText(text.bought),{target:{value:"1"}});
+  fireEvent.change(screen.getByLabelText(text.paid),{target:{value:"40"}});
+  fireEvent.click(screen.getByLabelText(text.acknowledge)); fireEvent.click(screen.getByText(text.done));
+  await screen.findByText(text.recorded);
+  expect(mock.request.mock.calls.find(([path])=>path==="/api/rebalance/record")![1].confirmations).toEqual([{id:fund.id,units:"1",paid_ils:"40"}]);
 });

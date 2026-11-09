@@ -1,0 +1,53 @@
+{
+  "funds": {
+    "US:SPY": {"name": "SPDR S&P 500 ETF", "full_name": "SPDR S&P 500 ETF Trust", "tracks": "S&P 500", "source": "app.py:MODEL_RULES"},
+    "US:ACWI": {"name": "iShares MSCI ACWI ETF", "tracks": "MSCI ACWI", "source": "src/haa/model_catalog.py"},
+    "US:SOXX": {"name": "SOXX", "source": "data/buy_and_hold_funds.json"},
+    "TASE:1147875": {"name": "Gold (unhedged)", "source": "src/haa/model_catalog.py and src/haa/tase_data.py"},
+    "TASE:5141627": {"name": "Tachlit Gold (currency hedged)", "full_name": "Tachlit TTF LBMA Gold AM currency hedged", "tracks": "LBMA Gold AM", "source": "src/haa/portfolio.py"},
+    "TASE:1159250": {"name": "CSPX", "tracks": "S&P 500", "ucits": true, "source": "src/haa/strategies/haa_simple.py"},
+    "TASE:1159268": {"name": "iShares $ Treasury Bond 7–10yr UCITS", "ucits": true, "source": "src/haa/portfolio.py"},
+    "TASE:5117759": {"name": "Ayalon Extreme S&P 500 x3 (ILS hedged)", "tracks": "S&P 500", "source": "src/haa/model_catalog.py"},
+    "TASE:1146984": {"name": "KSM DAX x3 Monthly (unhedged)", "tracks": "DAX", "source": "src/haa/model_catalog.py"},
+    "TASE:1187079": {"name": "MTF Nasdaq-100 x3 Monthly", "tracks": "Nasdaq-100", "source": "src/haa/model_catalog.py"},
+    "TASE:5117684": {"name": "Ayalon Extreme TA-125 x3", "tracks": "TA-125", "source": "src/haa/model_catalog.py"},
+    "TASE:1150531": {"name": "MTF Nikkei 225 (currency hedged)", "full_name": "MTF Nikkei 225 currency-hedged ETF", "tracks": "Nikkei 225", "source": "data/buy_and_hold_funds.json"},
+    "TASE:5132972": {"name": "Kesem MVSMHTR (currency hedged)", "full_name": "Kesem MVSMHTR mutual fund", "source": "data/buy_and_hold_funds.json"},
+    "TASE:5142476": {"name": "IBI MSCI AC World ex USA (currency hedged)", "tracks": "MSCI AC World ex USA", "source": "data/buy_and_hold_funds.json"},
+    "TASE:5139837": {"name": "Harel Russell 2000 (unhedged)", "tracks": "Russell 2000", "source": "data/buy_and_hold_funds.json"},
+    "TASE:1189596": {"name": "Tachlit World Value (USD hedged)", "full_name": "Tachlit World Value ETF", "source": "data/buy_and_hold_funds.json"},
+    "TASE:1150507": {"name": "MTF S&P Utilities (ILS hedged)", "source": "src/haa/model_catalog.py and src/haa/portfolio.py"},
+    "TASE:5131834": {"name": "IBI DJ US Real Estate", "source": "src/haa/portfolio.py"},
+    "TASE:1159102": {"name": "1159102", "source": "src/haa/portfolio.py"},
+    "TASE:1159169": {"name": "1159169", "source": "src/haa/portfolio.py"},
+    "TASE:5139076": {"name": "5139076", "source": "src/haa/portfolio.py"}
+  },
+  "local_execution": {
+    "QQQ": "1186063", "VWO": "1159169", "VEA": "5142476", "VXUS": "5142476", "ACWX": "5142476",
+    "BND": "1159102", "BNDW": "1159102", "TIP": "1159060", "DBC": "1147875", "GLDM": "1147875",
+    "BIL": "5136866", "TLT": "1159268", "LQD": "1159185", "IEF": "1159268", "SPY": "1159250",
+    "VNQ": "5131834", "XLK": "1159193", "XLU": "1150507", "XLE": "1145903", "XLP": "1150366"
+  },
+  "notebook_securities": [
+    {"identifier": "5139076", "market": "TASE", "currency": "USD", "label": "BIL USD - 5139076"}
+  ],
+  "series": {
+    "T5YIE": {"name": "5-Year Breakeven Inflation Rate", "type": "Rate", "source": "FRED", "currency": null},
+    "OECD_CLI_DIFFUSION": {"name": "OECD CLI diffusion", "type": "Macro indicator", "source": "OECD", "currency": null},
+    "NIKKEI_225": {"name": "Nikkei 225", "type": "Price index", "source": "Yahoo Finance", "currency": null}
+  },
+  "versions": {
+    "Century Momentum": ["bondRetreat"],
+    "Century Momentum Israel": ["bondRetreat"],
+    "Century Momentum Move to Cash": ["cashRetreat"],
+    "Century Momentum Move to Cash Israel": ["cashRetreat"],
+    "Buy and Hold Gold Israel": ["goldTransition"],
+    "Buy and Hold DAX x3 Monthly Israel": ["unhedged"],
+    "Buy and Hold Semiconductors Israel": ["currencyHedged"],
+    "Buy and Hold Japan Israel": ["currencyHedged"],
+    "Buy and Hold World Value Israel": ["usdHedged"],
+    "Buy and Hold Ex-US Israel": ["currencyHedged"],
+    "Buy and Hold Russell 2000 Israel": ["unhedged"],
+    "Buy and Hold S&P 500 x3 Israel": ["ilsHedged"]
+  }
+}
