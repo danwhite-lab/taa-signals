@@ -57,6 +57,11 @@ def clone(frame):
 
 def decisions(strategy, prices, **kwargs):
     """Reuse exact original decisions, never optimize/reconstruct strategy maths."""
+    from haa.my_funds import PREFIX
+
+    if any(str(column).startswith(PREFIX) for column in prices.columns):
+        with span("signal_seconds"):
+            return strategy.decisions(prices, **kwargs)
     cutoff = str(strategy.completed_cutoff()) if hasattr(strategy,"completed_cutoff") else None
     key = digest({"class":type(strategy).__module__+"."+type(strategy).__name__, "engine":engine_revision(),
         "data":frame_version(prices), "kwargs":{k:str(v) for k,v in kwargs.items()},

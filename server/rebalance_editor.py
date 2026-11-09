@@ -1,7 +1,8 @@
 """Verbatim editor conversion helpers; only the UI/cache dependency is adapted."""
 from decimal import ROUND_FLOOR
 import pandas as pd
-from haa.rebalance_holdings import number
+from haa.rebalance_holdings import number, whole_units
+from haa.my_funds import registered_fund
 from . import rebalance_quotes as market_data
 from .rebalance_quotes import utc_now
 
@@ -32,6 +33,9 @@ def _preview_positions(account, instruments, rows):
             price, stamp = row["Manual price per unit"], row["Price date"]
             has_price = price is not None and not pd.isna(price)
             price_date = None if stamp is None or pd.isna(stamp) else pd.Timestamp(stamp).date().isoformat()
+            if has_price and registered_fund(key):
+                errors.append(f"{instruments[key]['label']}: registered funds use automatic prices.")
+                continue
             if has_price and not price_date:
                 errors.append(f"{instruments[key]['label']}: enter the date of the price you are copying.")
                 continue
@@ -51,11 +55,11 @@ def _preview_positions(account, instruments, rows):
                     errors.append(f"{instruments[key]['label']}: value entry needs a current price; enter a dated manual price in this row first.")
                     continue
                 units = number(row["Value (₪ / $)"]) / number(quote["price"], positive=True)
-                if instruments[key]["market"] == "TASE":
+                if whole_units(instruments[key]):
                     units = units.to_integral_value(rounding=ROUND_FLOOR)
                 position["units"] = str(units)
-            if instruments[key]["market"] == "TASE" and number(position["units"]) != number(position["units"]).to_integral_value():
-                errors.append(f"{instruments[key]['label']}: enter whole TASE units.")
+            if whole_units(instruments[key]) and number(position["units"]) != number(position["units"]).to_integral_value():
+                errors.append(f"{instruments[key]['label']}: enter whole units." if registered_fund(key) else f"{instruments[key]['label']}: enter whole TASE units.")
                 continue
             positions[key] = position
             preview.append({"Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],

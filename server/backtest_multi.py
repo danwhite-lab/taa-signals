@@ -13,6 +13,8 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from haa.comparison import ModelInput
+from haa.model_catalog import available_models
+from haa.my_funds import account_funds, model_definition, registered_fund
 from haa import deep_history as deep
 from haa.portfolio import total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -84,7 +86,7 @@ def validated(request):
     else:
         for sleeve in request.sleeves:
             base.definition(sleeve.model)
-        if request.sleeve_rebalance_mode != "none" and request.monthly_contribution and any(getattr(MODELS[s.model], "execution_frequency", "monthly") == "daily" for s in request.sleeves):
+        if request.sleeve_rebalance_mode != "none" and request.monthly_contribution and any(getattr(base.definition(s.model).model_class, "execution_frequency", "monthly") == "daily" for s in request.sleeves):
             error("transferDeposits")
         if request.sleeve_rebalance_mode == "rvol_cap":
             chosen = next((s for s in request.sleeves if s.id == request.rebalance_sleeve), None)
@@ -103,7 +105,7 @@ def config(mode):
     from .backtest_presentation import DCA_CAPTION
     if mode not in {"portfolio", "deep"}: error("unknownMode")
     return {"dca_caption": DCA_CAPTION, "models": [{f.name: getattr(m, f.name) for f in base.fields(m) if f.name != "model_class"}
-                       for m in base.MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)],
+                       for m in available_models() if getattr(m.model_class, "backtest_available", True)],
             "proxies": [{"key": key, "label": spec.label, "caveat": spec.caveat,
                           "daily_signal_history": spec.daily_signal_history} for key, spec in deep.ALL_DEEP_HISTORY_SPECS.items()],
             "single_options": deep.deep_history_options(1), "blend_options": deep.deep_history_options(2),
@@ -118,11 +120,12 @@ def load_saved(body, portfolios):
         if row is None: error("missingSaved")
         payload = row.get("payload")
     if len(json.dumps(payload).encode()) > 100000: error("fileSize")
+    models = {**MODELS, **{f["model"]: model_definition(f).model_class for f in account_funds()}}
     try:
         sleeves, initial = (deep_history_portfolio_config(payload, MODELS, deep.ALL_DEEP_HISTORY_SPECS, require_capital_fx=False)
-                            if body.mode == "deep" else backtest_portfolio_config(payload, MODELS, require_capital_fx=False))
+                            if body.mode == "deep" else backtest_portfolio_config(payload, models, require_capital_fx=False))
         warnings = [WORDS["unavailable"].format(model=s["model"]) for s in sleeves
-                    if body.mode == "portfolio" and not getattr(MODELS[s["model"]], "backtest_available", True)]
+                    if body.mode == "portfolio" and not getattr(models[s["model"]], "backtest_available", True)]
         transfer = {"sleeve_rebalance_mode": "none", "rebalance_sleeve": None,
                     "rebalance_cap": 15., "rebalance_target": 10.}
         return {"sleeves": sleeves, "initial": initial, "warnings": warnings, **transfer}
@@ -135,6 +138,9 @@ def load_saved(body, portfolios):
 
 def live_inputs(request):
     definitions = [usd.resolve(s.model) if getattr(request,"usd_equivalents",False) else base.definition(s.model) for s in request.sleeves]
+    if any(registered_fund(d.label) for d in definitions) and len({d.execution_currency for d in definitions}) > 1:
+        from haa.fund_verification import WORDS as FUND_WORDS
+        raise ValueError(FUND_WORDS["mixedCurrency"])
     mixed = getattr(request, "daily_valuation", False) or any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
     local = all(d.execution_currency == "ILS" for d in definitions)
     benchmark = "RVOL_SPY_IL" if mixed and local else "SPY"
@@ -248,7 +254,8 @@ def run(request, code):
                      "downloads": [{"kind": k, "label": v["label"], "filename": v["filename"], "bytes": len(v["csv"].encode())} for k, v in bundle["downloads"].items()]}
             if len(json.dumps(probe, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
             return bundle
-        bundle, info = base.RESULTS.run(model="backtest:"+request.mode, params=params,
+        private = any(registered_fund(s.model) for s in request.sleeves)
+        bundle, info = base.private_result(compute) if private else base.RESULTS.run(model="backtest:"+request.mode, params=params,
             start=str(request.start), end=str(request.end), version=version, compute=compute)
         public = bundle["public"]
         public.update(cache=info, data_version=version)

@@ -1,5 +1,6 @@
 "use client";
 
+import { asModel } from "../../components/MyFunds";
 import { ModelResults, ChoiceLabel } from "../../components/SearchPicker";
 import { useRef, useState } from "react";
 import {UsdToggle,UsdBanner,useUsdAvailability,fitDates,type UsdInfo} from "../../components/UsdEquivalents";
@@ -97,6 +98,8 @@ export default function ComparePage() {
           <summary className="btn btn-secondary">{text.models}</summary>
           {modelPickerOpen && <div className={pickerStyles.panel} role="group" aria-label={text.models}>
             {loadingChoices ? <p role="status">{text.loading}</p> : <ModelResults models={options.models}
+              onFundChange={fund => setOptions(current => ({ ...current,
+                models: [...current.models.filter(model => model.label !== fund.model), { ...asModel(fund), benchmark: fund.model }] }))}
               selected={settings.models} multi autoFocus onSelect={label => change({ models: settings.models.includes(label)
                 ? settings.models.filter(value => value !== label) : [...settings.models, label] })} />}
             <button type="button" className="btn btn-secondary" onClick={closeModelPicker}>{pickerWords.done}</button>

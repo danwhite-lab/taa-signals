@@ -66,9 +66,27 @@ class Inputs(BaseModel):
         return self
 
 
+def private_result(compute, cache=None):
+    from uuid import uuid4
+    from .fund_scope import owner
+
+    account = owner.get()
+    if account is None:
+        raise HTTPException(400, "This fund is unavailable.")
+    result = compute()
+    key = uuid4().hex + uuid4().hex
+    cache = RESULTS if cache is None else cache
+    with cache.lock:
+        cache._remember(key, {**result, "private_owner": account})
+    return result, {"hit": None, "key": key, "warnings": []}
+
+
 def trading_fees(request, currency):
     if not request.fees_enabled:
         return None
+    if currency not in {"USD", "ILS"}:
+        from haa.fund_verification import WORDS
+        raise ValueError(WORDS["feeCurrency"])
     return TradingFees(currency, request.ils_fee_percent, request.ils_minimum_fee, request.usd_flat_fee)
 
 
@@ -123,6 +141,9 @@ def prepare(selected, all_prices, *, warnings=None):
     common_start, common_end = data.common_monthly_period(monthly)
     captions = []
     if common_start is None or common_end is None or common_start > common_end:
+        from haa.fund_verification import WORDS
+        if selected.label.startswith("MY-FUND-"):
+            raise ValueError(WORDS["shortHistory"])
         raise ValueError("The selected model assets have no common month-end observations. Check the data sources or upload compatible CSV histories.")
     daily = getattr(strategy, "execution_frequency", "monthly") == "daily"
     actual_window = getattr(strategy, "backtest_window", None)
@@ -152,10 +173,18 @@ def prepare(selected, all_prices, *, warnings=None):
     captions += [f"Common {frequency} data: {common_start.date()} to {common_end.date()}",
                  "Available adjusted-price history for the assets required by the selected model.",
                  f"Actual common {frequency} data period: {common_start.date()} through {common_end.date()}."]
+    from haa.my_funds import registered_fund
+    if registered_fund(selected.label):
+        observed = prices[strategy.holding_asset].dropna()
+        from haa.fund_verification import WORDS
+        captions.append(WORDS["actualHistory"].format(date=observed.index.min().date()))
+        if selected.execution_currency not in {"USD", "ILS"}:
+            captions.append(WORDS["feeCurrency"])
     return strategy, prices, monthly, monthly_input, bounds, captions
 
 
 def options(label, usd_equivalents=False):
+    from haa.model_catalog import available_models
     from .backtest_presentation import DCA_CAPTION, REFERENCE_CAPTION
     mapping = usd.mappings([label]) if usd_equivalents else []
     selected = usd.resolve(label) if usd_equivalents else definition(label)
@@ -163,7 +192,7 @@ def options(label, usd_equivalents=False):
         prices, metadata, warnings, opens = load_data(selected)
         strategy, prices, monthly, monthly_input, bounds, captions = prepare(selected, prices, warnings=warnings)
         return clean({"models": [{f.name: getattr(m, f.name) for f in fields(m) if f.name != "model_class"}
-                                 for m in MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)],
+                                 for m in available_models() if getattr(m.model_class, "backtest_available", True)],
                       "label": label, "currency": selected.execution_currency, "bounds": bounds,
                       **({"usd_equivalents": {"enabled": True, "mapping_version": usd.VERSION, "mappings": mapping}} if mapping else {}),
                       "reference_replay_available": getattr(strategy, "signal_calendar", None) == "XNYS",
@@ -233,7 +262,7 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
               "fixed_fee": request.fee_value if request.fee_type == "fixed" else 0., "tax_enabled": request.tax_enabled,
               "tax_rate": request.tax_rate / 100, "monthly_contribution": request.monthly_contribution}
     passed.update(fee_parameters(request, selected.execution_currency))
-    if request.fees_enabled:
+    if "trading_fees" in passed:
         passed['trading_fees'] = vars(passed['trading_fees'])
     public = {"label": selected.label, "currency": selected.execution_currency, "settings": params, "engine_parameters": passed, "fees": fees,
               "summary": summary, "metrics": raw_metrics, "value_chart": chart(curves), "drawdown_chart": chart(drawdowns),
@@ -276,6 +305,7 @@ def run(request, code):
         params = {**request.model_dump(mode="json"), "code": code, "utc_date": str(datetime.now(timezone.utc).date()),
                   "completed_cutoff": str(strategy.completed_cutoff()) if hasattr(strategy, "completed_cutoff") else None,
                   "source_metadata": digest(table(metadata)), "warnings": warnings, "presentation": "single-backtest-v2"}
+        from haa.my_funds import registered_fund
         if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             signal_start = perf_counter()
@@ -298,8 +328,13 @@ def run(request, code):
                 for field in ("source", "identifier", "price_field", "history_kind", "automatic_proxy_extension"):
                     result.audit[f"history_{field}"] = provenance[field]
             timing = {"data_seconds": round(loaded-started, 6), "signal_seconds": round(signal_done-signal_start, 6), "engine_seconds": round(engine_done-signal_done, 6)}
-            return usd.annotate(report(selected, request, strategy, prices, monthly, metadata, decisions, result, timing), mapping, request, (nav.index.min().date(), nav.index.max().date()))
-        bundle, info = RESULTS.run(model="backtest:" + selected.label, params=params, start=str(start), end=str(end), version=version, compute=compute)
+            bundle = report(selected, request, strategy, prices, monthly, metadata, decisions, result, timing)
+            fund = registered_fund(selected.label)
+            if fund:
+                bundle["public"]["model_name"] = fund["name"]
+                bundle["public"]["captions"] += range_captions[3:]
+            return usd.annotate(bundle, mapping, request, (nav.index.min().date(), nav.index.max().date()))
+        bundle, info = private_result(compute) if registered_fund(selected.label) else RESULTS.run(model="backtest:" + selected.label, params=params, start=str(start), end=str(end), version=version, compute=compute)
         public = bundle["public"]
         public["warnings"] += warnings + info["warnings"]
         public["cache"] = info
@@ -335,5 +370,8 @@ def download(key, kind):
             except Exception:
                 bundle = None
     if not bundle or bundle.get("kind") not in {"single-backtest-v2", "backtest-portfolio-v2", "backtest-deep-history-v2"} or kind not in bundle["downloads"]:
+        raise HTTPException(404, "Full download unavailable. Run the backtest again.")
+    from .fund_scope import owner
+    if bundle.get("private_owner") is not None and bundle["private_owner"] != owner.get():
         raise HTTPException(404, "Full download unavailable. Run the backtest again.")
     return bundle["downloads"][kind]

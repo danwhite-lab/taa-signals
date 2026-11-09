@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from haa import data
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from haa.model_catalog import MODEL_CATALOG
+from haa.my_funds import account_funds, instrument as fund_instrument, registered_fund, valuations
+from .fund_scope import account_scope
 from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
     execution_security, combined_targets, companion_anchor_map, rebalance_targets, compare_holdings,
@@ -69,6 +71,7 @@ def known_instruments():
     instruments = {}
     for item in [*(security(a, "US") for a in yahoo), *(execution_security(a, "ILS") for a in TASE_ISRAEL_ASSET_IDS)]:
         instruments[item["id"]] = item
+    instruments.update({f["model"]: fund_instrument(f) for f in account_funds() if not f["archived"]})
     return instruments, yahoo
 
 
@@ -82,6 +85,7 @@ def selected_portfolio(portfolios, portfolio_id):
 def targets_for(workspace, portfolios, portfolio_id, account):
     private.checked_allocation_mode(workspace["payload"])
     instruments, yahoo = known_instruments()
+    instruments.update({f["model"]: fund_instrument(f) for f in account_funds() if f["archived"]})
     instruments.update({k: {f: row[f] for f in ("id", "identifier", "market", "currency", "label")} for k, row in account["positions"].items()})
     options, portfolio = selected_portfolio(portfolios, portfolio_id)
     # The Rebalance page always opens on the saved default.  A picker change is
@@ -131,11 +135,19 @@ def targets_for(workspace, portfolios, portfolio_id, account):
             sleeves = portfolio["payload"]["sleeves"]
             if len({s["model"] for s in sleeves}) != len(sleeves):
                 raise ValueError()
-            known_labels = {item.label for item in MODEL_CATALOG}
+            known_labels = {item.label for item in MODEL_CATALOG} | {fund["model"] for fund in account_funds()}
             if any(not isinstance(s.get("model"), str) or s["model"] not in known_labels for s in sleeves):
                 safe = "The selected portfolio contains an unavailable saved strategy. Choose an available model on the Portfolio page."
                 return portfolio, instruments, rows, {}, [safe], source, [{"stage": "model", "code": "saved_model_unavailable", "message": safe}]
-            signals, errors = market.load_portfolio_signals(tuple(s["model"] for s in sleeves), tuple(tickers.items()), {})
+            public_labels = tuple(s["model"] for s in sleeves if not registered_fund(s["model"]))
+            signals, errors = market.load_portfolio_signals(public_labels, tuple(tickers.items()), {}) if public_labels else ([], [])
+            signals = list(signals)
+            for sleeve in sleeves:
+                fund = registered_fund(sleeve["model"])
+                if fund:
+                    signals.append({"name": fund["model"], "currency": fund["currency"], "target_weights": {fund["model"]: 1.0},
+                                    "holding": fund["name"], "regime": "buy-and-hold"})
+
             if errors:
                 labels = [s["model"] for s in sleeves]
                 safe = "Completed targets are unavailable for: " + ", ".join(labels) + ". Check those sleeve data and signal settings."
@@ -215,20 +227,23 @@ def snapshot(workspace, account, portfolios, request):
     relevant = set(targets) | {k for k, row in account["positions"].items() if number(row["units"])}
     uses_usd = any(instruments[k]["currency"] == "USD" for k in relevant)
     fx = market.fx_quote(account) if uses_usd else {"price": "1", "fresh": True, "source": "Not needed: ILS only"}
+    other_fx = valuations(instruments[k]["currency"] for k in relevant)
+    rates = {"USD": fx.get("price"), **{currency: rate.get("price") for currency, rate in other_fx.items()}}
+    fx_blocked = {k for k in relevant if instruments[k]["currency"] in other_fx and not rates[instruments[k]["currency"]]}
     # A published but late allowlisted fund NAV remains usable. Other stale
     # quote kinds keep the existing completed-session requirement.
     usable = {k for k in relevant if not quotes[k].get("error") and quotes[k].get("price") is not None
               and (quotes[k].get("fresh") or quotes[k].get("valuation_kind") == "fund_nav")}
-    blocked = relevant - usable
+    blocked = (relevant - usable) | fx_blocked
     stale = {k for k in relevant if not quotes[k].get("error") and quotes[k].get("price") is not None and not quotes[k].get("fresh")}
     held_blocked = {k for k in blocked - excluded if number(account["positions"].get(k, {}).get("units", 0))}
-    missing_held = {k for k in held_blocked if quotes[k].get("error") or not quotes[k].get("price")}
+    missing_held = {k for k in held_blocked if k in fx_blocked or quotes[k].get("error") or not quotes[k].get("price")}
     needs_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
     rebalance_fx = fx if needs_fx else {"price": "1", "fresh": True}
     comparison, total, full_total = [], None, None
     if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
-            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rebalance_fx["price"], anchor_map)
+            comparison, _, total = compare_holdings(account, instruments, targets, quotes, rates, anchor_map)
         except (ValueError, KeyError, TypeError):
             pass
     try:
@@ -237,7 +252,7 @@ def snapshot(workspace, account, portfolios, request):
             row["outside_rebalance"] = False
             row.pop("companion_of", None)
         if not fx.get("error"):
-            _, _, full_total = compare_holdings(full, instruments, {}, quotes, fx["price"])
+            _, _, full_total = compare_holdings(full, instruments, {}, quotes, rates)
     except (ValueError, KeyError, TypeError):
         pass
     if not comparison:
@@ -257,14 +272,14 @@ def snapshot(workspace, account, portfolios, request):
     eligible = {k: w for k, w in targets.items() if k not in blocked}
     ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and rebalance_fx.get("fresh") and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
-    context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "allocation_mode": mode,
+    context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "other_fx": other_fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account), "companion_anchor_map": anchor_map}
     editor_rows = []
     for key in sorted(visible):
         p, q = account["positions"].get(key, {}), quotes[key]
         current = q.get("fresh") and not q.get("error") and q.get("price")
         editor_rows.append({"Security": key, "Fund": instruments[key]["label"], "Currency": instruments[key]["currency"],
-            "Outside the rebalance": p.get("outside_rebalance", False), "Enter as": "Units", "Units": f'{number(p.get("units", 0)):.2f}', "Units edited": False,
+            "Outside the rebalance": p.get("outside_rebalance", False), "Enter as": "Units", "Units": str(number(p.get("units", 0))) if registered_fund(key) else f'{number(p.get("units", 0)):.2f}', "Units edited": False,
             "Value (₪ / $)": f'{number(p.get("units", 0)) * number(q["price"], positive=True):.2f}' if (not q.get("error") and q.get("price") is not None) else "",
             "Manual price per unit": p.get("manual_price"), "Price date": p.get("manual_price_date"),
             "Minimum order (₪)": p.get("minimum_ils", "0"), "Remove": False})
@@ -274,7 +289,7 @@ def snapshot(workspace, account, portfolios, request):
         "portfolios": [{"id": p["id"], "name": p["name"], "is_default": p.get("is_default") is True} for p in portfolios], "portfolio_id": portfolio["id"] if portfolio else None, "allocation_mode": mode,
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
-        "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "source_settings": source,
+        "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "other_fx": other_fx, "source_settings": source,
         "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}, anchor_map),
         "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
@@ -310,16 +325,19 @@ def safe(operation):
 
 
 @router.get("/api/rebalance")
+@account_scope
 def get_page(portfolio_id: str | None = None, session=Depends(private.authenticated)):
     return safe(lambda: snapshot(*loaded(session), Request(portfolio_id=portfolio_id)))
 
 
 @router.get("/api/rebalance/instruments")
+@account_scope
 def instruments(session=Depends(private.authenticated)):
     return safe(lambda: {"instruments": known_instruments()[0]})
 
 
 @router.post("/api/rebalance/refresh")
+@account_scope
 def refresh(body: Request, session=Depends(private.authenticated)):
     market.clear_rebalance_quotes()
     return safe(lambda: snapshot(*loaded(session), body))
@@ -355,6 +373,7 @@ def semantic(account):
 
 
 @router.post("/api/rebalance/editor")
+@account_scope
 def editor(body: Editor, session=Depends(private.authenticated)):
     def prepare():
         workspace, account, portfolios = loaded(session)
@@ -374,6 +393,9 @@ def editor(body: Editor, session=Depends(private.authenticated)):
                 if item["id"] != key:
                     raise ValueError()
                 instruments[key] = item
+            fund = registered_fund(key)
+            if fund and fund["archived"] and key not in account["positions"] and key not in targets:
+                raise ValueError()
             if row.get("Enter as") not in {"Units", "Value"} or type(row.get("Outside the rebalance", False)) is not bool:
                 raise ValueError()
             if row.get("Companion of") is not None and not isinstance(row["Companion of"], str):
@@ -410,11 +432,13 @@ def editor(body: Editor, session=Depends(private.authenticated)):
 def planned(state, request):
     if not state["ready"]:
         raise HTTPException(400, "A valuation is required. Check the missing price and FX details.")
+    rates = {"USD": state["rebalance_fx"]["price"], **{currency: rate.get("price") for currency, rate in state.get("other_fx", {}).items()}}
     return make_buy_plan(state["account"], state["instruments"], state["eligible"], state["quotes"],
-                         state["rebalance_fx"]["price"], request.new_money, state["context"], state["allocation_mode"], state["context"].get("companion_anchor_map"))
+                         rates, request.new_money, state["context"], state["allocation_mode"], state["context"].get("companion_anchor_map"))
 
 
 @router.post("/api/rebalance/plan")
+@account_scope
 def plan(body: Request, session=Depends(private.authenticated)):
     def generate():
         workspace, account, portfolios = loaded(session)
@@ -426,6 +450,7 @@ def plan(body: Request, session=Depends(private.authenticated)):
 
 
 @router.post("/api/rebalance/record")
+@account_scope
 def record(body: Recording, session=Depends(private.authenticated)):
     def prepare():
         workspace, account, portfolios = loaded(session)

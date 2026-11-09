@@ -1,5 +1,7 @@
 "use client";
 
+import { asModel } from "../../components/MyFunds";
+import type { ModelOption, RegisteredFund } from "../../lib/picker-display";
 import SearchPicker from "../../components/SearchPicker";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import usdWords from "../../content/usd-equivalents.json";
@@ -14,7 +16,7 @@ import DisplayTable from "../../components/DisplayTable";
 import pickerWords from "../../content/pickers.json";
 import { modelCaption } from "../../lib/picker-display";
 
-type Model = { label: string; strategy: string; variant: string | null; implementation: string; execution_currency?: string };
+type Model = ModelOption;
 type Sleeve = { id: number; model: string; weight: number };
 type Config = { dca_caption: string; models: Model[]; proxies: { key: string; label: string; caveat: string }[]; single_options: string[]; blend_options: string[];
   benchmarks: { key: string; label: string; caveat: string }[] };
@@ -151,6 +153,9 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
     setSleeves(previous => [...previous, { id, model, weight: 0 }]);
     onChange();
   }
+  function updateFund(fund: RegisteredFund) {
+    setConfig(current => current ? { ...current, models: [...current.models.filter(model => model.label !== fund.model), asModel(fund)] } : current);
+  }
   const transferControls = <>
         <label>{words.rule}<select value={form.sleeve_rebalance_mode} onChange={event => change({ sleeve_rebalance_mode: event.target.value,
           ...(event.target.value === "rvol_cap" ? { rebalance_sleeve: sleeves.find(s => s.id === form.rebalance_sleeve && s.model.includes("RVol"))?.id ?? sleeves.find(s => s.model.includes("RVol"))?.id ?? null } : {}) })}>
@@ -206,7 +211,7 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
         {mode === "portfolio" && <div className="portfolio-sleeves"><table role="table" className="portfolio-sleeves-table" aria-label={words.allocationTitle}><thead role="rowgroup"><tr role="row">
         <th role="columnheader" scope="col">{text.strategy}</th><th role="columnheader" scope="col" className="numeric">{words.weight}</th><th role="columnheader" scope="col"><span className="visually-hidden">{words.actions}</span></th>
       </tr></thead><tbody role="rowgroup">{sleeves.map((s, index) => (
-        <tr role="row" key={s.id}><td role="cell"><SearchPicker models={config?.models ?? []} value={s.model} loading={!config}
+        <tr role="row" key={s.id}><td role="cell"><SearchPicker onFundChange={updateFund} models={config?.models ?? []} value={s.model} loading={!config}
           onSelect={model => edit(s.id, { model })} />
           </td><td role="cell" className="numeric"><label>{words.weight}<input type="number" min="0" max="100" value={s.weight} disabled={s.model === "rvol_daily"}
             onChange={event => edit(s.id, { weight: event.target.valueAsNumber })} /></label>
@@ -216,7 +221,7 @@ export default function MultiForm({ mode, running, onRun, onChange, modeControl 
         <div className="portfolio-allocation-bottom">
           {mode === "deep" ? <SearchPicker choices={addProxies} value="" caption={words.add}
             disabled={daily || !addProxies.length || sleeves.length >= (config?.blend_options.length ?? 0)} onSelect={addSleeve} />
-            : <SearchPicker models={config?.models ?? []} value="" caption={words.addSleeve}
+            : <SearchPicker onFundChange={updateFund} models={config?.models ?? []} value="" caption={words.addSleeve}
               disabled={sleeves.length >= 100} onSelect={addSleeve} />}
           <span className={allocationValid ? "allocation-total" : "allocation-total invalid"} role="status">{words.total.replace("{total}",totalLabel)}</span>
         </div>

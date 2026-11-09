@@ -161,7 +161,18 @@ def resolve(strategy: str, variant: str | None, implementation: str) -> ModelDef
     raise ValueError(f"Unknown model selection: {strategy} / {variant} / {implementation}")
 
 
+def available_models():
+    from .my_funds import account_funds, model_definition
+
+    return (*MODEL_CATALOG, *(model_definition(fund) for fund in account_funds() if not fund["archived"]))
+
+
 def definition_for_label(label: str) -> ModelDefinition:
+    from .my_funds import model_definition, registered_fund
+
+    fund = registered_fund(label)
+    if fund is not None:
+        return model_definition(fund)
     for item in MODEL_CATALOG:
         if item.label == label:
             return item

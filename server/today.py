@@ -19,6 +19,8 @@ from .signals_presentation import display_allocation
 from .signals_wire import clean, table
 from . import rebalance_quotes as market
 
+from haa.my_funds import registered_fund, valuations
+
 MODEL_OPTIONS = {m.label: m.model_class for m in MODEL_CATALOG}
 RESULTS = ResultCache()
 WORDS = json.loads((Path(__file__).resolve().parents[1]/"web/content/today.json").read_text())
@@ -75,10 +77,10 @@ def cached_sleeve(definition, prices, metadata, warnings, code, clock, include_p
     params = {"engine_code": code, "utc_date": str(clock.date()), "daily_cutoff": cutoff,
               "sources": digest(table(metadata)), "presentation": "today-v2", "content":digest(WORDS), "include_preview": include_preview}
     try:
-        if warnings:
+        if warnings or registered_fund(definition.label):
             # Retrieval failures must not be hidden by an earlier valid hit.
             result = build_sleeve(definition, prices, metadata, warnings, include_preview)
-            return result, {"hit": None, "warnings": ["Unavailable or degraded sleeve result was not cached."]}, version
+            return result, {"hit": None, "warnings": ["Unavailable or degraded sleeve result was not cached."] if warnings else []}, version
         result, info = RESULTS.run(model=definition.label, params=params, start=str(prices.index.min()), end=str(prices.index.max()),
                                   version=version, compute=lambda: build_sleeve(definition, prices, metadata, warnings, include_preview))
     except Unavailable as exc:
@@ -172,6 +174,11 @@ def allocation_display(weights, currency):
     rows = []
     # Match the existing amount-row order so multi-holding columns line up.
     for asset, weight in sorted(weights.items()):
+        fund = registered_fund(asset)
+        if fund:
+            rows.append({"name": fund["name"], "security_number": fund["identifier"],
+                         "weight_text": None if single else f"{weight:.0%}"})
+            continue
         label = execution_security_label(asset, currency)
         match = re.fullmatch(r"(.+?)\s+[-–—]\s+(\d+)", label) if currency == "ILS" else None
         rows.append({"name": match[1] if match else label,
@@ -231,13 +238,16 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
             normalized.append({"weight": weight})
         except (ValueError, TypeError, OverflowError):
             weight, all_weights, row["error_code"] = None, False, "invalid_weight"
-        if not isinstance(label, str) or label not in MODEL_OPTIONS:
+        if not isinstance(label, str) or (label not in MODEL_OPTIONS and registered_fund(label) is None):
             row["error_code"] = "unknown_model"
             result["signals"].append(row)
             result["previews"].append({"label": row["label"], "allocation": None, "change": None, "price_as_of": None, "error_code": "unknown_model", "reason": None})
             continue
         # Only this public label goes into the public loader/calculation cache.
         public = public_sleeve(label, code, clock) if include_preview else public_sleeve(label, code, clock, False)
+        fund = registered_fund(label)
+        if fund:
+            row["display_name"] = fund["name"]
         result["public_sleeves"].append(public)
         result["warnings"] += public.get("warnings", []) + public.get("fallback_warnings", []) + public["cache"]["warnings"]
         signal = public["current"]
@@ -277,8 +287,13 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
             quotes = {key: market.unit_quote(instruments[key], account["positions"].get(key, {})) for key in sorted(visible)}
             uses_usd = any(instruments[key]["currency"] == "USD" for key in relevant - excluded)
             fx = market.fx_quote(account) if uses_usd else {"price": "1", "fresh": True}
+            other_fx = valuations(instruments[key]["currency"] for key in relevant - excluded)
+            rates = {"USD": fx.get("price"), **{currency: rate.get("price") for currency, rate in other_fx.items()}}
+            if other_fx:
+                result["other_fx"] = other_fx
             missing_held = {key for key in relevant - excluded if number(account["positions"].get(key, {}).get("units", 0))
-                            and (quotes[key].get("error") or quotes[key].get("price") is None)}
+                            and (quotes[key].get("error") or quotes[key].get("price") is None
+                                 or (instruments[key]["currency"] in other_fx and not rates[instruments[key]["currency"]]))}
             if missing_held or fx.get("error") or fx.get("price") is None:
                 result["comparison"] = [{"id": key, "Fund": instruments[key]["label"], "Target %": targets.get(key, 0),
                                          "Actual %": None, "Gap (₪)": None, "Status": "Cannot price",
@@ -286,7 +301,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
                                         for key in sorted(visible - excluded) if not account["positions"].get(key, {}).get("companion_of")]
                 result["action_notice"] = "cannot_price"
             else:
-                comparison, _, total = compare_holdings(account, instruments, targets, quotes, fx["price"], anchor_map)
+                comparison, _, total = compare_holdings(account, instruments, targets, quotes, rates, anchor_map)
                 rows = []
                 for row in comparison:
                     key = row["id"]

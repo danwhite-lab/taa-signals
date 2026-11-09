@@ -2,11 +2,15 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import words from "../content/pickers.json";
-import { fundChoice, type FundIdentity, isKnownModel, loadPickerMetadata, matchingChoices, modelChoice, type Choice, type Metadata, type ModelOption } from "../lib/picker-display";
+import { fundChoice, type FundIdentity, isKnownModel, loadPickerMetadata, matchingChoices, modelChoice, type Choice, type Metadata, type ModelOption, type RegisteredFund } from "../lib/picker-display";
+import { ArchiveFund, FundRegistration, asModel, useMyFunds } from "./MyFunds";
 import styles from "./search-picker.module.css";
 
 const pageSize = 10;
-const implementationFilters = [{ key: "israel", label: words.israel }, { key: "originals", label: words.originals }];
+const modelGroups = [
+  { key: "tase", label: words.tase }, { key: "global", label: words.global },
+  { key: "strategies", label: words.strategies }, { key: "israel", label: words.israel },
+];
 
 export function usePickerMetadata(enabled: boolean) {
   const [value, setValue] = useState<Metadata>();
@@ -43,23 +47,21 @@ export function ChoiceDetails({ children }: { children: ReactNode }) {
 
 type ResultsProps = {
   choices: Choice[]; selected: string[]; onSelect: (key: string) => void; searchLabel: string;
-  multi?: boolean; browse?: boolean; modelFilters?: boolean; autoFocus?: boolean; busy?: boolean; filtersContent?: ReactNode; details?: (key: string) => ReactNode;
+  multi?: boolean; browse?: boolean; modelFilters?: boolean; autoFocus?: boolean; busy?: boolean; filtersContent?: ReactNode; group?: string; setGroup?: (value: string) => void; details?: (key: string) => ReactNode;
 };
 
-export function SearchResults({ choices, selected, onSelect, searchLabel, multi, browse, modelFilters, autoFocus, busy, filtersContent, details }: ResultsProps) {
+export function SearchResults({ choices, selected, onSelect, searchLabel, multi, browse, modelFilters, autoFocus, busy, filtersContent, group, setGroup, details }: ResultsProps) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
   const field = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => { if (autoFocus) field.current?.focus(); }, [autoFocus]);
 
-  const matched = matchingChoices(choices, query, filter);
+  const matched = matchingChoices(choices, query, group ?? "");
   const pages = Math.max(1, Math.ceil(matched.length / pageSize));
   const activePage = Math.min(page, pages - 1);
   const visible = matched.slice(activePage * pageSize, (activePage + 1) * pageSize);
-  const filters = modelFilters ? implementationFilters.filter(option => choices.some(choice => choice.filter === option.key)) : [];
   function move(event: KeyboardEvent, current: number) {
     if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
     if (event.key === "Enter" && current < 0) { event.preventDefault(); return; }
@@ -77,10 +79,10 @@ export function SearchResults({ choices, selected, onSelect, searchLabel, multi,
         onChange={event => { setQuery(event.target.value); setPage(0); }}
         onKeyDown={event => move(event, -1)} />
     </label>
-    {filters.length > 1 && <div role="group" aria-label={words.implementation} className={styles.filters}>
-      {[{ key: "", label: words.all }, ...filters].map(option => <button type="button" key={option.key}
-        className="btn btn-secondary" aria-pressed={filter === option.key}
-        onClick={() => { setFilter(option.key); setPage(0); }}>{option.label}</button>)}
+    {modelFilters && <div role="group" aria-label={words.modelGroups} className={styles.filters}>
+      {modelGroups.map(option => <button type="button" key={option.key}
+        className="btn btn-secondary" aria-pressed={group === option.key}
+        onClick={() => { setGroup?.(option.key); setPage(0); }}>{option.label}</button>)}
     </div>}
     {filtersContent}
     <p className={styles.count} role="status">{matched.length === 1 ? words.oneMatch : words.count.replace("{count}", String(matched.length))}</p>
@@ -146,24 +148,51 @@ export function ModelFacts({ label, metadata }: { label: string; metadata?: Meta
   </ChoiceDetails>;
 }
 
-export function ModelResults({ models, selected, onSelect, multi, browse, autoFocus }: {
+export function ModelResults({ models, selected, onSelect, multi, browse, autoFocus, onFundChange, excludeFunds }: {
   models: ModelOption[]; selected: string[]; onSelect: (key: string) => void; multi?: boolean; browse?: boolean; autoFocus?: boolean;
+  onFundChange?: (fund: RegisteredFund) => void; excludeFunds?: string[];
 }) {
   const metadata = usePickerMetadata(true);
+  const [group, setGroup] = useState(() => {
+    const initial = models.find(model => model.label === selected[0]);
+    return (initial && modelChoice(initial).tabs?.[0]) ?? "strategies";
+  });
+  const fundGroup = group === "tase" || group === "global";
+  const registry = useMyFunds(fundGroup);
+  const choices = new Map(models.filter(model => !model.fund?.archived)
+    .map(model => [model.label, model]));
+  if (onFundChange) for (const fund of registry.funds ?? []) {
+    if (fund.archived) choices.delete(fund.model);
+    else if (!excludeFunds?.includes(fund.model)) choices.set(fund.model, asModel(fund));
+  }
+  function update(fund: RegisteredFund) {
+    registry.update(fund);
+    onFundChange?.(fund);
+  }
   return <>
     <MetadataStatus state={metadata} />
-    <SearchResults choices={models.map(model => modelChoice(model, metadata.value))} selected={selected} onSelect={onSelect}
-      searchLabel={words.searchModels} multi={multi} browse={browse} autoFocus={autoFocus} modelFilters busy={!metadata.value && !metadata.failed}
-      details={key => <ModelFacts label={key} metadata={metadata.value} />} />
+    <SearchResults choices={[...choices.values()].map(model => modelChoice(model, metadata.value))} selected={selected}
+      onSelect={key => { const fund = choices.get(key)?.fund; if (fund) onFundChange?.(fund); onSelect(key); }}
+      searchLabel={words.searchModels} multi={multi} browse={browse} autoFocus={autoFocus} modelFilters
+      group={group} setGroup={setGroup} busy={!metadata.value && !metadata.failed}
+      filtersContent={fundGroup ? <FundRegistration key={group} market={group === "tase" ? "TASE" : "Global"} state={registry} onChange={update} /> : undefined}
+      details={key => {
+        const fund = choices.get(key)?.fund;
+        return fund ? <ChoiceDetails>
+          <p>{fund.name} · {fund.identifier} · {fund.currency}</p>
+          {!fund.archived && <ArchiveFund fund={fund} onChange={update} />}
+        </ChoiceDetails> : <ModelFacts label={key} metadata={metadata.value} />;
+      }} />
   </>;
 }
 
 type PickerProps = {
   value: string; onSelect: (key: string) => void; disabled?: boolean; onOpen?: () => void;
   loading?: boolean; error?: string; retry?: () => void; retryLabel?: string; caption?: string;
+  onFundChange?: (fund: RegisteredFund) => void; excludeFunds?: string[];
 } & ({ models: ModelOption[]; choices?: never } | { choices: Choice[]; models?: never });
 
-export default function SearchPicker({ value, onSelect, disabled, onOpen, loading, error, retry, retryLabel, caption, models, choices }: PickerProps) {
+export default function SearchPicker({ value, onSelect, disabled, onOpen, loading, error, retry, retryLabel, caption, models, choices, onFundChange, excludeFunds }: PickerProps) {
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
   const selected = models ? models.find(option => option.label === value) : choices?.find(option => option.key === value);
@@ -184,7 +213,7 @@ export default function SearchPicker({ value, onSelect, disabled, onOpen, loadin
     {open && <div className={styles.panel}>
       {error ? <p role="alert">{error} {retry && <button type="button" className="btn btn-secondary" onClick={retry}>{retryLabel ?? words.retry}</button>}</p>
         : loading ? <p role="status">{words.loading}</p>
-        : models ? <ModelResults models={models} selected={[value]} onSelect={choose} autoFocus />
+        : models ? <ModelResults models={models} selected={[value]} onSelect={choose} autoFocus onFundChange={onFundChange} excludeFunds={excludeFunds} />
         : <SearchResults choices={choices ?? []} selected={[value]} onSelect={choose} autoFocus searchLabel={words.searchProxies}
           details={key => <ChoiceDetails><p>{choices?.find(choice => choice.key === key)?.aliases?.[0]}</p></ChoiceDetails>} />}
       <button className="btn btn-secondary" type="button" onClick={close}>{words.cancel}</button>

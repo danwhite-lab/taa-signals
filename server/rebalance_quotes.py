@@ -241,6 +241,18 @@ def fetch_unit_quote(instrument):
 
 
 def unit_quote(instrument, position):
+    from haa.my_funds import PREFIX, quote as fund_quote, registered_fund
+
+    if instrument["id"].startswith(PREFIX):
+        fund = registered_fund(instrument["id"])
+        if fund is None:
+            return {"error": "This fund is unavailable.", "fresh": False}
+        try:
+            observation = fund_quote(fund)
+            LAST_AVAILABLE_QUOTES[quote_key(instrument)] = dict(observation)
+            return observation
+        except Exception:
+            return last_available_quote(instrument, "The fund provider did not return a dated price. Try again later.")
     try:
         if position.get("manual_price") is not None:
             return assess_quote({"price": position["manual_price"], "currency": instrument["currency"],

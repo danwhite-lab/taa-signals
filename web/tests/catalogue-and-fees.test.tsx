@@ -44,7 +44,7 @@ it("filters explicit implementations and fetches rules only for the chosen model
   fireEvent.change(screen.getByRole("searchbox"),{target:{value:"zulu"}});
   expect(screen.getByText("Plain Alpha")).toBeTruthy();
   expect(fetch).toHaveBeenCalledTimes(2);
-  fireEvent.click(screen.getByRole("button",{name:"All"}));
+  fireEvent.click(screen.getByRole("button",{name:"Strategies"}));
   fireEvent.click(within(list).getByRole("button",{name:"Zulu Original"}));
   await screen.findByText("Technical Zulu");
   expect(screen.getByText("No plain version yet")).toBeTruthy();
