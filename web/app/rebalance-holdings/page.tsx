@@ -47,7 +47,9 @@ function DataSignals({state,plan,paused}:{state:State;plan:Plan|null;paused:bool
   const stale=entries.filter(([,q])=>q.price!=null&&!q.error&&q.fresh===false);
   const warnings=[
     ...entries.filter(([,q])=>q.error||q.price==null).map(([id])=>`Unavailable price: ${state.instruments[id]?.label??id}. Enter a dated manual price if necessary.`),
-    ...stale.map(([id,q])=>`Older price: ${state.instruments[id]?.label??id} (${String(q.as_of??"unknown date")}).`),
+    ...stale.map(([id,q])=>q.awaiting_dealing_day
+      ? text.awaitingFundPriceWarning.replace("{date}",String(q.awaiting_dealing_day)).replace("{label}",state.instruments[id]?.label??id).replace("{published}",String(q.as_of??""))
+      : `Older price: ${state.instruments[id]?.label??id} (${String(q.as_of??"unknown date")}).`),
     ...(state.fx.error?["USD/ILS exchange rate unavailable."]:state.fx.fresh===false?[`Older USD/ILS exchange rate (${String(state.fx.as_of??"unknown date")}).`]:[]),
     ...state.errors,
     ...(state.target_diagnostics??[]).filter(d=>d.code!=="ticker_defaulted"&&!state.errors.includes(d.message)).map(d=>d.message),
@@ -73,7 +75,7 @@ function DataSignals({state,plan,paused}:{state:State;plan:Plan|null;paused:bool
         <td data-label="Holding">{item?.label??id}{q.valuation_kind==="fund_nav"&&<small className="companion-note">Published fund valuation</small>}</td>
         <td data-label="Price">{missing?"—":`${item?.currency==="USD"?"$":"₪"}${new Intl.NumberFormat("en",{maximumFractionDigits:6,minimumFractionDigits:2}).format(Number(q.price))}`}</td>
         <td data-label="Observation date">{date(q.as_of as string|undefined)}</td><td data-label="Source">{isManual(q)?"Manual":"Automatic"}</td>
-        <td data-label="Status">{missing?"Unavailable":q.fresh?"Current":"Stale"}</td></tr>})}
+        <td data-label="Status">{missing?"Unavailable":q.fresh?"Current":q.awaiting_dealing_day?text.awaitingFundPriceStatus.replace("{date}",String(q.awaiting_dealing_day)):"Stale"}</td></tr>})}
     </tbody></table></div><p className="holding-hint">Exchange prices are delayed observations; mutual funds use published valuations. Neither is a guaranteed broker price.</p></details>
     <details><summary>Technical details</summary><button type="button" className="btn btn-secondary" onClick={()=>void navigator.clipboard?.writeText(raw)}>Copy diagnostics</button>
       <pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere",maxHeight:480,overflow:"auto"}}>{raw}</pre></details>

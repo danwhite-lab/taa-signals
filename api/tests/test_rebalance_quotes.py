@@ -171,3 +171,100 @@ def test_cache_deep_copy_expiry_and_page_only_refresh(monkeypatch):
     assert quote("x")["price"] == "10" and calls == ["x"]
     clock[0] = 301; quote("x"); assert calls == ["x", "x"]
     quote.clear(); quote("x"); assert len(calls) == 3
+
+
+@pytest.mark.parametrize('identifier,schedule,stamp,now,expected,fresh',[
+    ('5141627','Mon-Thu - 16:00','2026-11-05','2026-11-09T09:00:00Z','2026-11-05',True),
+    ('5141627','Mon-Thu - 16:00','2026-11-04','2026-11-09T09:00:00Z','2026-11-05',False),
+    ('5117700','Fri - 12:30, Mon-Thu - 16:00','2026-11-05','2026-11-09T09:00:00Z','2026-11-06',False),
+    ('5117700','Fri - 12:30, Mon-Thu - 16:00','2026-11-06','2026-11-09T09:00:00Z','2026-11-06',True),
+    ('5141627','Mon-Thu - 16:00','2026-11-05','2026-11-09T13:00:00Z','2026-11-05',True),
+    ('5141627','Mon-Thu - 16:00','2026-11-05','2026-11-09T13:59:59Z','2026-11-05',True),
+    ('5141627','Mon-Thu - 16:00','2026-11-05','2026-11-09T14:00:00Z','2026-11-09',False),
+    ('5141627','Mon-Thu - 16:00','2026-11-05','2026-11-09T15:00:00Z','2026-11-09',False),
+])
+def test_maya_freshness_uses_own_dealing_days_without_publication_grace(original,identifier,schedule,stamp,now,expected,fresh):
+    published={**publication(identifier),'designatedHours':schedule,'ratesAsOf':stamp}
+    quote=port.quote_from_maya_fund(published,security(identifier,'TASE'),now)
+    assert quote==original.quote_from_maya_fund(published,security(identifier,'TASE'),now)
+    assert quote['dealing_schedule']==schedule
+    assert quote['price']=='1.2567' and quote['raw_published_value']=='125.67'
+    assert quote['as_of']==stamp and quote['expected_through']==expected
+    assert quote['expected_basis']=='fund_dealing_day' and quote['fresh'] is fresh
+    assert 'error' not in quote
+    if fresh:
+        assert quote['status']=='Current observation' and 'awaiting_dealing_day' not in quote
+    else:
+        assert quote['status']==f'Awaiting price for dealing day {expected}; latest published {stamp}'
+        assert quote['awaiting_dealing_day']==expected
+
+
+@pytest.mark.parametrize('schedule',[None,42,'','Mon-Thu 16h'])
+def test_missing_or_unparsable_maya_schedule_keeps_exchange_freshness_exactly(original,schedule):
+    published={**publication('5141627'),'ratesAsOf':'2026-11-05'}
+    now='2026-11-09T09:00:00Z'
+    baseline=port.quote_from_maya_fund(published,security('5141627','TASE'),now)
+    if schedule is not None:published['designatedHours']=schedule
+    quote=port.quote_from_maya_fund(published,security('5141627','TASE'),now)
+    assert quote==original.quote_from_maya_fund(published,security('5141627','TASE'),now)
+    if isinstance(schedule,str):assert quote.pop('dealing_schedule')==schedule
+    else:assert 'dealing_schedule' not in quote
+    assert quote==baseline
+    assert quote['expected_through']=='2026-11-06' and quote['fresh'] is False
+    assert quote['status']=='Stale: latest completed session is 2026-11-06'
+    assert 'expected_basis' not in quote and 'awaiting_dealing_day' not in quote
+
+
+@pytest.mark.parametrize('schedule',[
+    None,'','  ',[], 'Mon-Thu 16h','Mon-Thu - 24:00','Mon-Thu - 16:60','mon-thu - 16:00',
+    'Fri-Mon - 16:00','Sat-Sun - 16:00','Mon - 9:00','Mon - 16:00:00','Mon - 16:00 UTC',
+    'Mon - 16:00,','Mon - 16:00, Mon - 17:00','Mon-Wed - 16:00, Wed-Thu - 15:00',
+])
+def test_dealing_schedule_parser_fails_closed(original,schedule):
+    assert port.parse_dealing_schedule(schedule) is None
+    assert original.parse_dealing_schedule(schedule) is None
+
+
+@pytest.mark.parametrize('schedule,expected',[
+    ('Mon-Thu - 16:00',{0:(16,0),1:(16,0),2:(16,0),3:(16,0)}),
+    ('Fri - 12:30, Mon-Thu - 16:00',{4:(12,30),0:(16,0),1:(16,0),2:(16,0),3:(16,0)}),
+    ('Sun-Sat - 00:00',{i:(0,0) for i in range(7)}),
+])
+def test_dealing_schedule_parser_accepts_only_explicit_days_and_cutoffs(original,schedule,expected):
+    parsed=port.parse_dealing_schedule(schedule)
+    assert parsed==original.parse_dealing_schedule(schedule)
+    assert {day:(cutoff.hour,cutoff.minute) for day,cutoff in parsed.items()}==expected
+
+
+def test_fund_dealing_day_skips_real_tase_closures_and_honors_jerusalem_dst(original):
+    # The postponed election on 27 February 2024 was a verified TASE closure.
+    schedule=port.parse_dealing_schedule('Tue - 16:00')
+    assert port.last_fund_dealing_day(schedule,'2024-02-27T17:00:00Z')==pd.Timestamp('2024-02-20')
+    summer=port.parse_dealing_schedule('Mon-Thu - 16:00')
+    # Jerusalem is UTC+3 in July: 13:00 UTC is exactly the 16:00 cutoff.
+    assert port.last_fund_dealing_day(summer,'2026-07-06T12:59:59Z')==pd.Timestamp('2026-07-02')
+    assert port.last_fund_dealing_day(summer,'2026-07-06T13:00:00Z')==pd.Timestamp('2026-07-06')
+    assert original.last_fund_dealing_day(summer,'2026-07-06T13:00:00Z')==pd.Timestamp('2026-07-06')
+
+
+def test_manual_price_precedence_ignores_dealing_schedule(original):
+    quote={'price':'2.50','as_of':'2026-11-04','field':'Manual per-unit price',
+           'dealing_schedule':'Mon-Thu - 16:00','awaiting_dealing_day':'2026-11-09','expected_basis':'fund_dealing_day'}
+    value=port.assess_quote(quote,'TASE','2026-11-09T15:00:00Z')
+    assert value==original.assess_quote(quote,'TASE','2026-11-09T15:00:00Z')
+    assert value['fresh'] is True and value['price']=='2.50'
+    assert 'expected_basis' not in value and 'awaiting_dealing_day' not in value
+
+
+def test_reassessment_removes_awaiting_marker_when_new_fund_price_is_current(original):
+    raw={**publication('5141627'),'ratesAsOf':'2026-11-05','designatedHours':'Mon-Thu - 16:00'}
+    before=port.quote_from_maya_fund(raw,security('5141627','TASE'),'2026-11-09T13:00:00Z')
+    assert before['fresh'] and 'awaiting_dealing_day' not in before
+    after=port.assess_quote(before,'TASE','2026-11-09T15:00:00Z')
+    assert not after['fresh'] and after['awaiting_dealing_day']=='2026-11-09'
+    current=port.assess_quote({**after,'as_of':'2026-11-09'},'TASE','2026-11-09T15:00:00Z')
+    assert current['fresh'] and 'awaiting_dealing_day' not in current
+    assert current['price']==before['price']
+    # Receiving malformed metadata later must not leave a misleading fund basis.
+    fallback=port.assess_quote({**after,'dealing_schedule':'invalid'},'TASE','2026-11-09T09:00:00Z')
+    assert 'awaiting_dealing_day' not in fallback and 'expected_basis' not in fallback

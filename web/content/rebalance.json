@@ -77,6 +77,8 @@
   "stalePricesOne": "Using older prices for {count} fund",
   "stalePricesMany": "Using older prices for {count} funds",
   "stalePricesItem": "{fund} ({date})",
+  "awaitingFundPriceStatus": "Awaiting {date} price",
+  "awaitingFundPriceWarning": "Awaiting price for {date}: {label} (latest published {published}).",
   "staleFx": "Using the latest available USD/ILS rate dated {date}.",
   "stalePrice": "Stale price ({date})",
   "staleFundNav": "Published fund valuation dated {date} (latest session {session})",

@@ -1,7 +1,7 @@
 """Actual unit quotes and the dashboard's shared signal path, kept separate."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 import pandas as pd
 from .rebalance_ttl import cache_data
@@ -77,12 +77,15 @@ def quote_from_maya_fund(published, instrument, as_of=None):
         raise ValueError("Published fund price needs its actual observation date.")
     date.fromisoformat(stamp)
     raw = number(published.get("redemptionPrice"), positive=True)
-    return assess_quote({"price": str(raw / 100), "currency": "ILS", "as_of": stamp,
+    quote = {"price": str(raw / 100), "currency": "ILS", "as_of": stamp,
                          "fetched_at": utc_now(), "source": "Official MAYA via public tasekit endpoint; published redemption valuation, not a live execution price",
                          "source_url": f"https://maya.tase.co.il/api/v1/funds/mutual/{identifier}",
                          "field": "Published fund redemption valuation", "valuation_kind": "fund_nav",
                          "raw_published_value": str(raw), "raw_unit": "% of ILS 1 nominal per unit",
-                         "quote_divisor": "100", "is_execution_price": False}, "TASE", as_of)
+                         "quote_divisor": "100", "is_execution_price": False}
+    if isinstance(published.get("designatedHours"), str):
+        quote["dealing_schedule"] = published["designatedHours"]
+    return assess_quote(quote, "TASE", as_of)
 
 
 def utc_now():
@@ -102,10 +105,64 @@ def last_completed_session(market, as_of=None):
     return completed[-1]
 
 
+def parse_dealing_schedule(schedule):
+    """Parse only explicit MAYA weekdays and Jerusalem order cutoffs."""
+    import re
+    if not isinstance(schedule, str) or not schedule.strip():
+        return None
+    days = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    day = "(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)"
+    pattern = rf"({day})(?:-({day}))? - ([01][0-9]|2[0-3]):([0-5][0-9])"
+    result = {}
+    for part in schedule.split(","):
+        match = re.fullmatch(pattern, part.strip())
+        if not match:
+            return None
+        first, last, hour, minute = match.groups()
+        start, end = days.index(first), days.index(last or first)
+        if start > end:
+            return None
+        for index in range(start, end + 1):
+            weekday = (index + 6) % 7  # Python uses Monday=0.
+            if weekday in result:
+                return None  # Overlapping cutoffs are ambiguous; never guess.
+            result[weekday] = time(int(hour), int(minute))
+    return result
+
+
+def last_fund_dealing_day(schedule, as_of=None):
+    """Last TASE session whose fund-specific Jerusalem cutoff has passed.
+
+    A passed order cutoff establishes an expected dealing date, not a verified
+    publication deadline. Missing prices remain not current without a grace.
+    """
+    now = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+    now = now.tz_localize("UTC") if now.tzinfo is None else now.tz_convert("UTC")
+    local_now = now.tz_convert("Asia/Jerusalem")
+    start, end = (local_now - pd.Timedelta(days=20)).date().isoformat(), local_now.date().isoformat()
+    sessions = tase_equity_sessions(start, end)
+    eligible = []
+    for day in sessions:
+        cutoff = schedule.get(day.weekday())
+        if cutoff is not None:
+            cutoff_at = pd.Timestamp(datetime.combine(day.date(), cutoff)).tz_localize("Asia/Jerusalem")
+            if cutoff_at <= now:
+                eligible.append(day)
+    if not eligible:
+        raise ValueError("Cannot verify the last fund dealing day.")
+    return eligible[-1]
+
+
 def assess_quote(quote, market, as_of=None):
     result = dict(quote)
+    # Cached observations are reassessed; a previous awaiting marker must not
+    # survive a current observation, a manual override or an invalid schedule.
+    result.pop("awaiting_dealing_day", None)
+    result.pop("expected_basis", None)
     try:
-        expected = last_completed_session(market, as_of)
+        manual = result.get("field") == "Manual per-unit price"
+        schedule = parse_dealing_schedule(result.get("dealing_schedule")) if market == "TASE" and not manual else None
+        expected = last_fund_dealing_day(schedule, as_of) if schedule is not None else last_completed_session(market, as_of)
         observed = pd.Timestamp(result["as_of"])
         if observed.tzinfo:
             observed = observed.tz_localize(None)
@@ -115,14 +172,21 @@ def assess_quote(quote, market, as_of=None):
         number(result["price"], positive=True)
         if observed.date() > today:
             raise ValueError("Price is dated in the future.")
-        if result.get("field") == "Manual per-unit price":
+        if manual:
             # A dated broker observation explicitly chosen by the user wins over
             # the automatic feed. It is not an automatic stale-price warning.
             fresh = True
+        elif schedule is not None:
+            fresh = expected.date() <= observed.date() <= today
         else:
             fresh = observed == expected
-        result.update(fresh=fresh, expected_through=str(expected.date()),
-                      status="Current observation" if fresh else f"Stale: latest completed session is {expected.date()}")
+        status = "Current observation" if fresh else f"Stale: latest completed session is {expected.date()}"
+        if schedule is not None:
+            result["expected_basis"] = "fund_dealing_day"
+            if not fresh:
+                result["awaiting_dealing_day"] = str(expected.date())
+                status = f"Awaiting price for dealing day {expected.date()}; latest published {observed.date()}"
+        result.update(fresh=fresh, expected_through=str(expected.date()), status=status)
     except Exception as exc:
         result.update(fresh=False, error=str(exc), status="Unavailable / unverified")
     return result
