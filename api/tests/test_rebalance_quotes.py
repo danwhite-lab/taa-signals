@@ -70,7 +70,7 @@ def test_allowlist_conversion_and_stale_future_parity(original, identifier, stam
     assert actual["as_of"] == stamp and actual["is_execution_price"] is False
 
 
-@pytest.mark.parametrize("identifier", ["5117700", "5139837", "5142476"])
+@pytest.mark.parametrize("identifier", ["5117700", "5139837", "5142476", "5132972"])
 @pytest.mark.parametrize("change", [{"fundId": 0}, {"isin": "BAD"}, {"fundTypeId": 9}, {"mutualFundSubType": 2}, {"deleted": True},
     {"mergingLiquidationStatus": "Merged"}, {"features": []}, {"features": [{"title": "יחידות הקרן נקובות ב- $", "enabled": True}]},
     {"ratesAsOf": None}, {"ratesAsOf": "bad"}, {"redemptionPrice": 0}, {"redemptionPrice": "NaN"}])
@@ -83,6 +83,7 @@ def test_identity_change_fails_closed_exactly(original, identifier, change):
 @pytest.mark.parametrize("identifier,expected,stamp", [
     ("5139837", "1.0885", "2026-11-04"),
     ("5142476", "0.9776", "2026-11-03"),
+    ("5132972", "2.9494", "2026-11-05"),
 ])
 def test_new_fund_fixture_uses_exact_live_redemption_value_and_date(identifier, expected, stamp):
     published = json.loads((ROOT / "api" / "tests" / "fixtures" / f"maya_fund_{identifier}.json").read_text())

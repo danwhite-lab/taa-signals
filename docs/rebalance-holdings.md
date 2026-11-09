@@ -117,11 +117,11 @@ Adjusted Close is never substituted. TASE documents listed-security price
 units as 0.01 ILS:
 https://market.tase.co.il/en/market_data/securities
 
-Six explicitly verified ILS mutual funds use the official public MAYA details
+Seven explicitly verified ILS mutual funds use the official public MAYA details
 endpoint (`/api/v1/funds/mutual/<id>`) instead of an exchange close: Ayalon Kaspit
 5117700, Harel government bonds 5131792, MTF Momentum 5140850, Tachlit Gold
-5141627, Harel Russell 2000 5139837, and IBI MSCI AC World ex USA USD-Hedged
-5142476. MAYA's
+5141627, Harel Russell 2000 5139837, IBI MSCI AC World ex USA USD-Hedged
+5142476, and Kesem MVSMHTR currency hedged 5132972. MAYA's
 `redemptionPrice` is a percentage of their ILS 1 nominal unit: divide by 100
 to obtain ILS per actual held unit. This is an explicit per-fund allowlist, not
 a heuristic for arbitrary mutual funds. Before conversion the adapter verifies
@@ -146,6 +146,7 @@ Verification (rechecked 7 November 2026):
 - [5140850 prospectus](https://mayafiles.tase.co.il/rpdf/1682001-1683000/P1682265-00.pdf), page 2: ILS 1 nominal unit. The supplied broker example also independently reconciled the published ILA quote divided by 100 against units and account valuation; no actual holdings are stored in this documentation or tests.
 - 5139837: [annual report 1732868](https://mayafiles.tase.co.il/rpdf/1732001-1733000/P1732868-00.pdf), page 1, states ILS 1 nominal units; its redemption price is quoted as a percentage of nominal, including 97.32 on 31 December 2024, matching MAYA history. Live MAYA metadata rechecked as active/unmerged, ISIN IL0051398373, non-dollar units, redemption 108.85 dated 4 November 2026.
 - 5142476: [prospectus 1737913](https://mayafiles.tase.co.il/rpdf/1737001-1738000/P1737913-00.pdf), page 1, states ILS 1 nominal units and first offering on 6 May 2026; the fund's own official MAYA history begins on that date at exactly 100.00, reconciling the published percentage scale to ILS 1 per unit. Live MAYA metadata rechecked as active/unmerged, ISIN IL0051424765, non-dollar units, redemption 97.76 dated 3 November 2026. Residual: no later fund report located in this review separately repeats that this fund's redemption price is a percentage of nominal; the allowlist evidence is the official prospectus-to-own-history reconciliation.
+- 5132972 (verification recorded 9 November 2026): the [audited financial statements as of 28 February 2026, MAYA report 1744469](https://mayafiles.tase.co.il/rpdf/1744001-1745000/P1744469-00.pdf), page 4, state that outstanding units have ILS 1 nominal value and that the redemption price per ILS-1-par unit is expressed in percentages. The net-assets/unit reconciliation is 360,093,778 ILS / 130,274,198 units = 2.7641 ILS per unit (rounded), matching the stated 276.41%. This documents division by 100 into ILS per held unit. The supplied live [MAYA metadata recheck](https://maya.tase.co.il/api/v1/funds/mutual/5132972) on 9 November 2026 confirms active/unmerged status, ISIN IL0051329725, fund type 4/subtype 1 and non-dollar units, with redemption 294.94 dated 5 November 2026: 2.9494 ILS per unit. The existing adapter uses redemption rather than purchase price; the observed purchase/redemption spread needs no special handling.
 
 Live public-read verification found the two new funds' publication dates older
 than the latest completed TASE session. Those observations remain visibly stale;
