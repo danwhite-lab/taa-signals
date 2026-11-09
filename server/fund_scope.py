@@ -9,9 +9,11 @@ import os
 
 from fastapi import HTTPException
 
-from haa.my_funds import PREFIX, use_funds
+from haa.fund_verification import WORDS
+from haa.my_funds import PREFIX, registered_fund, use_funds
 
 owner = ContextVar("my_funds_owner", default=None)
+registry_status = ContextVar("my_funds_registry_status", default=("ok", 0))
 
 
 def signing_key():
@@ -23,20 +25,52 @@ def signature(user_id, identifier, listing, fund):
     return hmac.new(signing_key().encode(), data.encode(), hashlib.sha256).hexdigest()
 
 
+def verified_row(user_id, row):
+    try:
+        return hmac.compare_digest(row["signature"],
+                                   signature(user_id, row["id"], row["listing_key"], row["verified"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def read_funds(session):
     if not signing_key():
-        return []
+        return [], 0
     from .fund_registry import _table
-    from .private_api import failure
 
     try:
         user_id = session["user_id"]
         rows = _table(session).select("id,listing_key,verified,signature,archived").eq("user_id", user_id).execute().data
-        return [{**row["verified"], "model": PREFIX + row["id"], "archived": row["archived"]}
-                for row in rows if hmac.compare_digest(row["signature"],
-                    signature(user_id, row["id"], row["listing_key"], row["verified"]))]
     except Exception:
-        raise failure() from None
+        raise HTTPException(503, WORDS["registryUnavailable"]) from None
+
+    funds = [{**row["verified"], "model": PREFIX + row["id"], "archived": row["archived"]}
+             for row in rows if verified_row(user_id, row)]
+    return funds, len(rows) - len(funds)
+
+
+def require_fund(label):
+    status, _ = registry_status.get()
+    if (status != "ok" and isinstance(label, str) and label.startswith(PREFIX)
+            and registered_fund(label) is None):
+        raise HTTPException(503, WORDS["registryUnavailable" if status == "unavailable" else "rejectedRows"])
+
+
+def require_portfolio_funds(payload):
+    sleeves = payload.get("sleeves") if isinstance(payload, dict) else None
+    if isinstance(sleeves, list):
+        for sleeve in sleeves:
+            if isinstance(sleeve, dict):
+                require_fund(sleeve.get("model"))
+
+
+def require_holdings_funds(account):
+    positions = account.get("positions") if isinstance(account, dict) else None
+    if isinstance(positions, dict):
+        for label, row in positions.items():
+            require_fund(label)
+            if isinstance(row, dict):
+                require_fund(row.get("companion_of"))
 
 
 def account_scope(function):
@@ -48,13 +82,16 @@ def account_scope(function):
             return function(*args, **kwargs)
         session = arguments.bind(*args, **kwargs).arguments["session"]
         try:
-            funds = read_funds(session)
+            funds, rejected = read_funds(session)
+            status = ("rejected_rows" if rejected else "ok", rejected)
         except HTTPException:
-            funds = []
+            funds, status = [], ("unavailable", 0)
         token = owner.set(session["user_id"])
+        status_token = registry_status.set(status)
         try:
             with use_funds(funds):
                 return function(*args, **kwargs)
         finally:
+            registry_status.reset(status_token)
             owner.reset(token)
     return wrapped

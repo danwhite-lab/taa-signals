@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import text from "../../content/today.json";
+import { registryMessage, registryResponseMessage } from "../../lib/my-funds-errors";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
 import HistorySources, { type HistorySleeve } from "./history-sources";
@@ -39,10 +40,10 @@ export default function TodayPage() {
     const current=generation.current; setPreviewBusy(true);
     try {
       const response=await authorizedResponse(`/api/today?preview=true${live.current ? "&live=true" : ""}`);
-      if(!response.ok) throw new Error(requestError(response.status));
+      if(!response.ok) throw new Error(await registryResponseMessage(response) ?? requestError(response.status));
       const next=await response.json() as Today;
       if(current===generation.current){setValue(previous=>previous && {...previous,previews:next.previews,preview_caption:next.preview_caption});setPreviewLoaded(true);}
-    } catch {if(current===generation.current)setError(text.requestError);}
+    } catch (failure) {if(current===generation.current)setError(registryMessage((failure as Error)?.message) ?? text.requestError);}
     finally {if(current===generation.current)setPreviewBusy(false);}
   }
   async function load(forceLive = false) {
@@ -53,6 +54,9 @@ export default function TodayPage() {
     try {
       const response = await authorizedResponse(`/api/today?preview=false${forceLive ? "&live=true" : ""}`);
       if (!response.ok) {
+        if (response.status === 503) {
+          setError(await registryResponseMessage(response) ?? requestError(response.status)); return;
+        }
         let message = requestError(response.status);
         // Only recognized server reasons are displayed; never echo raw bodies.
         try {

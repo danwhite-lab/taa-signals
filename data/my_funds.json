@@ -13,11 +13,14 @@
   },
   "actualHistory": "Actual fund observations start {date}. No earlier history is included.",
   "feeCurrency": "This listing uses a currency outside the USD and ILS broker fee schedules. Turn broker fees off to run its backtest.",
-  "mixedCurrency": "For a portfolio backtest with registered funds, use the same execution currency for all sleeves. Use separate backtests to keep each listing in its own currency.",
   "mayaBasis": "MAYA redemption price, converted from percent of a ₪1 nominal unit to shekels per unit.",
   "shortHistory": "This fund does not have enough completed monthly observations for a backtest yet.",
   "storageUnavailable": "My funds is unavailable until account storage is configured.",
   "nameChanged": "The fund name changed. Check the listing again.",
   "duplicate": "This listing is already in your funds.",
-  "unavailable": "This fund is unavailable."
+  "unavailable": "This fund is unavailable.",
+  "registryUnavailable": "Your saved funds could not be loaded. Try again shortly.",
+  "rejectedRows": "Some saved funds cannot be verified. If the signing key was changed, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted.",
+  "duplicateRejected": "This saved fund entry cannot be verified. Restore the previous MY_FUNDS_SIGNING_KEY. The entry was kept.",
+  "mixedReturnCaption": "Sleeve returns are combined by portfolio weight in their own currencies, without FX conversion."
 }

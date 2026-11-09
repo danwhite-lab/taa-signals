@@ -36,3 +36,17 @@ it.each([
   expect(update).toHaveBeenCalledWith(saved);
   expect(select).toHaveBeenCalledExactlyOnceWith(saved.model);
 });
+
+it("shows the rejected-rows alert while valid funds remain selectable", async () => {
+  const select = vi.fn();
+  const fund = { model: "MY-FUND-valid", market: "TASE", identifier: "5139837", currency: "ILS",
+    name: "Verified TASE fund", kind: "mutual", archived: false };
+  request.mockResolvedValue(Response.json({ configured: true, funds: [fund], rejected: 1, status: "rejected_rows" }));
+  render(<SearchPicker models={[]} value="" onSelect={select} onFundChange={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose model" }));
+  fireEvent.click(screen.getByRole("button", { name: "TASE" }));
+  const warning = await screen.findByRole("alert");
+  expect(warning.textContent).toMatch(/restore the previous MY_FUNDS_SIGNING_KEY.*Nothing was deleted/);
+  fireEvent.click(screen.getByRole("button", { name: /Verified TASE fund/ }));
+  expect(select).toHaveBeenCalledExactlyOnceWith(fund.model);
+});

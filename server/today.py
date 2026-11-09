@@ -20,6 +20,7 @@ from .signals_wire import clean, table
 from . import rebalance_quotes as market
 
 from haa.my_funds import registered_fund, valuations
+from .fund_scope import require_portfolio_funds
 
 MODEL_OPTIONS = {m.label: m.model_class for m in MODEL_CATALOG}
 RESULTS = ResultCache()
@@ -212,6 +213,7 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
     if not isinstance(payload, dict):
         result["issues"].append("invalid_payload")
         return result
+    require_portfolio_funds(payload)
     name = payload.get("name")
     if isinstance(name, str) and name.strip():
         result["caption"] = f"{name} · private synced portfolio"

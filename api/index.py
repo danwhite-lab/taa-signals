@@ -27,7 +27,7 @@ from server import backtest_multi  # noqa: E402
 from server import research  # noqa: E402
 from server import compare as compare_page  # noqa: E402
 from server.usd_equivalents_options import OptionsRequest, availability as usd_availability  # noqa: E402
-from server.fund_scope import account_scope
+from server.fund_scope import account_scope, require_fund, require_holdings_funds
 from server import fund_registry
 from server import test_login  # noqa: E402
 
@@ -196,7 +196,12 @@ def today(request: Request, session=Depends(private_api.authenticated)):
     try:
         workspace = private_api.workspace(session)
         from haa.rebalance_holdings import validate_account
-        account = validate_account(workspace["payload"].get("holdings_account"))
+        holdings = workspace["payload"].get("holdings_account")
+    except Exception:
+        holdings = None
+    require_holdings_funds(holdings)
+    try:
+        account = validate_account(holdings)
     except Exception:
         # Holdings are private optional context: never let a damaged or absent
         # record hide public sleeve signals.
@@ -212,6 +217,7 @@ def today(request: Request, session=Depends(private_api.authenticated)):
 def signals(label: str = "HAA-Simple", as_of: str | None = None,
             session=Depends(private_api.authenticated)):
     from datetime import date
+    require_fund(label)
     try:
         definition_for_label(label)
     except ValueError:

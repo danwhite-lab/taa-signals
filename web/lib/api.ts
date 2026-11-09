@@ -1,3 +1,4 @@
+import { registryResponseMessage } from "./my-funds-errors";
 import { supabaseBrowser } from "./supabaseBrowser";
 
 export class ApiError extends Error {
@@ -21,10 +22,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     // Don't display raw proxy/SDK bodies: they may echo submitted private data.
     throw new ApiError(response.status,
-      response.status === 409 ? "Changed on another device or save not confirmed. Reload before editing." :
+      await registryResponseMessage(response) ?? (response.status === 409 ? "Changed on another device or save not confirmed. Reload before editing." :
       response.status === 401 ? "Your session expired. Sign in again." :
       response.status === 422 ? "Check the entered fields, name and portfolio JSON." :
-      "The service could not confirm the request. Reload before retrying.");
+      "The service could not confirm the request. Reload before retrying."));
   }
   return response.json() as Promise<T>;
 }

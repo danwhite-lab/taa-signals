@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from haa.comparison import ModelInput
 from haa.model_catalog import available_models
 from haa.my_funds import account_funds, model_definition, registered_fund
+from .fund_scope import require_fund, require_portfolio_funds
 from haa import deep_history as deep
 from haa.portfolio import total_weight
 from haa.portfolio_backtest import run_portfolio_backtest
@@ -70,6 +71,8 @@ def validated(request):
     if request.reference_replay:
         error("noReplay")
     if request.mode == "deep":
+        for sleeve in request.sleeves:
+            require_fund(sleeve.model)
         if any(s.model not in deep.ALL_DEEP_HISTORY_SPECS for s in request.sleeves):
             error("unknownProxy")
         try:
@@ -120,6 +123,7 @@ def load_saved(body, portfolios):
         if row is None: error("missingSaved")
         payload = row.get("payload")
     if len(json.dumps(payload).encode()) > 100000: error("fileSize")
+    require_portfolio_funds(payload)
     models = {**MODELS, **{f["model"]: model_definition(f).model_class for f in account_funds()}}
     try:
         sleeves, initial = (deep_history_portfolio_config(payload, MODELS, deep.ALL_DEEP_HISTORY_SPECS, require_capital_fx=False)
@@ -138,9 +142,6 @@ def load_saved(body, portfolios):
 
 def live_inputs(request):
     definitions = [usd.resolve(s.model) if getattr(request,"usd_equivalents",False) else base.definition(s.model) for s in request.sleeves]
-    if any(registered_fund(d.label) for d in definitions) and len({d.execution_currency for d in definitions}) > 1:
-        from haa.fund_verification import WORDS as FUND_WORDS
-        raise ValueError(FUND_WORDS["mixedCurrency"])
     mixed = getattr(request, "daily_valuation", False) or any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
     local = all(d.execution_currency == "ILS" for d in definitions)
     benchmark = "RVOL_SPY_IL" if mixed and local else "SPY"
@@ -222,9 +223,16 @@ def calculate(request, models, passed, *, start=None, end=None):
 def run(request, code):
     from .backtest_multi_presentation import report
     started = perf_counter()
+    for sleeve in request.sleeves:
+        require_fund(sleeve.model)
     mapping = usd.guard(request, [s.model for s in request.sleeves])
     request = validated(request)
     try:
+        if request.mode == "portfolio" and request.fees_enabled:
+            for sleeve in request.sleeves:
+                fund = registered_fund(sleeve.model)
+                if fund and fund["currency"] not in {"USD", "ILS"}:
+                    base.trading_fees(request, fund["currency"])
         models, version, metadata, warnings, benchmark, cutoff = (proxy_inputs(request) if request.mode == "deep" else live_inputs(request))
         loaded = perf_counter()
         passed = engine_parameters(request, next(iter(models.values()))[1].execution_currency)

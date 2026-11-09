@@ -13,7 +13,7 @@ from haa import data
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from haa.model_catalog import MODEL_CATALOG
 from haa.my_funds import account_funds, instrument as fund_instrument, registered_fund, valuations
-from .fund_scope import account_scope
+from .fund_scope import account_scope, require_fund, require_holdings_funds, require_portfolio_funds
 from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
     execution_security, combined_targets, companion_anchor_map, rebalance_targets, compare_holdings,
@@ -48,6 +48,7 @@ class Recording(Request):
 
 def loaded(session):
     workspace = private.workspace(session)
+    require_holdings_funds(workspace["payload"].get("holdings_account"))
     try:
         account = validate_account(workspace["payload"].get("holdings_account", empty_account()))
     except Exception:
@@ -95,6 +96,8 @@ def targets_for(workspace, portfolios, portfolio_id, account):
         raise HTTPException(400, "Reload and choose an available saved portfolio.")
     source = "Workspace ticker settings; uploaded replacements are not stored in the workspace and are unavailable here."
     rows, targets, errors, diagnostics = [], {}, [], []
+    if portfolio:
+        require_portfolio_funds(portfolio.get("payload"))
     try:
         raw = workspace["payload"].get("ticker_text")
         skipped = []
@@ -384,6 +387,8 @@ def editor(body: Editor, session=Depends(private.authenticated)):
         seen = set()
         for row in body.rows:
             key = row["Security"]
+            require_fund(key)
+            require_fund(row.get("Companion of"))
             if key in seen:
                 raise ValueError()
             seen.add(key)
@@ -464,6 +469,8 @@ def record(body: Recording, session=Depends(private.authenticated)):
         expected = planned(state, body)
         if {k: v for k, v in expected.items() if k != "id"} != {k: v for k, v in body.plan.items() if k != "id"}:
             raise HTTPException(409, "Inputs changed. Generate a fresh buy list before recording purchases.")
+        for row in body.confirmations:
+            require_fund(row.get("id"))
         candidate = apply_purchases(account, body.plan, body.confirmations, state["context"])
         candidate["updated_at"] = market.utc_now()
         return {"account": candidate}

@@ -4,6 +4,7 @@ import { asModel } from "../../components/MyFunds";
 import SearchPicker, { ChoiceLabel } from "../../components/SearchPicker";
 
 import { useEffect, useRef, useState } from "react";
+import { registryMessage } from "../../lib/my-funds-errors";
 import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
@@ -145,8 +146,11 @@ export default function Portfolio() {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(""); setMessage("");
     try { await operation(); }
-    catch { setError("Operation not confirmed. Reload saved data before continuing; your draft is unchanged.");
-      if (mutation) setUncertain(true); }
+    catch (failure) {
+      const message = registryMessage((failure as Error)?.message);
+      setError(message ?? "Operation not confirmed. Reload saved data before continuing; your draft is unchanged.");
+      if (mutation && !message) setUncertain(true);
+    }
     finally { setBusy(false); inFlight.current = false; }
   }
   function choose(item: SavedPortfolio | null) {

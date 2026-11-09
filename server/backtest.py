@@ -109,6 +109,8 @@ def fee_report(result, request, currency):
 
 
 def definition(label):
+    from .fund_scope import require_fund
+    require_fund(label)
     try:
         selected = definition_for_label(label)
     except ValueError:
@@ -186,6 +188,8 @@ def prepare(selected, all_prices, *, warnings=None):
 def options(label, usd_equivalents=False):
     from haa.model_catalog import available_models
     from .backtest_presentation import DCA_CAPTION, REFERENCE_CAPTION
+    from .fund_scope import require_fund
+    require_fund(label)
     mapping = usd.mappings([label]) if usd_equivalents else []
     selected = usd.resolve(label) if usd_equivalents else definition(label)
     try:
@@ -282,12 +286,16 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
 
 
 def run(request, code):
+    from .fund_scope import require_fund
+    require_fund(request.label)
     started = perf_counter()
     mapping = usd.guard(request, [request.label])
     selected = usd.resolve(request.label) if mapping else definition(request.label)
     if request.reference_replay and getattr(selected.model_class, "signal_calendar", None) != "XNYS":
         raise HTTPException(400, "Reference replay is available only for the US-signals / TASE V3 implementations.")
     try:
+        if selected.label.startswith("MY-FUND-") and selected.execution_currency not in {"USD", "ILS"}:
+            trading_fees(request, selected.execution_currency)
         all_prices, metadata, warnings, opens = load_data(selected)
         loaded = perf_counter()
         strategy, prices, monthly, monthly_input, bounds, range_captions = prepare(selected, all_prices, warnings=warnings)

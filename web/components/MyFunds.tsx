@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { registryResponseMessage } from "../lib/my-funds-errors";
 import { authorizedResponse } from "../lib/api";
 import { type ModelOption, type RegisteredFund } from "../lib/picker-display";
 import words from "../content/my-funds.json";
@@ -13,6 +14,8 @@ const paths = { list: "/api/my-funds", check: "/api/my-funds/check" };
 async function request<T>(path: string, input?: object): Promise<T> {
   const response = await authorizedResponse(path, input ? { method: "POST", body: JSON.stringify(input) } : {});
   if (!response.ok) {
+    const registryError = await registryResponseMessage(response);
+    if (registryError) throw new Error(registryError);
     // Registry validation messages are fixed provider-safe text.
     const value = response.status === 422 || response.status === 409
       ? await response.json().catch(() => null) : null;
@@ -30,17 +33,18 @@ export function asModel(fund: RegisteredFund): ModelOption & { execution_currenc
 export function useMyFunds(enabled: boolean) {
   const [funds, setFunds] = useState<RegisteredFund[]>();
   const [configured, setConfigured] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState("");
+  const [rejected, setRejected] = useState(0);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!enabled || funds !== undefined) return;
     let live = true;
-    void request<{ funds: RegisteredFund[]; configured: boolean }>(paths.list)
-      .then(data => { if (live) { setConfigured(data.configured); setFunds(data.funds); } })
-      .catch(() => { if (live) setFailed(true); });
+    void request<{ funds: RegisteredFund[]; configured: boolean; rejected: number }>(paths.list)
+      .then(data => { if (live) { setConfigured(data.configured); setFunds(data.funds); setRejected(data.rejected); } })
+      .catch(problem => { if (live) setError(problem instanceof Error ? problem.message : words.failed); });
     return () => { live = false; };
   }, [enabled, funds, attempt]);
-  return { funds, configured, failed, retry: () => { setFailed(false); setAttempt(n => n + 1); },
+  return { funds, configured, error, rejected, retry: () => { setError(""); setAttempt(n => n + 1); },
     update: (fund: RegisteredFund) => setFunds(previous => [...(previous ?? []).filter(row => row.model !== fund.model), fund]) };
 }
 
@@ -59,10 +63,11 @@ export function FundRegistration({ market, state, onChange }: {
     try { await work(); } catch (problem) { setError(problem instanceof Error ? problem.message : words.failed); }
     finally { setBusy(false); }
   }
-  if (state.failed) return <p role="alert">{words.failed} <button type="button" className="btn btn-secondary" onClick={state.retry}>{words.retry}</button></p>;
+  if (state.error) return <p role="alert">{state.error} <button type="button" className="btn btn-secondary" onClick={state.retry}>{words.retry}</button></p>;
   if (!state.funds) return <p role="status">{words.loading}</p>;
   if (!state.configured) return <p>{words.unconfigured}</p>;
   return <div className={styles.detailBody}>
+    {state.rejected > 0 && <p className="signal-warning" role="alert">{words.rejectedRows}</p>}
     <label htmlFor={id}>{market === "TASE" ? words.securityNumber : words.yahooTicker}</label>
     <div className={`${styles.filters} ${styles.fundEntry}`}>
       <input id={id} value={identifier} inputMode={market === "TASE" ? "numeric" : "text"} maxLength={market === "TASE" ? 7 : 24}

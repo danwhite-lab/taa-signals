@@ -5,7 +5,9 @@ import pandas as pd
 import pytest
 
 from test_api import client
-from server import fund_registry, private_api, signals
+from server import fund_registry, private_api, rebalance_quotes, signals
+from haa.fund_verification import WORDS
+from server.compare import WORDS as COMPARE_WORDS
 from haa.my_funds import PREFIX
 
 
@@ -24,6 +26,10 @@ class Registry:
 
     def insert(self, row):
         assert row["user_id"] == self.user
+        if any(saved["user_id"] == self.user and saved["listing_key"] == row["listing_key"] for saved in self.rows):
+            error = ValueError("private database body")
+            error.code = "23505"
+            raise error
         self.rows.append({"archived": False, **deepcopy(row)})
         return self
 
@@ -64,6 +70,13 @@ def accounts(monkeypatch):
 
     monkeypatch.setattr(private_api.sync, "save_portfolio", save)
     days = pd.bdate_range("2025-01-02", "2026-11-06")
+    monkeypatch.setattr(signals, "load_inputs", lambda definition, **kwargs: signals.live_inputs(definition, daily_bars=kwargs.get("daily_bars", False)))
+    monkeypatch.setattr(signals.data, "download_yahoo_prices", lambda mapping, **kwargs: pd.DataFrame({
+        asset: range(200, 200 + len(days)) for asset in mapping}, index=days))
+    monkeypatch.setattr(rebalance_quotes, "load_portfolio_signals", lambda *_: (
+        [{"name": "Buy and Hold SPY", "currency": "USD", "target_weights": {"SPY": 1.0}}], []))
+    monkeypatch.setattr(rebalance_quotes, "fx_quote", lambda _: {"price": "3.5", "fresh": True})
+    monkeypatch.setattr(rebalance_quotes, "fetch_unit_quote", lambda _: quote)
     monkeypatch.setattr(signals, "history", lambda fund: (pd.Series(range(100, 100 + len(days)), index=days, name=fund["model"]), "Close"))
     import haa.my_funds
     monkeypatch.setattr(haa.my_funds, "quote", lambda _fund: quote)
@@ -162,3 +175,93 @@ def test_registered_fractional_purchase_and_legacy_whole_units():
         assert result["positions"][key]["units"] == "40.2"
     with pytest.raises(ValueError):
         validate_account(result)
+
+
+def register(headers, identifier="5139837", name="Example fund", market="TASE"):
+    return client.post("/api/my-funds", headers=headers, json={
+        "market": market, "identifier": identifier, "name": name})
+
+
+def save_portfolio(headers, *models):
+    return client.post("/api/portfolios", headers=headers, json={"payload": {
+        "version": 1, "name": "Portfolio", "sleeves": [
+            {"model": model, "weight": 100 / len(models)} for model in models]}})
+
+
+def test_mixed_registered_fund_portfolio_uses_own_currency_returns(accounts):
+    alice, _ = accounts
+    model = register(alice).json()["model"]
+    models = ["Buy and Hold SPY", model]
+    result = client.post("/api/backtest", headers=alice, json={
+        "mode": "portfolio", "fees_enabled": False, "sleeves": [
+            {"id": i, "model": label, "weight": 50} for i, label in enumerate(models, 1)]})
+    assert result.status_code == 200, result.text
+    assert WORDS["mixedReturnCaption"] in result.json()["captions"]
+    saved = save_portfolio(alice, *models)
+    assert saved.status_code == 200, saved.text
+    compared = client.post("/api/compare", headers=alice, json={
+        "mode": "portfolios", "portfolio_ids": [saved.json()["id"]]})
+    assert compared.status_code == 400 and compared.json()["detail"] == COMPARE_WORDS["portfolioCurrency"]
+
+
+def test_fees_refused_for_registered_eur_fund(accounts, monkeypatch):
+    alice, _ = accounts
+    monkeypatch.setattr(fund_registry, "verify_fund", lambda *_: (
+        {"name": "EUR fund", "market": "Global", "identifier": "IWDA.AS", "kind": "etf",
+         "currency": "EUR", "exchange": "AMS"}, {}))
+    model = register(alice, "IWDA.AS", "EUR fund", "Global").json()["model"]
+    for body in (
+        {"label": model, "fees_enabled": True},
+        {"mode": "portfolio", "fees_enabled": True, "sleeves": [
+            {"id": 1, "model": "Buy and Hold SPY", "weight": 50}, {"id": 2, "model": model, "weight": 50}]},
+    ):
+        result = client.post("/api/backtest", headers=alice, json=body)
+        assert result.status_code == 400 and result.json()["detail"] == WORDS["feeCurrency"]
+
+
+@pytest.mark.parametrize("fault", ["changed_key", "unavailable"])
+def test_registry_faults_keep_legacy_working_and_explain_missing_references(accounts, monkeypatch, fault):
+    alice, _ = accounts
+    model = register(alice).json()["model"]
+    saved = save_portfolio(alice, model).json()
+    if fault == "changed_key":
+        monkeypatch.setenv("MY_FUNDS_SIGNING_KEY", "replacement-test-key")
+        valid = register(alice, "5132972", "Replacement fund").json()["model"]
+        listing = client.get("/api/my-funds", headers=alice)
+        assert listing.status_code == 200
+        assert listing.json() == {"configured": True, "rejected": 1, "status": "rejected_rows", "funds": [
+            {"name": "Replacement fund", "market": "TASE", "identifier": "5132972", "kind": "mutual",
+             "currency": "ILS", "model": valid, "archived": False}]}
+        assert client.get("/api/backtest/options", headers=alice, params={"label": valid}).status_code == 200
+        duplicate = register(alice)
+        assert duplicate.status_code == 409 and duplicate.json()["detail"] == WORDS["duplicateRejected"]
+        assert register(alice, "5132972", "Replacement fund").json()["detail"] == WORDS["duplicate"]
+        expected = WORDS["rejectedRows"]
+    else:
+        def failed(_):
+            raise ValueError("private provider body")
+        monkeypatch.setattr(fund_registry, "_table", failed)
+        listing = client.get("/api/my-funds", headers=alice)
+        expected = WORDS["registryUnavailable"]
+        assert listing.status_code == 503 and listing.json()["detail"] == expected
+
+    responses = [
+        save_portfolio(alice, model),
+        client.get("/api/today?preview=false", headers=alice),
+        client.get("/api/rebalance", headers=alice),
+        client.get("/api/signals", headers=alice, params={"label": model}),
+        client.get("/api/backtest/options", headers=alice, params={"label": model}),
+        client.post("/api/backtest", headers=alice, json={"label": model}),
+        client.post("/api/backtest/load", headers=alice, json={"mode": "portfolio", "portfolio_id": saved["id"]}),
+        client.post("/api/compare", headers=alice, json={"models": ["Buy and Hold SPY", model]}),
+        client.post("/api/compare", headers=alice, json={"mode": "portfolios", "portfolio_ids": [saved["id"]]}),
+    ]
+    assert all(r.status_code == 503 and r.json()["detail"] == expected for r in responses), [
+        (r.status_code, r.text) for r in responses if r.status_code != 503 or r.json()["detail"] != expected]
+    assert save_portfolio(alice, "Buy and Hold SPY").status_code == 200
+    for response in (
+        client.get("/api/today?preview=false", headers=alice),
+        client.get("/api/rebalance", headers=alice),
+        client.post("/api/backtest", headers=alice, json={"label": "Buy and Hold SPY"}),
+    ):
+        assert response.status_code == 200, response.text

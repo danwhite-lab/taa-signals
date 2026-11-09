@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from haa.comparison import ModelInput, compare_models
 from haa.model_catalog import available_models
 from haa.my_funds import account_funds, model_definition, registered_fund
-from .fund_scope import owner
+from .fund_scope import owner, require_fund, require_portfolio_funds
 from .compare_execution import compare_portfolios
 from .performance import decisions as cached_decisions, span, measure
 from haa.portfolio_config import backtest_portfolio_config
@@ -49,6 +49,7 @@ def error(key):
 
 
 def definition(label):
+    require_fund(label)
     try: return base.definition(label)
     except HTTPException: error("unknown")
 
@@ -75,6 +76,7 @@ def selection(request, records):
     for identifier in request.portfolio_ids:
         row = next((r for r in records if str(r.get("id")) == identifier), None)
         if row is None: error("unknownPortfolio")
+        require_portfolio_funds(row.get("payload"))
         try: sleeves, _ = backtest_portfolio_config(row.get("payload"), models, require_capital_fx=False)
         except (ValueError, TypeError, OverflowError, KeyError): error("invalidSaved")
         result.append(sleeves)

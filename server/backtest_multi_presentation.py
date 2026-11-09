@@ -74,6 +74,11 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
             extra_tables.append({"label": W["plainSources"], "value": base.preview(provenance)})
             download("history_sources", provenance, "plain_holdings_history_sources.csv", W["plainDownload"])
         captions += [W["common"].format(lower=bounds[0], upper=bounds[1]), W["taxCaption"]]
+        from haa.my_funds import registered_fund
+        if (any(registered_fund(sleeve.model) for sleeve in request.sleeves)
+                and len({model.execution_currency for _, model in models.values()}) > 1):
+            from haa.fund_verification import WORDS as FUND_WORDS
+            captions.append(FUND_WORDS["mixedReturnCaption"])
         if mixed:
             captions += [W[{"none": "mixedNone", "rvol_cap": "mixedCap", "annual_target": "mixedAnnual"}[request.sleeve_rebalance_mode]], W["mixedTax"]]
             download("portfolio_nav", result.daily, "mixed_portfolio_daily_nav.csv", W["downloads"]["portfolio_nav"])

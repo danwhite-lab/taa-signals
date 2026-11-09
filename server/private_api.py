@@ -11,7 +11,7 @@ from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_config import backtest_portfolio_config, portfolio_transfer_config
 from haa.rebalance_holdings import validate_account
 from haa.my_funds import registered_fund
-from .fund_scope import account_scope
+from .fund_scope import account_scope, require_holdings_funds, require_portfolio_funds
 from haa.workspace_sync import FIELDS
 from haa.allocation_mode import DEFAULT_ALLOCATION_MODE, validate_allocation_mode
 
@@ -103,6 +103,7 @@ def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
     holdings_changed = ("holdings_account" in body.payload and
                         body.payload["holdings_account"] != remote["payload"].get("holdings_account"))
     if "holdings_account" in body.payload:
+        require_holdings_funds(body.payload["holdings_account"])
         try:
             account = validate_account(body.payload["holdings_account"])
             if not account.get("last_operation_id"):
@@ -150,6 +151,7 @@ def portfolios(session=Depends(authenticated)):
 @account_scope
 def save_portfolio(body: PortfolioWrite, session=Depends(authenticated)):
     valid_json(body.payload)
+    require_portfolio_funds(body.payload)
     try:
         name = body.payload.get("name", "").strip()
         if not 1 <= len(name) <= 80:

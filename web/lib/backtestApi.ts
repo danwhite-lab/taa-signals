@@ -1,4 +1,5 @@
 import content from "../content/backtest.json";
+import { registryResponseMessage } from "./my-funds-errors";
 import { authorizedResponse, ApiError } from "./api";
 
 export async function backtestRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -12,7 +13,7 @@ export async function backtestRequest<T>(path: string, init: RequestInit = {}): 
       const body = await response.json().catch(() => null);
       throw new Error(typeof body?.detail === "string" ? body.detail : content.validationError);
     }
-    throw new Error(content.requestError);
+    throw new Error(await registryResponseMessage(response) ?? content.requestError);
   }
   return response.json() as Promise<T>;
 }
