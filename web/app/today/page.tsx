@@ -54,15 +54,14 @@ export default function TodayPage() {
     try {
       const response = await authorizedResponse(`/api/today?preview=false${forceLive ? "&live=true" : ""}`);
       if (!response.ok) {
-        if (response.status === 503) {
-          setError(await registryResponseMessage(response) ?? requestError(response.status)); return;
-        }
         let message = requestError(response.status);
         // Only recognized server reasons are displayed; never echo raw bodies.
         try {
           const body = await response.json();
           if (typeof body.detail === "string" && Object.hasOwn(text.requestDetails, body.detail))
             message = (text.requestDetails as Record<string, string>)[body.detail];
+          else if (response.status === 503)
+            message = registryMessage(body.detail) ?? message;
         } catch { /* A platform error can be HTML, not JSON. Keep the HTTP reason. */ }
         setError(message); return;
       }
