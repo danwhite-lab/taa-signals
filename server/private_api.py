@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from haa import supabase_sync as sync
-from haa.model_catalog import MODEL_CATALOG
+from haa.model_catalog import MODEL_CATALOG, definition_for_label
 from haa.portfolio_config import backtest_portfolio_config, portfolio_transfer_config
 from haa.rebalance_holdings import validate_account
+from haa.my_funds import registered_fund
+from .fund_scope import account_scope, require_holdings_funds, require_portfolio_funds
 from haa.workspace_sync import FIELDS
 from haa.allocation_mode import DEFAULT_ALLOCATION_MODE, validate_allocation_mode
 
@@ -85,6 +87,7 @@ def workspace(session=Depends(authenticated)):
 
 
 @router.put("/api/workspace")
+@account_scope
 def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
     valid_json(body.payload)
     if set(body.payload) - FIELDS:
@@ -100,6 +103,7 @@ def save_workspace(body: WorkspaceWrite, session=Depends(authenticated)):
     holdings_changed = ("holdings_account" in body.payload and
                         body.payload["holdings_account"] != remote["payload"].get("holdings_account"))
     if "holdings_account" in body.payload:
+        require_holdings_funds(body.payload["holdings_account"])
         try:
             account = validate_account(body.payload["holdings_account"])
             if not account.get("last_operation_id"):
@@ -144,13 +148,26 @@ def portfolios(session=Depends(authenticated)):
 
 
 @router.post("/api/portfolios")
+@account_scope
 def save_portfolio(body: PortfolioWrite, session=Depends(authenticated)):
     valid_json(body.payload)
+    require_portfolio_funds(body.payload)
     try:
         name = body.payload.get("name", "").strip()
         if not 1 <= len(name) <= 80:
             raise ValueError()
-        backtest_portfolio_config(body.payload, {m.label: m for m in MODEL_CATALOG},
+        models = {m.label: m for m in MODEL_CATALOG}
+        incoming = body.payload["sleeves"]
+        archived = {s["model"] for s in incoming if (registered_fund(s["model"]) or {}).get("archived")}
+        if archived:
+            previous = next((p for p in portfolios(session) if str(p["id"]) == str(body.id)), {})
+            if not archived.issubset({s["model"] for s in previous.get("payload", {}).get("sleeves", [])}):
+                raise ValueError()
+        for sleeve in incoming:
+            label = sleeve["model"]
+            if label not in models:
+                models[label] = definition_for_label(label)
+        backtest_portfolio_config(body.payload, models,
                                   require_total=not body.allow_non_100_weights, require_capital_fx=False)
     except Exception:
         raise HTTPException(422, "Enter a valid named version-1 portfolio with known strategies and positive weights.") from None

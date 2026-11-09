@@ -71,7 +71,7 @@ def test_vercel_keeps_frontend_and_python_under_one_repository_root():
     assert config["outputDirectory"] == "web/out"
     assert not config.get("cleanUrls", False)
     assert config["rewrites"] == [{"source": "/api/:path*", "destination": "/api/index.py"}]
-    assert config["functions"]["api/index.py"]["includeFiles"] == "{src/haa/**,server/**,app.py,data/deep_history/**,data/strategy_plain_language.json,data/usd_equivalents.json,web/content/**}"
+    assert config["functions"]["api/index.py"]["includeFiles"] == "{src/haa/**,server/**,app.py,data/deep_history/**,data/strategy_plain_language.json,data/usd_equivalents.json,data/my_funds.json,web/content/**}"
     assert config["crons"] == [{"path": "/api/cron/refresh-prices", "schedule": "15 3 * * *"}]
     assert config["functions"]["api/index.py"]["maxDuration"] == 300
     assert (ROOT / "web" / "app" / "page.tsx").is_file()

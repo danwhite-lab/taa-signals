@@ -1,5 +1,8 @@
 "use client";
 
+import { asModel } from "../../components/MyFunds";
+import type { RegisteredFund } from "../../lib/picker-display";
+import fundWords from "../../content/my-funds.json";
 import { ModelResults } from "../../components/SearchPicker";
 
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +28,7 @@ type DetailResponse = { model: ModelRules; implementation_notes: string; source:
 
 export default function StrategyCataloguePage() {
   const [content, setContent] = useState<RulesResponse | null>(null);
+  const [funds, setFunds] = useState<Record<string, RegisteredFund>>({});
   const [selected, setSelected] = useState("");
   const [details, setDetails] = useState<Record<string, DetailResponse>>({});
   const loadingDetails = useRef(new Set<string>());
@@ -73,6 +77,7 @@ export default function StrategyCataloguePage() {
 
   function select(label: string) {
     setSelected(label);
+    if (label.startsWith("MY-FUND-")) return;
     if (details[label] || loadingDetails.current.has(label)) return;
     loadingDetails.current.add(label);
     setPendingDetails(previous => [...previous, label]);
@@ -87,6 +92,7 @@ export default function StrategyCataloguePage() {
       });
   }
 
+  const selectedFund = funds[selected];
   const model = selected ? details[selected]?.model : undefined;
   const plain = view === "plain" && Boolean(model?.plain_text);
   const copy = plain ? model?.plain_text : model?.markdown;
@@ -106,7 +112,8 @@ export default function StrategyCataloguePage() {
       {!content && !error && <p role="status">Loading methodology…</p>}
       {content && <div className="catalogue-layout">
         <div className="catalogue-sidebar">
-          <ModelResults models={content.models} selected={[selected]} onSelect={select} browse />
+          <ModelResults models={[...content.models, ...Object.values(funds).map(asModel)]} selected={[selected]} onSelect={select} browse
+            onFundChange={fund => setFunds(current => ({ ...current, [fund.model]: fund }))} />
         </div>
         <div className="catalogue-detail">
         <fieldset className="segmented" aria-label="Rule view"><legend>Rule view</legend>
@@ -114,7 +121,11 @@ export default function StrategyCataloguePage() {
         </fieldset>
         {!selected && <p>{text.choose}</p>}
         {selected && loadingDetail && <p role="status">{text.loadingDetail}</p>}
-        {selected && !loadingDetail && !model && <p>{text.unavailable}</p>}
+        {selected && !loadingDetail && !model && !selectedFund && <p>{text.unavailable}</p>}
+        {selectedFund && <section className="rule-card">
+          <div className="rule-meta"><span>{selectedFund.market}</span><span>{selectedFund.currency}</span></div>
+          <h2>{selectedFund.name}</h2><p>{selectedFund.identifier}</p><p>{fundWords.registeredDetails}</p>
+        </section>}
         {model && <>
         <section className="rule-card" aria-labelledby="model-heading">
           <div className="rule-meta"><span>{model.execution_currency}</span><span>{model.implementation}</span></div>

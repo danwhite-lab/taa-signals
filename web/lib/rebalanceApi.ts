@@ -1,4 +1,5 @@
 import text from "../content/rebalance.json";
+import { registryResponseMessage } from "./my-funds-errors";
 import { authorizedResponse, ApiError, type Workspace } from "./api";
 
 export class RebalanceError extends Error {
@@ -10,6 +11,8 @@ export async function rebalanceRequest<T>(path: string, body?: unknown): Promise
   try { response = await authorizedResponse(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }); }
   catch (error) { throw new RebalanceError(error instanceof ApiError ? error.status : 0, text.error); }
   if (!response.ok) {
+    const registryError = await registryResponseMessage(response);
+    if (registryError) throw new RebalanceError(503, registryError);
     const data = response.status === 400 ? await response.json().catch(() => null) : null;
     throw new RebalanceError(response.status, response.status === 409 ? text.paused : response.status === 401 ? text.unauthorized :
       typeof data?.detail === "string" ? data.detail : text.validation);
@@ -51,12 +54,16 @@ export async function saveHoldings(revision: number, account: unknown): Promise<
   try {
     const response = await authorizedResponse("/api/workspace", { method: "PUT", body: JSON.stringify({ revision, payload: { holdings_account: account } }) });
     if (response.status === 409) throw new RebalanceError(409, text.paused);
-    if (!response.ok) throw new Error();
+    if (!response.ok) {
+      const registryError = await registryResponseMessage(response);
+      if (registryError) throw new RebalanceError(503, registryError);
+      throw new Error();
+    }
     const saved = await response.json() as Workspace;
     if (canonical(saved.payload.holdings_account) !== canonical(account)) throw new Error();
     return { saved, uncertain: false };
   } catch (error) {
-    if (error instanceof RebalanceError && error.status === 409) throw error;
+    if (error instanceof RebalanceError && [409, 503].includes(error.status)) throw error;
     try {
       const saved = await rebalanceRequest<Workspace>("/api/workspace");
       return { saved: canonical(saved.payload.holdings_account) === canonical(account) ? saved : null, uncertain: true };

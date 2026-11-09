@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import text from "../../content/today.json";
+import { registryMessage, registryResponseMessage } from "../../lib/my-funds-errors";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
 import HistorySources, { type HistorySleeve } from "./history-sources";
@@ -11,7 +12,7 @@ import { fundName, modelCaption } from "../../lib/picker-display";
 import styles from "./today.module.css";
 
 type Allocation = { name: string; security_number: string | null; weight_text: string | null };
-type Signal = { label: string | null; weight_text: string | null; holding_display: Allocation[]; regime: string | null; status_code: "ok" | "check_data" | "unavailable"; holding: string | null; status: string | null; error_code: string | null };
+type Signal = { display_name?: string; label: string | null; weight_text: string | null; holding_display: Allocation[]; regime: string | null; status_code: "ok" | "check_data" | "unavailable"; holding: string | null; status: string | null; error_code: string | null };
 type Comparison = { id: string; Fund: string; "Target %": number | null; "Actual %": number | null; "Gap (₪)": number | null; Status: string; price_as_of?: string | null; price_fresh?: boolean };
 type Action = { id: string; fund: string; amount_text: string; direction: "buy" | "over"; moved_here: string[] };
 type Preview = { label: string | null; allocation: string | null; allocation_display?: Allocation[]; kind?: keyof typeof text.previewKinds | null; change: "yes" | "no" | null; price_as_of: string | null; reason: string | null; error_code: string | null };
@@ -39,10 +40,10 @@ export default function TodayPage() {
     const current=generation.current; setPreviewBusy(true);
     try {
       const response=await authorizedResponse(`/api/today?preview=true${live.current ? "&live=true" : ""}`);
-      if(!response.ok) throw new Error(requestError(response.status));
+      if(!response.ok) throw new Error(await registryResponseMessage(response) ?? requestError(response.status));
       const next=await response.json() as Today;
       if(current===generation.current){setValue(previous=>previous && {...previous,previews:next.previews,preview_caption:next.preview_caption});setPreviewLoaded(true);}
-    } catch {if(current===generation.current)setError(text.requestError);}
+    } catch (failure) {if(current===generation.current)setError(registryMessage((failure as Error)?.message) ?? text.requestError);}
     finally {if(current===generation.current)setPreviewBusy(false);}
   }
   async function load(forceLive = false) {
@@ -59,6 +60,8 @@ export default function TodayPage() {
           const body = await response.json();
           if (typeof body.detail === "string" && Object.hasOwn(text.requestDetails, body.detail))
             message = (text.requestDetails as Record<string, string>)[body.detail];
+          else if (response.status === 503)
+            message = registryMessage(body.detail) ?? message;
         } catch { /* A platform error can be HTML, not JSON. Keep the HTTP reason. */ }
         setError(message); return;
       }
@@ -82,7 +85,7 @@ export default function TodayPage() {
         {value.latest_caption && <p>{fmt.text(value.latest_caption)}</p>}{value.stale && <p className="signal-warning">{text.staleWarning}</p>}</section>
       <section><h2>{text.sleeveSignals}</h2><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.sleeveSignals}>
         <thead><tr><th>{text.sleeve}</th><th>{text.weight}</th><th>{text.holding}</th><th>{text.securityNumber}</th><th>{text.status}</th></tr></thead>
-        <tbody>{value.signals.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{sleeveName(row.label)}</td><td>{row.weight_text ?? text.dash}</td>
+        <tbody>{value.signals.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{row.display_name ?? sleeveName(row.label)}</td><td>{row.weight_text ?? text.dash}</td>
           <td>{row.holding_display?.length ? names(row.holding_display) : text.unavailable}</td>
           <td>{numbers(row.holding_display)}</td>
           <td>{row.status_code === "ok" ? null : row.status_code === "check_data" ? text.checkData : <>{text.unavailable}<small className={styles.secondary}>{issue(row.error_code) ?? row.status}</small></>}{row.regime && <small className={styles.secondary}>{row.regime}</small>}</td></tr>)}</tbody></table></div></section>

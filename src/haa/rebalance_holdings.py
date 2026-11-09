@@ -9,6 +9,7 @@ import json
 import re
 from uuid import uuid4
 
+from .my_funds import PREFIX, instrument as fund_instrument, registered_fund
 from .portfolio import execution_security_label
 from .tase_data import TASE_EXECUTION_ASSET_IDS
 from .allocation_mode import validate_allocation_mode
@@ -49,7 +50,26 @@ def security(identifier, market, currency=None, label=None):
             "currency": currency, "label": label or identifier}
 
 
+def position_instrument(key, identifier, market, currency):
+    if key.startswith(PREFIX):
+        fund = registered_fund(key)
+        if fund is None or (identifier, market, currency) != (fund["identifier"], fund["market"], fund["currency"]):
+            raise ValueError("This fund is unavailable.")
+        return fund_instrument(fund)
+    return security(identifier, market, currency)
+
+
+def whole_units(instrument):
+    fund = registered_fund(instrument["id"])
+    return fund["kind"] != "mutual" if fund else instrument["market"] == "TASE"
+
+
 def execution_security(asset, currency):
+    if asset.startswith(PREFIX):
+        fund = registered_fund(asset)
+        if fund is None or fund["currency"] != currency:
+            raise ValueError("This fund is unavailable.")
+        return fund_instrument(fund)
     label = execution_security_label(asset, currency)
     matches = re.findall(r"\b\d{7}\b", label)
     identifier = TASE_EXECUTION_ASSET_IDS.get(asset) or (matches[-1] if matches else None)
@@ -106,7 +126,7 @@ def validate_account(account):
             raise ValueError("A holding is missing its security details or units.")
         if not isinstance(row["label"], str) or not row["label"].strip():
             raise ValueError("A holding needs a fund label.")
-        instrument = security(row["identifier"], row["market"], row["currency"])
+        instrument = position_instrument(key, row["identifier"], row["market"], row["currency"])
         if instrument["id"] != key or row.get("id") != key:
             raise ValueError("Holdings security ID mismatch.")
         units = number(row["units"])
@@ -115,8 +135,11 @@ def validate_account(account):
         anchor = row.get("companion_of")
         if anchor is not None:
             try:
-                market, identifier = anchor.split(":", 1)
-                valid = isinstance(anchor, str) and security(identifier, market)["id"] == anchor
+                if registered_fund(anchor):
+                    valid = True
+                else:
+                    market, identifier = anchor.split(":", 1)
+                    valid = security(identifier, market)["id"] == anchor
             except (ValueError, AttributeError):
                 valid = False
             if not valid:
@@ -127,8 +150,10 @@ def validate_account(account):
                 raise CompanionError("A holding cannot be its own companion.")
             if positions.get(anchor, {}).get("companion_of"):
                 raise CompanionError("Companion chains are not supported; choose a target fund as the anchor.")
-        if row["market"] == "TASE" and units != units.to_integral_value():
-            raise ValueError("TASE holdings require whole units.")
+        if whole_units(instrument) and units != units.to_integral_value():
+            raise ValueError("This holding requires whole units.")
+        if registered_fund(key) and row.get("manual_price") is not None:
+            raise ValueError("Registered funds use automatic prices.")
         if row.get("manual_price") is not None:
             number(row["manual_price"], positive=True)
             if not row.get("manual_price_date"):
@@ -198,6 +223,16 @@ def rebalance_targets(account, targets, anchor_map=None):
     return {k: float(w / weight) for k, w in included.items()} if weight else {}
 
 
+def exchange_rate(currency, fx):
+    if currency == "ILS":
+        return Decimal(1)
+    if isinstance(fx, dict):
+        return number(fx[currency], positive=True)
+    if currency == "USD":
+        return number(fx, positive=True)
+    raise ValueError("Exchange rate unavailable.")
+
+
 def compare_holdings(account, instruments, targets, quotes, fx, anchor_map=None):
     validate_account(account)
     targets = rebalance_targets(account, targets, anchor_map)
@@ -210,7 +245,7 @@ def compare_holdings(account, instruments, targets, quotes, fx, anchor_map=None)
         quote = quotes.get(key)
         if units and (not quote or quote.get("error")):
             raise ValueError(f"{key}: price unavailable; account weights cannot be calculated.")
-        rate = number(fx, positive=True) if instruments[key]["currency"] == "USD" else Decimal(1)
+        rate = exchange_rate(instruments[key]["currency"], fx)
         values[key] = units * number(quote["price"], positive=True) * rate if units else Decimal(0)
     total = sum(values.values()) + number(account["cash_ils"])
     combined = dict(values)
@@ -250,12 +285,14 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context,
     excluded = excluded_holdings(account, valuation_targets, anchor_map)
     new_money = number(new_money)
     budget = number(account["cash_ils"]) + new_money
-    gaps, costs, minimums = {}, {}, {}
+    gaps, costs, minimums, lots = {}, {}, {}, {}
     for key, weight in targets.items():
         quote = quotes.get(key)
         if not quote or quote.get("error") or quote.get("price") is None:
             raise ValueError(f"{key}: an actual per-unit price is required.")
-        costs[key] = number(quote["price"], positive=True) * (number(fx, positive=True) if instruments[key]["currency"] == "USD" else 1)
+        fund = registered_fund(key)
+        lots[key] = Decimal("0.000001") if fund and fund["kind"] == "mutual" else 1
+        costs[key] = number(quote["price"], positive=True) * exchange_rate(instruments[key]["currency"], fx) * lots[key]
         gaps[key] = max(Decimal(0), number(weight) * (total + new_money) - values.get(key, Decimal(0)))
         minimum = number(account["positions"].get(key, {}).get("minimum_ils", 0))
         minimums[key] = max(1, int((minimum / costs[key]).to_integral_value(rounding=ROUND_CEILING)))
@@ -302,12 +339,12 @@ def make_buy_plan(account, instruments, targets, quotes, fx, new_money, context,
             batch = min(batch, int((min(gap, remaining) / costs[key]).to_integral_value(rounding=ROUND_FLOOR)))
             quantities[key] += batch
             remaining -= batch * costs[key]
-    orders = [{"id": key, "units": qty, "price_native": str(number(quotes[key]["price"])),
+    orders = [{"id": key, "units": qty if lots[key] == 1 else str(qty * lots[key]), "price_native": str(number(quotes[key]["price"])),
                "estimated_ils": str(costs[key] * qty)} for key, qty in sorted(quantities.items()) if qty]
     return {"id": str(uuid4()), "account_hash": fingerprint(account), "context_hash": fingerprint(context),
             "new_money": str(new_money), "available_ils": str(budget), "orders": orders,
             "leftover_ils": str(remaining), "unspent_by_fund": unspent,
-            "unit_costs_ils": {k: str(costs[k]) for k in unspent},
+            "unit_costs_ils": {k: str(costs[k] / lots[k]) for k in unspent},
             "instruments": {k: instruments[k] for k in quantities}}
 
 
@@ -327,8 +364,10 @@ def apply_purchases(account, plan, confirmations, context):
             raise ValueError("Purchase was not in this buy list.")
         units = number(row["units"])
         paid = number(row["paid_ils"])
-        if units != units.to_integral_value() or units > orders[key]["units"]:
-            raise ValueError("Confirm whole units, no greater than the proposed order.")
+        fund = registered_fund(key)
+        fractional = fund and fund["kind"] == "mutual"
+        if (not fractional and units != units.to_integral_value()) or units > number(orders[key]["units"]):
+            raise ValueError("Confirm valid units, no greater than the proposed order.")
         if bool(units) != bool(paid):
             raise ValueError("Enter both units bought and the actual ₪ amount paid, or zero for both.")
         if units:

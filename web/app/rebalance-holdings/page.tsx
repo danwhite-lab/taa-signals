@@ -8,6 +8,7 @@ import { ActualFundLabel, ChoiceDetails, FundFacts, MetadataStatus, SearchResult
 import pickerWords from "../../content/pickers.json";
 import { fundChoice, fundName, modelCaption } from "../../lib/picker-display";
 import { savedOrder } from "../../lib/ui-order";
+import fundWords from "../../content/my-funds.json";
 import HoldingEditorRow from "../../components/HoldingEditorRow";
 import { rebalanceRequest as request, saveHoldings, saveAllocationMode, type AllocationMode, RebalanceError } from "../../lib/rebalanceApi";
 import * as fmt from "../../lib/format";
@@ -24,8 +25,8 @@ type State = { workspace_revision: number; account: Account; account_hash: strin
   targets?: Record<string,number>;
   target_funds?: {id:string;label:string}[];
   total_display: string; total_ils?: string | null; full_total_display: string; full_total_ils: string | null; ready: boolean; blocked: string[];
-  stale?: string[]; held_blocked: string[]; fx: Quote; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; target_diagnostics?: {stage:string;code:string;message:string}[]; source_settings: string; seconds: number };
-type Plan = { id: string; orders: { id: string; units: number; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
+  stale?: string[]; held_blocked: string[]; fx: Quote; other_fx?: Record<string, Quote>; partial: boolean; overweight: boolean; signals: unknown[]; errors: string[]; target_diagnostics?: {stage:string;code:string;message:string}[]; source_settings: string; seconds: number };
+type Plan = { id: string; orders: { id: string; units: number | string; estimated_ils: string }[]; leftover_ils: string; unspent_by_fund?: Record<string, string>; unit_costs_ils?: Record<string, string> };
 type Preview = { account: Account | null; preview: Record<string, unknown>[]; errors: string[]; quotes?: Record<string, Quote> };
 const show = (value: unknown, context="") => fmt.cell(value, context);
 const allocationColours = ["#17645f", "#3b82a0", "#d28b34", "#7a5ba6", "#bf5b5b", "#5b8c59", "#6b7280"];
@@ -95,7 +96,7 @@ function CurrentAllocation({ state }: { state: State }) {
     const instrument = state.instruments[id];
     const quote = state.quotes[id];
     const price = Number(quote?.price);
-    const fx = instrument?.currency === "USD" ? Number(state.fx.price) : 1;
+    const fx = !instrument || instrument.currency === "ILS" ? 1 : Number(instrument.currency === "USD" ? state.fx.price : state.other_fx?.[instrument.currency]?.price);
     if (!instrument || quote?.error || !Number.isFinite(price) || price <= 0 || !Number.isFinite(fx) || fx <= 0) {
       missing.push(String(row.Fund || instrument?.label || id));
       return [];
@@ -292,6 +293,8 @@ export default function RebalanceHoldings() {
         setRoles(previous => ({...previous, [item.from]: "companion"}));
         invalidate(true); setRows(previous => previous.map(row => row.Security === item.from ? {...row, "Outside the rebalance": false, "Companion of": item.to} : row));
       }}>{text.replacementConfirm.replace("{old}", item.from_label).replace("{new}", item.to_label)}</button>)}</div>}
+      {Object.entries(state.other_fx ?? {}).map(([currency, rate]) => <p key={currency}>{rate.error ?
+        fundWords.fxUnavailable.replace("{currency}", currency) : [rate.source, rate.price, rate.as_of].join(" · ")}</p>)}
       {!!state.fx.error || state.fx.price == null ? <p>{text.fxMissing}</p> : !state.fx.fresh && <p className="signal-warning">{text.staleFx.replace("{date}", String(state.fx.as_of ?? "—"))}</p>}
       {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
       {dirty && <p role="status">{text.unsaved}</p>}
@@ -412,12 +415,12 @@ export default function RebalanceHoldings() {
       <div role="tabpanel" id="action-panel-buy" aria-labelledby="action-tab-buy" tabIndex={0} hidden={actionTab !== "buy"}>
       <p>{text.buyCaption}</p>
       {!plan && <p>{changed ? text.changed : text.buyEmpty}</p>}
-      {plan && <section><h2>{text.buyList}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
-        {plan.orders.map(order => <tr key={order.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[order.id]} />{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td data-label={text.wholeUnits}>{fmt.number(order.units)}</td><td data-label={text.estimated}>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
+      {plan && <section><h2>{text.buyList}</h2><table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{plan.orders.some(order => typeof order.units === "string") ? holdings.units : text.wholeUnits}</th><th>{text.estimated}</th></tr></thead><tbody>
+        {plan.orders.map(order => <tr key={order.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[order.id]} />{isStale(order.id) && <small className="companion-note">{text.staleOrder.replace("{date}", staleDate(order.id))}</small>}</td><td data-label={text.wholeUnits}>{typeof order.units === "string" ? order.units : fmt.number(order.units)}</td><td data-label={text.estimated}>{fmt.cell(order.estimated_ils,"cost")}</td></tr>)}</tbody></table>
         {state.allocation_mode === "biggest_gap_first" && plan.orders.length === 1 && <p>{text.singleOrder}</p>}{!plan.orders.length && <p>{text.emptyPlan}</p>}<p>{text.leftover}: {fmt.cell(plan.leftover_ils,"cash")}</p>
         {!!plan.orders.length && <button className="btn btn-secondary" disabled={busy || paused} onClick={() => { setRecording(true); setAck(false); setConfirmed(Object.fromEntries(plan.orders.map(order => [order.id, { units: "0", paid_ils: "0" }]))); }}>{text.record}</button>}
         {recording && <section><h3>{text.record}</h3><p>{text.recordCaption}</p>{staleFunds.length > 0 && <p className="signal-warning">{text.staleRecord}</p>}{plan.orders.map(order => <div className="record-order" key={order.id}><p><ActualFundLabel fund={state.instruments[order.id]} />{isStale(order.id) && <> — {text.staleOrder.replace("{date}", staleDate(order.id))}</>}</p>
-          <label>{text.bought}<input inputMode="numeric" value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
+          <label>{text.bought}<input inputMode={typeof order.units === "string" ? "decimal" : "numeric"} value={confirmed[order.id]?.units ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], units: event.target.value } }))} /></label>
           <label>{text.paid}<input inputMode="decimal" value={confirmed[order.id]?.paid_ils ?? "0"} disabled={busy} onChange={event => setConfirmed(previous => ({ ...previous, [order.id]: { ...previous[order.id], paid_ils: event.target.value } }))} /></label></div>)}
           <label><input type="checkbox" checked={ack} disabled={busy} onChange={event => setAck(event.target.checked)} />{text.acknowledge}</label>
           <button className="btn btn-secondary" disabled={busy || paused || !ack} onClick={() => void action(async () => { const value = await request<{ account: Account }>("/api/rebalance/record", {

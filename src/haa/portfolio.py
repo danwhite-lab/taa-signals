@@ -63,6 +63,11 @@ EXECUTION_SECURITY_LABELS = {
 
 def execution_security_label(asset: str, currency: str) -> str:
     """Return the broker-facing security label without changing canonical symbols."""
+    from .my_funds import registered_fund
+
+    fund = registered_fund(asset)
+    if fund:
+        return f'{fund["name"]} ({fund["identifier"]})'
     return EXECUTION_SECURITY_LABELS.get((currency, asset), asset)
 
 

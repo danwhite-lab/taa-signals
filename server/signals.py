@@ -14,6 +14,7 @@ import pandas as pd
 
 from haa import data, signals as engine_signals, tase_data
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
+from haa.my_funds import PREFIX, history, registered_fund
 from haa.model_catalog import definition_for_label, strategies, variants, implementations, resolve
 from haa.portfolio import execution_security_label
 from haa.portfolio_signals import monthly_strategy_input
@@ -53,7 +54,7 @@ def mode_for(strategy, definition):
 
 
 def selector(definition):
-    selected = resolve(definition.strategy, definition.variant, definition.implementation)
+    selected = definition if registered_fund(definition.label) else resolve(definition.strategy, definition.variant, definition.implementation)
     return {"selected": {field.name: getattr(selected, field.name) for field in fields(selected) if field.name != "model_class"},
             "strategies": strategies(), "variants": variants(selected.strategy),
             "implementations": implementations(selected.strategy, selected.variant)}
@@ -62,6 +63,8 @@ def selector(definition):
 def load_inputs(definition, *, daily_bars=False, force_live=False):
     from .input_cache import inputs
     from .market_cache import model_inputs, fresh
+    if any(asset.startswith(PREFIX) for asset in getattr(definition.model_class(), "data_assets", ())):
+        return live_inputs(definition, daily_bars=daily_bars)
     if force_live or FORCE_LIVE.get():
         result = live_inputs(definition, daily_bars=daily_bars)
         result[0].attrs["input_source"] = {"source": "live", "loaded_at": datetime.now(timezone.utc).isoformat(), "snapshot_fallback": False}
@@ -85,15 +88,16 @@ def live_inputs(definition, *, daily_bars=False):
     assets = tuple(getattr(strategy, "data_assets", ASSETS))
     # Same selected-model scope as app.assets_for_models, including its benchmark.
     runtime = tuple(dict.fromkeys((*assets, getattr(strategy, "benchmark_asset", "SPY"))))
+    private = tuple(asset for asset in runtime if asset.startswith(PREFIX))
     tase = tuple(asset for asset in runtime if asset in tase_data.TASE_ISRAEL_ASSET_IDS)
     fred = tuple(asset for asset in runtime if asset in FRED_ASSETS)
     oecd = OECD_CLI_DIFFUSION_ASSET in runtime
-    yahoo = tuple(asset for asset in runtime if asset not in (*tase, *fred, OECD_CLI_DIFFUSION_ASSET))
+    yahoo = tuple(asset for asset in runtime if asset not in (*private, *tase, *fred, OECD_CLI_DIFFUSION_ASSET))
     mapping = data.default_ticker_map(yahoo)
     strict = tuple(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None) == "XNYS" else ()
     try:
         opens = None
-        if daily_bars:
+        if daily_bars and yahoo:
             downloaded, opens = data.download_yahoo_daily_bars(mapping)
         else:
             downloaded = (data.download_yahoo_prices(mapping, require_adjusted_assets=strict) if strict
@@ -129,6 +133,14 @@ def live_inputs(definition, *, daily_bars=False):
                 index=pd.Index(tase, name="asset"))
         downloaded = downloaded.join(local.reindex(columns=tase), how="outer")
         metadata = pd.concat([metadata, local_meta.reindex(tase)])
+    for asset in private:
+        fund = registered_fund(asset)
+        if fund is None:
+            raise ValueError("This fund is unavailable.")
+        series, field = history(fund)
+        downloaded = downloaded.join(series, how="outer")
+        metadata.loc[asset] = {"source": "TASE/MAYA" if fund["market"] == "TASE" else "Yahoo Finance",
+                               "identifier": fund["identifier"], "price_field": field}
     metadata = metadata.reindex(runtime)
     if strict:
         metadata.loc[list(strict), "price_field"] = "Required adjusted close; no raw Close fallback"
@@ -243,7 +255,8 @@ def build_payload(definition, all_prices, metadata, failures, as_of):
                 result["captions"].append("Israel: next TASE session's closing/NAV execution assumption; verify fund dealing deadlines with your broker. A session is considered complete after 20:00 Jerusalem time. The QLD substitute drifts between entry and annual resets; displayed weights are targets, not live holdings. No confirmed broker fill is implied." if local else "This closing-price decision applies at the next trading session's OPEN. If the target changes, switch at that open; otherwise hold. The date is a schedule, not a confirmed broker fill. Targets reflect model state, not your actual holding. Today's close is considered complete only after 17:00 New York time.")
         return clean(result)
     if mode == "buy_and_hold":
-        result["heading"] = definition.label
+        fund = registered_fund(definition.label)
+        result["heading"] = fund["name"] if fund else definition.label
         result["captions"] = [caption for caption in result["captions"] if not caption.startswith("Model:")]
         result["captions"].append("Continuous holding · no app-generated timing signal")
         if signal is not None:
@@ -316,9 +329,9 @@ def signals_payload(label, as_of, engine_code):
         cutoff = str(strategy.completed_cutoff(clock)) if hasattr(strategy, "completed_cutoff") else None
         params = {"as_of": as_of, "utc_date": str(clock.date()), "daily_cutoff": cutoff,
                   "engine_code": engine_code, "sources": digest(table(metadata)), "presentation": "signals-v1"}
-        if failures:
+        if failures or registered_fund(label):
             result = build_payload(definition, prices, metadata, failures, clock)
-            cache = {"hit": None, "warnings": ["Input retrieval failed; this degraded result was not cached."]}
+            cache = {"hit": None, "warnings": ["Input retrieval failed; this degraded result was not cached."] if failures else []}
         else:
             # Empty/unavailable/failed computations must not become a cache hit.
             def compute():

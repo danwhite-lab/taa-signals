@@ -13,6 +13,9 @@ import pandas as pd
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from haa.comparison import ModelInput, compare_models
+from haa.model_catalog import available_models
+from haa.my_funds import account_funds, model_definition, registered_fund
+from .fund_scope import owner, require_fund, require_portfolio_funds
 from .compare_execution import compare_portfolios
 from .performance import decisions as cached_decisions, span, measure
 from haa.portfolio_config import backtest_portfolio_config
@@ -46,6 +49,7 @@ def error(key):
 
 
 def definition(label):
+    require_fund(label)
     try: return base.definition(label)
     except HTTPException: error("unknown")
 
@@ -53,7 +57,7 @@ def definition(label):
 def options(records):
     models = [{**{f.name: getattr(m, f.name) for f in base.fields(m) if f.name != "model_class"},
                "benchmark": getattr(m.model_class, "benchmark_asset", "SPY")}
-              for m in sorted(base.MODEL_CATALOG, key=lambda m: m.label.casefold())
+              for m in sorted(available_models(), key=lambda m: m.label.casefold())
               if getattr(m.model_class, "backtest_available", True)]
     # Only this private no-store selector response carries record identifiers/names.
     summaries = [{"id": str(r["id"]), "name": r.get("payload", {}).get("name", "")} for r in records]
@@ -67,11 +71,13 @@ def selection(request, records):
         for label in labels: definition(label)
         return labels
     if len(set(request.portfolio_ids)) != len(request.portfolio_ids): error("unknownPortfolio")
+    models = {**multi.MODELS, **{f["model"]: model_definition(f).model_class for f in account_funds()}}
     result = []
     for identifier in request.portfolio_ids:
         row = next((r for r in records if str(r.get("id")) == identifier), None)
         if row is None: error("unknownPortfolio")
-        try: sleeves, _ = backtest_portfolio_config(row.get("payload"), multi.MODELS, require_capital_fx=False)
+        require_portfolio_funds(row.get("payload"))
+        try: sleeves, _ = backtest_portfolio_config(row.get("payload"), models, require_capital_fx=False)
         except (ValueError, TypeError, OverflowError, KeyError): error("invalidSaved")
         result.append(sleeves)
     currency_definition = usd.resolve if request.usd_equivalents else definition
@@ -175,7 +181,9 @@ def run_loaded(request, chosen, loaded, code, *, started=None, input_seconds=0.)
         bundle["public"]["calculation_timing"] = {"input_seconds": input_seconds, "engine_seconds": round(elapsed, 6)}
         if len(json.dumps({**bundle["public"], "warnings": bundle["public"].get("warnings",[])+loaded["warnings"], "downloads": manifest(bundle)}, ensure_ascii=False).encode()) >= 2_900_000: error("sizeError")
         return bundle
-    bundle, info = RESULTS.run(model="compare:"+request.mode, params=params, start=str(request.start), end=str(request.end), version=loaded["version"], compute=compute)
+    labels = chosen if request.mode == "models" else [s["model"] for sleeves in chosen for s in sleeves]
+    private = any(registered_fund(label) for label in labels)
+    bundle, info = base.private_result(compute, RESULTS) if private else RESULTS.run(model="compare:"+request.mode, params=params, start=str(request.start), end=str(request.end), version=loaded["version"], compute=compute)
     public = bundle["public"]
     public.update(cache=info, warnings=public.get("warnings",[])+loaded["warnings"]+info["warnings"], data_version=loaded["version"], downloads=manifest(bundle),
         timing={"input_seconds": round(input_seconds, 6), "engine_seconds": 0. if info["hit"] else public["calculation_timing"]["engine_seconds"], "total_seconds": round(perf_counter()-started, 6)})
@@ -209,5 +217,7 @@ def download(key, kind):
                 bundle = rows[0]["result"] if rows else None
             except Exception: bundle = None
     if not bundle or bundle.get("kind") not in {"compare-models-v1", "compare-portfolios-v1"} or kind not in bundle["downloads"]:
+        raise HTTPException(404, WORDS["downloadError"])
+    if bundle.get("private_owner") is not None and bundle["private_owner"] != owner.get():
         raise HTTPException(404, WORDS["downloadError"])
     return bundle["downloads"][kind]

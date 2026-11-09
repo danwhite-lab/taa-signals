@@ -32,8 +32,8 @@ it("finds explicit proxy, signal and fund aliases without adding unsupported mod
   expect(matchingChoices(choices,"5140850","").map(row=>row.key)).toEqual([
     "Century Momentum Move to Cash Israel","Century Momentum Israel",
   ]);
-  expect(matchingChoices(choices,"spmo","originals").map(row=>row.key)).toEqual(["Century Momentum"]);
-  expect(matchingChoices(choices,"x3 hedged","israel").map(row=>row.key)).toEqual(["Buy and Hold S&P 500 x3 Israel"]);
+  expect(matchingChoices(choices,"spmo","strategies").map(row=>row.key)).toHaveLength(3);
+  expect(matchingChoices(choices,"x3 hedged","tase").map(row=>row.key)).toEqual(["Buy and Hold S&P 500 x3 Israel"]);
   expect(matchingChoices(choices,"VXUS","")).toHaveLength(0);
 });
 
@@ -86,6 +86,7 @@ it("shows the exposure before the buy-and-hold rule and preserves the canonical 
   expect(screen.getByText("QQQ")).toBeTruthy();
   expect(screen.getByText("Buy and hold · QQQ")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Change" }));
+  fireEvent.click(screen.getByRole("button", { name: "TASE" }));
   const search = screen.getByRole("searchbox");
   fireEvent.change(search, { target: { value: "world value" } });
   const row = screen.getByRole("button", { name: "World Value Buy and hold · Israel · USD hedged" });
@@ -96,4 +97,19 @@ it("shows the exposure before the buy-and-hold rule and preserves the canonical 
   expect(screen.getAllByRole("searchbox")).toHaveLength(1);
   fireEvent.click(row);
   expect(select).toHaveBeenCalledExactlyOnceWith(labels[1]);
+});
+
+it("opens all four tabs and keeps the legacy Nikkei index in Global", async () => {
+  const select = vi.fn();
+  const labels = ["HAA-Simple", "HAA-Simple Israel", "Buy and Hold Japan Nikkei 225", "Buy and Hold Japan Israel"];
+  render(<SearchPicker models={labels.map(label => ({ label }))} value="" onSelect={select} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose model" }));
+  const groups = screen.getByRole("group", { name: "Model groups" });
+  expect(within(groups).getAllByRole("button").map(button => button.textContent)).toEqual(["TASE", "Global", "Strategies", "Israel"]);
+  fireEvent.click(within(groups).getByRole("button", { name: "Israel" }));
+  expect(screen.getByRole("button", { name: "HAA Simple · Israel" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Japan/ })).toBeNull();
+  fireEvent.click(within(groups).getByRole("button", { name: "Global" }));
+  fireEvent.click(screen.getByRole("button", { name: /Nikkei 225 price index/ }));
+  expect(select).toHaveBeenCalledWith(labels[2]);
 });

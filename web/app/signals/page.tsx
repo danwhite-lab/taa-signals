@@ -1,5 +1,7 @@
 "use client";
 
+import { asModel } from "../../components/MyFunds";
+import type { ModelOption, RegisteredFund } from "../../lib/picker-display";
 import SearchPicker from "../../components/SearchPicker";
 
 import { useEffect, useState } from "react";
@@ -11,7 +13,7 @@ import words from "../../content/signals.json";
 
 type Row = Record<string, unknown>;
 export type SignalTable = { columns: string[]; rows: Row[]; display_rows?: Row[] };
-type Model = { label: string; strategy: string; variant: string | null; implementation: string };
+type Model = ModelOption;
 export type SignalsPayload = {
   mode: "daily" | "monthly" | "buy_and_hold"; heading: string; captions: string[]; warnings: string[];
   current: { available: boolean; reason: string | null; signal_date?: string; regime?: string;
@@ -135,7 +137,7 @@ export default function SignalsPage() {
   }, [models, label, attempt]);
   return <main className="signals-page">
     <p className="eyebrow">Strategy signals</p>
-    {models.length > 0 && <SearchPicker models={models} value={label} onSelect={setLabel} />}
+    {models.length > 0 && <SearchPicker onFundChange={fund => setModels(current => [...(current ?? []).filter(model => model.label !== fund.model), asModel(fund)])} models={models} value={label} onSelect={setLabel} />}
     {error && <section role="alert"><h1>Signals could not be loaded</h1><p>{error}</p>
       <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></section>}
     {!payload && !error && <p role="status">Loading signals from the existing Python engine…</p>}

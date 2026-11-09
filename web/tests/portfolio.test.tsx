@@ -20,6 +20,7 @@ it("keeps the moved Add a sleeve control lazy and leaves choosing a model non-mu
   expect(screen.getByRole("region",{name:"Portfolio summary"}).contains(add)).toBe(false);
   expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
   fireEvent.click(add);
+  fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   fireEvent.click(await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
   expect(screen.queryByLabelText("Weight for Buy and Hold IEF (row 2)")).toBeNull();
   expect(screen.queryByText(/New sleeves start at/)).toBeNull();
@@ -357,6 +358,7 @@ it('preserves legacy capital, FX, custom metadata and sleeve identity while edit
 it('uses the Backtest model list without duplicates and removes the requested row, not the last',async()=>{
   mockLoad();render(<Portfolio/>);await chooseSaved();
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   const results=await screen.findByRole("group",{name:"Search models"});
   expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
   expect(within(results).queryByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeNull();
@@ -369,6 +371,7 @@ it('uses the Backtest model list without duplicates and removes the requested ro
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','0.00');
   fireEvent.click(screen.getByRole("button",{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   expect(screen.getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
   expect(screen.queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
 });
@@ -394,6 +397,7 @@ it('loads editable fields and available models from saved payloads',async()=>{
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','100.00');
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   const results=await screen.findByRole("group",{name:"Search models"});
   expect(within(results).getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
   expect(within(results).queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
@@ -417,6 +421,7 @@ it('can build a new portfolio without inventing capital or FX',async()=>{
   expect(screen.queryByLabelText('ILS per USD rate')).toBeNull();
   fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:'Fake new'}});
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+  fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
   fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
   fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
@@ -511,6 +516,7 @@ it.each([false,true])('saves weights without inventing capital/FX for a new or s
     fireEvent.click(screen.getByRole("button",{name:words.newPortfolio}));
     fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:payload.name}});
     fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
+    fireEvent.click(await screen.findByRole("button",{name:"Global"}));
     fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
     fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
     fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});

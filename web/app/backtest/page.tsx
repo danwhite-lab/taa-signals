@@ -1,5 +1,7 @@
 "use client";
 
+import { asModel } from "../../components/MyFunds";
+import type { ModelOption, RegisteredFund } from "../../lib/picker-display";
 import SearchPicker from "../../components/SearchPicker";
 
 import { useEffect, useRef, useState } from "react";
@@ -17,13 +19,13 @@ import { backtestRequest, backtestDownload } from "../../lib/backtestApi";
 
 type Row = Record<string, unknown>;
 type Table = { columns: string[]; rows: Row[]; display_rows?: Row[]; total_rows?: number; shown_rows?: number; truncated?: boolean };
-type Model = { label: string; strategy: string; variant: string | null; implementation: string };
+type Model = ModelOption;
 type Form = { usd_equivalents: boolean; label: string; start: string; end: string; initial: number; fee_type: "percentage" | "fixed"; fee_value: number;
   tax_enabled: boolean; tax_rate: number; monthly_contribution: number; reference_replay: boolean } & FeeAssumptions;
 type Options = { models: Model[]; label: string; currency: string; bounds: { start_min: string; start_max: string; end_min: string; end_max: string };
   defaults: Form; captions: string[]; warnings: string[]; data_validation: Table; reference_replay_available: boolean; dca_caption: string; reference_caption: string };
 type Chart = { series: { label: string; svg_points: string }[]; minimum: number; maximum: number; start: string; end: string; caption: string };
-type Results = { usd_equivalents?: UsdInfo; label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
+type Results = { model_name?: string; usd_equivalents?: UsdInfo; label: string; currency: string; settings: Row; engine_parameters: Row; summary: Table; periods: Table; tax_events: Table;
   fees?: { currency: string; enabled: boolean; pre_tax: number; after_tax: number } | null;
   annual: Table; monthly: Table; value_chart: Chart; drawdown_chart: Chart; calculated_at: string; cache: { key: string; hit: string | null };
   captions: string[]; warnings: string[]; data_origin: string; timing: Row; calculation_timing: Row;
@@ -78,7 +80,7 @@ function BacktestResults({ result, onDownloadError }: { result: Results; onDownl
 
   return <section className="backtest-results" aria-label={text.results}>
     <header className="backtest-results-heading">
-      <h2>{result.label}</h2>
+      <h2>{result.model_name ?? result.label}</h2>
       <p>{text.testedPeriod.replace("{start}", fmt.date(result.value_chart.start)).replace("{end}", fmt.date(result.value_chart.end))}</p>
     </header>
     <UsdBanner value={result.usd_equivalents} />
@@ -218,7 +220,7 @@ export default function BacktestPage() {
     if (mode !== "single" || modelsCache) return;
     const controller = new AbortController();
     void backtestRequest<{models: Model[]}>("/api/backtest/models", {signal: controller.signal})
-      .then(value => { if (!controller.signal.aborted) { modelsCache=value.models; setModels(value.models); } })
+      .then(value => { if (!controller.signal.aborted) { modelsCache=value.models.filter(model => !model.label.startsWith("MY-FUND-")); setModels(value.models); } })
       .catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoadingModels(false); });
     return () => controller.abort();
@@ -282,7 +284,7 @@ export default function BacktestPage() {
       }}>{text.extendedHistory}</Toggle>} />}
     {loadingModels && mode === "single" && <p role="status">{text.loading}</p>}
     {error && <section role="alert"><h2>{text.errorHeading}</h2><p>{error}</p>{!models && <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>{text.retry}</button>}</section>}
-    {mode === "single" && models && <SearchPicker models={models} value={form.label} disabled={running}
+    {mode === "single" && models && <SearchPicker onFundChange={fund => setModels(current => [...(current ?? []).filter(model => model.label !== fund.model), asModel(fund)])} models={models} value={form.label} disabled={running}
       onSelect={label => update({ label })} />}
     {mode === "single" && options && current && <>
       <fieldset disabled={running} className="backtest-controls"><legend>{text.single}</legend>

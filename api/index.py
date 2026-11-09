@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from haa.model_catalog import MODEL_CATALOG  # noqa: E402
+from haa.model_catalog import MODEL_CATALOG, available_models, definition_for_label  # noqa: E402
 from server import private_api, cron, signals as signals_page, backtest as backtest_page  # noqa: E402
 from server.cache import digest  # noqa: E402
 from server.signals_wire import SignalsCompression  # noqa: E402
@@ -27,6 +27,8 @@ from server import backtest_multi  # noqa: E402
 from server import research  # noqa: E402
 from server import compare as compare_page  # noqa: E402
 from server.usd_equivalents_options import OptionsRequest, availability as usd_availability  # noqa: E402
+from server.fund_scope import account_scope, require_fund, require_holdings_funds
+from server import fund_registry
 from server import test_login  # noqa: E402
 
 
@@ -46,7 +48,7 @@ async def private_headers(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/test-login") and response.status_code >= 400:
         response = JSONResponse({"detail": test_login.WORDS["failure"]}, status_code=response.status_code)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login", "/api/usd-equivalents")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login", "/api/usd-equivalents", "/api/my-funds")):
         response.headers["Cache-Control"] = "no-store, private"
     if request.url.path.startswith("/api/test-login"):
         response.headers["Pragma"] = "no-cache"
@@ -177,9 +179,11 @@ def _engine_code_version():
 app.include_router(private_api.router)
 app.include_router(cron.router)
 app.include_router(rebalance.router)
+app.include_router(fund_registry.router)
 
 
 @app.get("/api/today")
+@account_scope
 def today(request: Request, session=Depends(private_api.authenticated)):
     # Vercel forwards the rewrite capture as ?path=today even when the
     # browser requested /api/today with no query. It is routing, not input.
@@ -192,7 +196,12 @@ def today(request: Request, session=Depends(private_api.authenticated)):
     try:
         workspace = private_api.workspace(session)
         from haa.rebalance_holdings import validate_account
-        account = validate_account(workspace["payload"].get("holdings_account"))
+        holdings = workspace["payload"].get("holdings_account")
+    except Exception:
+        holdings = None
+    require_holdings_funds(holdings)
+    try:
+        account = validate_account(holdings)
     except Exception:
         # Holdings are private optional context: never let a damaged or absent
         # record hide public sleeve signals.
@@ -204,11 +213,15 @@ def today(request: Request, session=Depends(private_api.authenticated)):
 
 
 @app.get("/api/signals")
+@account_scope
 def signals(label: str = "HAA-Simple", as_of: str | None = None,
             session=Depends(private_api.authenticated)):
     from datetime import date
-    if label not in {model.label for model in MODEL_CATALOG}:
-        raise HTTPException(400, "Unknown strategy catalogue label.")
+    require_fund(label)
+    try:
+        definition_for_label(label)
+    except ValueError:
+        raise HTTPException(400, "Unknown strategy catalogue label.") from None
     if as_of is not None:
         try:
             if date.fromisoformat(as_of).isoformat() != as_of:
@@ -219,12 +232,14 @@ def signals(label: str = "HAA-Simple", as_of: str | None = None,
 
 
 @app.get("/api/backtest/models")
+@account_scope
 def backtest_models(session=Depends(private_api.authenticated)):
     return {"models": [{f.name: getattr(m, f.name) for f in fields(m) if f.name != "model_class"}
-                       for m in MODEL_CATALOG if getattr(m.model_class, "backtest_available", True)]}
+                       for m in available_models() if getattr(m.model_class, "backtest_available", True)]}
 
 
 @app.get("/api/backtest/options")
+@account_scope
 def backtest_options(label: str, usd_equivalents: bool = False, session=Depends(private_api.authenticated)):
     return backtest_page.options(label, usd_equivalents=True) if usd_equivalents else backtest_page.options(label)
 
@@ -240,6 +255,7 @@ def research_options(label: str, session=Depends(private_api.authenticated)):
 
 
 @app.get("/api/compare/options")
+@account_scope
 def compare_options(kind: str | None = None, session=Depends(private_api.authenticated)):
     # The unqualified response remains for existing API consumers.  The web UI
     # uses kind so opening Compare does not request either private picker.
@@ -254,12 +270,14 @@ def compare_options(kind: str | None = None, session=Depends(private_api.authent
 
 
 @app.post("/api/compare")
+@account_scope
 def compare_run(body: compare_page.Inputs, session=Depends(private_api.authenticated)):
     records = private_api.portfolios(session) if body.mode == "portfolios" else []
     return compare_page.run(body, records, _engine_code_version())
 
 
 @app.get("/api/compare/download")
+@account_scope
 def compare_download(key: str, kind: str, session=Depends(private_api.authenticated)):
     item = compare_page.download(key, kind)
     return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",
@@ -279,29 +297,34 @@ def research_download(key: str, kind: str, session=Depends(private_api.authentic
 
 
 @app.post("/api/backtest")
+@account_scope
 def backtest(body: backtest_multi.Inputs | backtest_page.Inputs, session=Depends(private_api.authenticated)):
     return (backtest_multi.run(body, _engine_code_version()) if isinstance(body, backtest_multi.Inputs)
             else backtest_page.run(body, _engine_code_version()))
 
 
 @app.get("/api/backtest/config")
+@account_scope
 def backtest_config(mode: str, session=Depends(private_api.authenticated)):
     return backtest_multi.config(mode)
 
 
 @app.post("/api/backtest/validate")
+@account_scope
 def backtest_validate(body: backtest_multi.Inputs, session=Depends(private_api.authenticated)):
     backtest_multi.validated(body)
     return {"valid": True, "message": backtest_multi.WORDS["weightSuccess"]}
 
 
 @app.post("/api/backtest/load")
+@account_scope
 def backtest_load(body: backtest_multi.Load, session=Depends(private_api.authenticated)):
     rows = private_api.portfolios(session) if body.portfolio_id is not None else []
     return backtest_multi.load_saved(body, rows)
 
 
 @app.get("/api/backtest/download")
+@account_scope
 def backtest_download(key: str, kind: str, session=Depends(private_api.authenticated)):
     item = backtest_page.download(key, kind)
     return Response(content=item["csv"].encode("utf-8"), media_type="text/csv",

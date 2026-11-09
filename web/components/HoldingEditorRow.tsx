@@ -4,6 +4,7 @@ import { fundName as displayFundName } from "../lib/picker-display";
 import { useEffect, useRef, useState } from "react";
 import words from "../content/holdings.json";
 import text from "../content/rebalance.json";
+import fundWords from "../content/my-funds.json";
 import * as fmt from "../lib/format";
 
 type Row = Record<string, string | boolean | null>;
@@ -14,7 +15,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
   row: Row; quote?: Quote; busy: boolean;
   role?: string;
   targets?: {id:string;label:string;weight?:string}[];
-  instruments?: Record<string, {label:string; identifier:string}>;
+  instruments?: Record<string, {label:string; identifier:string; market?:string}>;
   portfolioName?: string;
   allocation?: string;
   onEdit: (key: string, field: string, value: string | boolean) => void; onBlur: () => void;
@@ -48,7 +49,8 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
         disabled={busy} onChange={event => onEdit(security, key, event.target.value)} onBlur={onBlur} />
     </label>;
   }
-  const currency = row.Currency === "ILS" ? "₪" : "$";
+  const automatic = security.startsWith("MY-FUND-");
+  const currency = row.Currency === "ILS" ? "₪" : row.Currency === "EUR" ? "€" : row.Currency === "GBP" ? "£" : "$";
   const price = manual ? row["Manual price per unit"] : quote?.price;
   const priceDate = manual ? row["Price date"] : quote?.as_of;
   const detailsId = `holding-options-${encodeURIComponent(security)}`;
@@ -56,7 +58,7 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
     <tr className="compact-holding-row" aria-label={String(row.Fund)}>
       <th scope="row" title={[planStatus, hint].filter(Boolean).join(" · ")}>
         <span className="compact-fund-name">{displayFundName(security, String(row.Fund))}</span>
-        <small>{instruments[security]?.identifier ?? security.split(":").at(-1)} · {security.split(":")[0]} · {row.Currency}</small>
+        <small>{instruments[security]?.identifier ?? security.split(":").at(-1)} · {instruments[security]?.market ?? security.split(":")[0]} · {row.Currency}</small>
       </th>
       <td className="numeric"><div className="compact-value-field"><span aria-hidden="true">{currency}</span>{field("Value (₪ / $)", `${words.value} (${currency})`)}</div></td>
       <td className="numeric">{field("Units", words.units)}</td>
@@ -86,11 +88,11 @@ export default function HoldingEditorRow({ row, quote, busy, onEdit, onBlur, tar
       </select></label>}
       <div className="compact-price-summary" title={String(quote?.source ?? text.unavailable)}>
         <span>{words.price}: {price == null || price === "" ? text.unavailable : `${currency}${fmt.cell(price, "price")}`} · {manual ? text.manual : text.auto} · {fmt.cell(priceDate, "as_of")}</span>
-        <button type="button" className="compact-edit-button" disabled={busy} aria-expanded={priceEditorOpen} aria-controls={`${detailsId}-price`} onClick={() => setPriceEditorOpen(previous => !previous)}>{words.editPrice}</button>
+        <button type="button" className="compact-edit-button" disabled={busy} aria-expanded={priceEditorOpen} aria-controls={`${detailsId}-price`} onClick={() => setPriceEditorOpen(previous => !previous)}>{automatic ? fundWords.minimumOrder : words.editPrice}</button>
       </div>
       <div className="compact-price-fields" id={`${detailsId}-price`} hidden={!priceEditorOpen}>
-        {field("Manual price per unit", words.unitPrice)}
-        {field("Price date", words.priceDate)}
+        {!automatic && <>{field("Manual price per unit", words.unitPrice)}
+        {field("Price date", words.priceDate)}</>}
         {field("Minimum order (₪)", words.minimumOrder)}
       </div>
       {confirmRemoval && <div className="compact-remove-confirm" role="alert">

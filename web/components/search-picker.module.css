@@ -34,7 +34,7 @@
   font-size: inherit;
 }
 
-.search.search input {
+.search.search input, .fundEntry input {
   display: block;
   width: 100%;
   min-height: 44px;
@@ -47,6 +47,11 @@
   font: inherit;
 }
 
+.fundEntry input {
+  flex: 1 1 12rem;
+  width: auto;
+  min-width: 0;
+}
 .filters button[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);

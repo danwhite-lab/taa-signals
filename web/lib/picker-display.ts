@@ -2,8 +2,15 @@ import labels from "../content/picker-labels.json";
 import words from "../content/pickers.json";
 import { byLabel } from "./ui-order";
 
+export type RegisteredFund = {
+  model: string; name: string; market: "TASE" | "Global"; identifier: string; currency: string;
+  kind: "etf" | "mutual"; exchange?: string; isin?: string; archived: boolean;
+  fx?: { price: string; as_of: string; source: string };
+};
+
 export type ModelOption = {
   label: string;
+  fund?: RegisteredFund;
   strategy?: string;
   variant?: string | null;
   implementation?: string;
@@ -39,6 +46,8 @@ export function loadPickerMetadata() {
 export const isKnownModel = (key: string) => Object.hasOwn(models, key);
 
 export function modelDisplay(value: ModelOption) {
+  if (value.fund) return { name: value.fund.name, family: words.buyAndHold,
+    version: [value.fund.identifier, value.fund.currency], filter: value.fund.market === "TASE" ? "israel" : "originals" };
   return isKnownModel(value.label) ? models[value.label] : {
     name: value.strategy || value.label, family: value.strategy || words.other,
     version: [...new Set([value.variant, value.implementation].filter((part): part is string => !!part))],
@@ -63,17 +72,20 @@ export function fundIdentity(value: FundIdentity, details?: FundDetails) {
 
 export type Choice = {
   key: string; name: string; family?: string; secondary?: string;
-  filter?: string; aliases?: (string | null | undefined)[];
+  filter?: string; tabs?: string[]; aliases?: (string | null | undefined)[];
 };
 
 const seriesAliases = (series: Series) => [series.identifier, series.name, ...series.aliases];
 
 export function modelChoice(value: ModelOption, metadata?: Metadata): Choice {
   const label = modelDisplay(value);
+  const individual = label.family.toLowerCase() === "buy and hold" || value.strategy === "Buy and Hold";
+  const tabs = individual ? [label.filter === "israel" ? "tase" : "global"]
+    : ["strategies", ...(label.filter === "israel" ? ["israel"] : [])];
   const details = metadata?.models[value.label];
   const held = details?.held?.map(id => metadata?.funds[id]).filter((fund): fund is FundDetails => !!fund) ?? [];
   return {
-    key: value.label, name: label.name, family: label.family, secondary: label.version.join(" · "), filter: label.filter,
+    key: value.label, name: label.name, family: label.family, secondary: label.version.join(" · "), filter: label.filter, tabs,
     aliases: [
       value.strategy, value.variant, value.implementation,
       ...held.flatMap(fund => [fund.name, fund.full_name, fund.identifier, fund.ticker, fund.tracks, ...fund.aliases, ...fund.provider_identifiers]),
@@ -95,7 +107,7 @@ export function fundChoice(value: FundIdentity, metadata?: Metadata): Choice {
 export function matchingChoices(choices: Choice[], query: string, filter: string) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matched = choices.filter(choice => {
-    if (filter && choice.filter !== filter) return false;
+    if (filter && !(choice.tabs?.includes(filter) ?? choice.filter === filter)) return false;
     const searchable = [choice.key, choice.name, choice.family, choice.secondary, ...(choice.aliases ?? [])].join(" ").toLowerCase();
     return terms.every(term => searchable.includes(term));
   });

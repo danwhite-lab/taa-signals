@@ -1,0 +1,23 @@
+{
+  "securityNumber": "Add by seven-digit TASE security number",
+  "yahooTicker": "Add by exact Yahoo Finance listing ticker",
+  "check": "Check listing",
+  "confirm": "Add this fund",
+  "retry": "Retry",
+  "loading": "Loading your funds…",
+  "checking": "Checking the listing and its latest published price…",
+  "failed": "Your funds could not be updated or loaded. Try again.",
+  "unconfigured": "My funds is not configured. Set MY_FUNDS_SIGNING_KEY for first setup, or restore its previous value if saved funds already exist. Nothing was deleted.",
+  "mutual": "Mutual fund",
+  "etf": "Exchange-traded fund",
+  "added": "Fund added to My funds.",
+  "registeredDetails": "This fund is held continuously. The app uses the verified listing’s own history and does not generate timing signals.",
+  "archive": "Archive this fund",
+  "archiving": "Archiving…",
+  "archiveCaption": "Archiving hides the fund from new choices. Existing holdings and portfolios keep using it.",
+  "minimumOrder": "Edit minimum order",
+  "fxUnavailable": "{currency}/ILS exchange rate unavailable.",
+  "registryUnavailable": "Your saved funds could not be loaded. Try again shortly.",
+  "rejectedRows": "Some saved funds cannot be verified. If the signing key was changed, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted.",
+  "registryUnconfigured": "The My funds signing key is not configured. If saved funds already exist, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted."
+}
