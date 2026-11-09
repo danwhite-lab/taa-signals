@@ -766,3 +766,32 @@ it("shows the actual TASE identifier and currency through comparison, sale, buy 
   await screen.findByText(text.recorded);
   expect(mock.request.mock.calls.find(([path])=>path==="/api/rebalance/record")![1].confirmations).toEqual([{id:fund.id,units:"1",paid_ils:"40"}]);
 });
+
+it('labels an awaiting fund dealing-day price without calling it stale in Data & Signals',async()=>{
+  const fund={id:'TASE:5141627',identifier:'5141627',market:'TASE',currency:'ILS',label:'Tachlit gold'};
+  const quote={price:'1.2567',as_of:'2026-11-05',fresh:false,valuation_kind:'fund_nav',
+    expected_through:'2026-11-09',expected_basis:'fund_dealing_day',awaiting_dealing_day:'2026-11-09',dealing_schedule:'Mon-Thu - 16:00'};
+  mock.request.mockResolvedValue({...state,rows:[{...row,Security:fund.id,Fund:fund.label,Currency:'ILS'}],
+    instruments:{[fund.id]:fund},quotes:{[fund.id]:quote},stale:[fund.id],comparison:[]});
+  render(<Page/>);await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole('button',{name:text.steps.action}));
+  fireEvent.click(screen.getByRole('tab',{name:'Data & Signals'}));
+  const panel=screen.getByRole('tabpanel');
+  expect(within(panel).getByText(text.awaitingFundPriceWarning.replace('{date}','2026-11-09').replace('{label}',fund.label).replace('{published}','2026-11-05'))).toBeTruthy();
+  expect(within(panel).queryByText(/^Older price:/)).toBeNull();
+  fireEvent.click(within(panel).getByText('Price sources (1)',{selector:'summary'}));
+  expect(within(panel).getByRole('cell',{name:text.awaitingFundPriceStatus.replace('{date}','2026-11-09')})).toBeTruthy();
+  expect(within(panel).queryByRole('cell',{name:'Stale'})).toBeNull();
+});
+
+it('keeps ordinary stale quote wording in the price-source table and warning',async()=>{
+  mock.request.mockResolvedValue({...state,quotes:{[item.id]:{...state.quotes[item.id],fresh:false}},stale:[item.id]});
+  render(<Page/>);await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole('button',{name:text.steps.action}));
+  fireEvent.click(screen.getByRole('tab',{name:'Data & Signals'}));
+  const panel=screen.getByRole('tabpanel');
+  expect(within(panel).getByText('Older price: '+item.label+' (2026-10-15).')).toBeTruthy();
+  fireEvent.click(within(panel).getByText('Price sources (1)',{selector:'summary'}));
+  expect(within(panel).getByRole('cell',{name:'Stale'})).toBeTruthy();
+  expect(within(panel).queryByText(/^Awaiting/)).toBeNull();
+});

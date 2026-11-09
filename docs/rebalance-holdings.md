@@ -133,11 +133,25 @@ The resulting quote is labelled Published fund redemption valuation, not a live
 or guaranteed execution/purchase price. Raw quote, units and divisor are shown
 in price details. MTF's holdings route takes precedence over its historical-data
 classification; strategy/backtest data routing is unchanged. Five-minute caching,
-completed-session freshness labelling and explicit manual override precedence
-are unchanged. A late allowlisted fund valuation has no age cutoff: it remains
-usable with its actual `ratesAsOf` date and is never relabelled as current.
+exchange-price freshness labelling and explicit manual override precedence
+are unchanged. An older allowlisted fund valuation has no age cutoff: it remains
+usable with its actual `ratesAsOf` date; that observation date is never advanced.
 Clear an existing manual price and its date, then Save holdings, to
 resume automatic pricing. There is no silent migration of existing overrides.
+
+For mutual-fund quotes, freshness uses the fund's own dealing days from MAYA's
+exact `designatedHours` string, intersected with TASE sessions so exchange
+holidays are skipped. The supplied verification dated 9 November 2026 records
+`Mon-Thu - 16:00` for 5139837, 5141627, 5142476 and 5132972, and
+`Fri - 12:30, Mon-Thu - 16:00` for 5117700 and 5131792.
+Cutoffs are interpreted in Asia/Jerusalem. For example, on Monday 9 November
+before 16:00 local time, a Mon–Thu fund's price dated Thursday 5 November is
+current even though TASE traded Friday 6 November. Funds without a parsable
+schedule retain the completed-exchange-session rule. After a dealing cutoff,
+a missing price is not current and is labelled awaiting that dealing day's
+price; publication timing after a dealing day is not established, and no grace
+period or publication deadline is assumed. Its published value and date remain
+visible and usable under the existing fund-NAV rules.
 
 Verification (rechecked 7 November 2026):
 
