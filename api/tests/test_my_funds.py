@@ -265,3 +265,40 @@ def test_registry_faults_keep_legacy_working_and_explain_missing_references(acco
         client.post("/api/backtest", headers=alice, json={"label": "Buy and Hold SPY"}),
     ):
         assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("key", [None, ""], ids=["absent", "empty"])
+def test_unconfigured_registry_explains_saved_fund_and_restores_same_id(accounts, monkeypatch, key):
+    alice, _ = accounts
+    created = register(alice)
+    assert created.status_code == 200, created.text
+    model = created.json()["model"]
+    assert save_portfolio(alice, model).status_code == 200
+
+    with monkeypatch.context() as missing:
+        if key is None:
+            missing.delenv("MY_FUNDS_SIGNING_KEY")
+        else:
+            missing.setenv("MY_FUNDS_SIGNING_KEY", key)
+
+        reads = []
+
+        def unexpected_read(_):
+            reads.append(True)
+            raise AssertionError("Registry storage should not be queried without a key")
+
+        missing.setattr(fund_registry, "_table", unexpected_read)
+        listing = client.get("/api/my-funds", headers=alice)
+        assert listing.status_code == 200
+        assert listing.json() == {"configured": False, "funds": [], "rejected": 0, "status": "ok"}
+
+        response = client.get("/api/signals", headers=alice, params={"label": model})
+        assert response.status_code == 503
+        assert response.json() == {"detail": WORDS["registryUnconfigured"]}
+        assert client.get("/api/signals", headers=alice, params={"label": "Buy and Hold SPY"}).status_code == 200
+        assert reads == []
+
+    restored = client.get("/api/signals", headers=alice, params={"label": model, "as_of": "2026-11-06"})
+    assert restored.status_code == 200
+    assert restored.json()["current"]["decision"]["selected_asset"] == model
+    assert [fund["model"] for fund in client.get("/api/my-funds", headers=alice).json()["funds"]] == [model]

@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import SearchPicker from "../components/SearchPicker";
+import words from "../content/my-funds.json";
+import { registryResponseMessage } from "../lib/my-funds-errors";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("../lib/api", () => ({ authorizedResponse: request }));
@@ -49,4 +51,22 @@ it("shows the rejected-rows alert while valid funds remain selectable", async ()
   expect(warning.textContent).toMatch(/restore the previous MY_FUNDS_SIGNING_KEY.*Nothing was deleted/);
   fireEvent.click(screen.getByRole("button", { name: /Verified TASE fund/ }));
   expect(select).toHaveBeenCalledExactlyOnceWith(fund.model);
+});
+
+it("explains setup or restoration when the picker is unconfigured", async () => {
+  request.mockResolvedValue(Response.json({ configured: false, funds: [], rejected: 0, status: "ok" }));
+  render(<SearchPicker models={[]} value="" onSelect={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose model" }));
+  fireEvent.click(screen.getByRole("button", { name: "TASE" }));
+  expect(await screen.findByText(words.unconfigured)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Check listing" })).toBeNull();
+});
+
+it("accepts only the fixed unconfigured diagnostic on a 503", async () => {
+  const diagnostic = Response.json({ detail: words.registryUnconfigured }, { status: 503 });
+  expect(await registryResponseMessage(diagnostic)).toBe(words.registryUnconfigured);
+  const arbitrary = Response.json({ detail: words.registryUnconfigured + " Provider text." }, { status: 503 });
+  expect(await registryResponseMessage(arbitrary)).toBeUndefined();
+  const wrongStatus = Response.json({ detail: words.registryUnconfigured }, { status: 400 });
+  expect(await registryResponseMessage(wrongStatus)).toBeUndefined();
 });

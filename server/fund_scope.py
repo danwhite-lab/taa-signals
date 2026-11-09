@@ -53,7 +53,9 @@ def require_fund(label):
     status, _ = registry_status.get()
     if (status != "ok" and isinstance(label, str) and label.startswith(PREFIX)
             and registered_fund(label) is None):
-        raise HTTPException(503, WORDS["registryUnavailable" if status == "unavailable" else "rejectedRows"])
+        message = {"unavailable": "registryUnavailable", "unconfigured": "registryUnconfigured",
+                   "rejected_rows": "rejectedRows"}[status]
+        raise HTTPException(503, WORDS[message])
 
 
 def require_portfolio_funds(payload):
@@ -78,15 +80,16 @@ def account_scope(function):
 
     @wraps(function)
     def wrapped(*args, **kwargs):
-        if not signing_key():
-            return function(*args, **kwargs)
-        session = arguments.bind(*args, **kwargs).arguments["session"]
-        try:
-            funds, rejected = read_funds(session)
-            status = ("rejected_rows" if rejected else "ok", rejected)
-        except HTTPException:
-            funds, status = [], ("unavailable", 0)
-        token = owner.set(session["user_id"])
+        session = arguments.bind(*args, **kwargs).arguments["session"] if signing_key() else None
+        if session is None:
+            funds, status = [], ("unconfigured", 0)
+        else:
+            try:
+                funds, rejected = read_funds(session)
+                status = ("rejected_rows" if rejected else "ok", rejected)
+            except HTTPException:
+                funds, status = [], ("unavailable", 0)
+        token = owner.set(session["user_id"] if session is not None else None)
         status_token = registry_status.set(status)
         try:
             with use_funds(funds):

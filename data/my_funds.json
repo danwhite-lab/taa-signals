@@ -22,5 +22,6 @@
   "registryUnavailable": "Your saved funds could not be loaded. Try again shortly.",
   "rejectedRows": "Some saved funds cannot be verified. If the signing key was changed, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted.",
   "duplicateRejected": "This saved fund entry cannot be verified. Restore the previous MY_FUNDS_SIGNING_KEY. The entry was kept.",
-  "mixedReturnCaption": "Sleeve returns are combined by portfolio weight in their own currencies, without FX conversion."
+  "mixedReturnCaption": "Sleeve returns are combined by portfolio weight in their own currencies, without FX conversion.",
+  "registryUnconfigured": "The My funds signing key is not configured. If saved funds already exist, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted."
 }

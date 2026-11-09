@@ -7,7 +7,7 @@
   "loading": "Loading your funds…",
   "checking": "Checking the listing and its latest published price…",
   "failed": "Your funds could not be updated or loaded. Try again.",
-  "unconfigured": "Your fund registry is not available yet.",
+  "unconfigured": "My funds is not configured. Set MY_FUNDS_SIGNING_KEY for first setup, or restore its previous value if saved funds already exist. Nothing was deleted.",
   "mutual": "Mutual fund",
   "etf": "Exchange-traded fund",
   "added": "Fund added to My funds.",
@@ -18,5 +18,6 @@
   "minimumOrder": "Edit minimum order",
   "fxUnavailable": "{currency}/ILS exchange rate unavailable.",
   "registryUnavailable": "Your saved funds could not be loaded. Try again shortly.",
-  "rejectedRows": "Some saved funds cannot be verified. If the signing key was changed, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted."
+  "rejectedRows": "Some saved funds cannot be verified. If the signing key was changed, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted.",
+  "registryUnconfigured": "The My funds signing key is not configured. If saved funds already exist, restore the previous MY_FUNDS_SIGNING_KEY. Nothing was deleted."
 }

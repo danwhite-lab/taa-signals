@@ -1,7 +1,8 @@
 import words from "../content/my-funds.json";
 
 export function registryMessage(value: unknown): string | undefined {
-  return value === words.registryUnavailable || value === words.rejectedRows ? value : undefined;
+  return value === words.registryUnavailable || value === words.rejectedRows || value === words.registryUnconfigured
+    ? value : undefined;
 }
 
 export async function registryResponseMessage(response: Response) {
