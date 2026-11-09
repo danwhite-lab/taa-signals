@@ -87,7 +87,7 @@ export default function ComparePage() {
     {error && <p role="alert">{error}</p>}
     {error && <button className="btn btn-secondary" disabled={running} onClick={()=>void loadChoices(models ? "models" : "portfolios")}>{text.retry}</button>}
     <>
-      <fieldset disabled={running}>
+      <fieldset className={pickerStyles.plainGroup} disabled={running}>
       <div className="segmented" role="radiogroup" aria-label={text.mode}>{Object.entries(text.modes).map(([key,label])=><label className="segment" key={key}><input type="radio" name="compare-mode" checked={settings.mode===key} value={key} onChange={()=>{ setModelPickerOpen(false); setPortfolioPickerOpen(false); change({mode:key as Mode}); }}/>{label}</label>)}</div>
       {models ? <div>
         <p className="compare-selection-count">{text.selectedCount.replace("{count}", String(settings.models.length))}</p>
@@ -95,12 +95,12 @@ export default function ComparePage() {
         <details ref={modelPicker} onToggle={event => { const open = event.currentTarget.open; setModelPickerOpen(open); if (open) void loadChoices("models"); }}
           onKeyDown={event => { if (event.key === "Escape" && modelPickerOpen) { event.preventDefault(); closeModelPicker(); } }}>
           <summary className="btn btn-secondary">{text.models}</summary>
-          {modelPickerOpen && <fieldset aria-label={text.models}><legend>{text.models}</legend>
+          {modelPickerOpen && <div className={pickerStyles.panel} role="group" aria-label={text.models}>
             {loadingChoices ? <p role="status">{text.loading}</p> : <ModelResults models={options.models}
               selected={settings.models} multi autoFocus onSelect={label => change({ models: settings.models.includes(label)
                 ? settings.models.filter(value => value !== label) : [...settings.models, label] })} />}
-            <button type="button" className="btn btn-secondary" onClick={closeModelPicker}>{pickerWords.cancel}</button>
-          </fieldset>}
+            <button type="button" className="btn btn-secondary" onClick={closeModelPicker}>{pickerWords.done}</button>
+          </div>}
         </details>
       </div> :
         <div>
@@ -108,7 +108,7 @@ export default function ComparePage() {
           {settings.portfolio_ids.length > 0 && <ul className={pickerStyles.selectionList}>{settings.portfolio_ids.map(id => <li key={id}>
             {options.portfolios.find(portfolio => portfolio.id === id)?.name ?? id}
           </li>)}</ul>}
-          <details onToggle={event => { const open = event.currentTarget.open; setPortfolioPickerOpen(open); if (open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><fieldset aria-label={text.saved}><legend>{text.saved}</legend>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</fieldset></details></div>}
+          <details onToggle={event => { const open = event.currentTarget.open; setPortfolioPickerOpen(open); if (open) void loadChoices("portfolios"); }}><summary>{text.saved}</summary><div className={pickerStyles.panel} role="group" aria-label={text.saved}>{loadingChoices && <p role="status">{text.loading}</p>}{options.portfolios.map(p=><label key={p.id}><input type="checkbox" value={p.id} checked={settings.portfolio_ids.includes(p.id)} onChange={e=>change({portfolio_ids:e.target.checked?[...settings.portfolio_ids,p.id]:settings.portfolio_ids.filter(id=>id!==p.id)})}/>{p.name}</label>)}</div></details></div>}
       </fieldset>
       <UsdToggle checked={!!settings.usd_equivalents} disabled={running} onChange={usd_equivalents=>change({usd_equivalents})}/><UsdBanner value={availability.value ?? undefined}/>{availability.error && <p role="alert">{availability.error}</p>}
       {!enough ? <p className="signal-info">{models ? text.modelsGate : text.portfoliosGate}</p> : <>
@@ -124,7 +124,7 @@ export default function ComparePage() {
           enabled={settings.tax_enabled} rate={settings.tax_rate} step={.1} label={text.tax} rateLabel={text.rate} onEnabled={tax_enabled=>change({tax_enabled})} onRate={tax_rate=>change({tax_rate})}/></CostsAndTax>
         <p>{text.dateHelp}</p>{models && mismatch && !settings.usd_equivalents && <p className="signal-warning">{text.hint}</p>}
       </fieldset><button className="btn btn-primary" disabled={running || availability.loading || !!availability.error || (!!settings.usd_equivalents && picking)} onClick={()=>void run()}>{running ? text.running : text.run}</button>
-      {running && <p role="status">{text.progress}</p>}{!running && !result && <p>{text.before}</p>}{changed && <p>{text.changed}</p>}
+      {running && <p role="status">{text.progress}</p>}{changed && <p>{text.changed}</p>}
       </>}
     </>
     {result?.gate === "selection" && <p className="signal-info">{result.reason}</p>}

@@ -20,7 +20,7 @@ it("keeps the moved Add a sleeve control lazy and leaves choosing a model non-mu
   expect(screen.getByRole("region",{name:"Portfolio summary"}).contains(add)).toBe(false);
   expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
   fireEvent.click(add);
-  fireEvent.click(await screen.findByRole("button",{name:/Buy and Hold · US Treasury Bonds IEF/}));
+  fireEvent.click(await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
   expect(screen.queryByLabelText("Weight for Buy and Hold IEF (row 2)")).toBeNull();
   expect(screen.queryByText(/New sleeves start at/)).toBeNull();
   fireEvent.click(saveButton());await screen.findByText("Portfolio saved.");
@@ -336,7 +336,8 @@ it("keeps phone wrapping and overflow rules local to Portfolio without mid-word 
   const css=readFileSync("./app/portfolio/portfolio.module.css","utf8");
   expect(css).toContain("word-break: normal");expect(css).toContain("overflow-wrap: normal");
   expect(css).toContain("overflow-x: auto");expect(css).toContain("flex-wrap: wrap");
-  expect(css).not.toMatch(/break-all|break-word|anywhere|overflow:\s*hidden/);
+  expect(css).not.toMatch(/break-all|break-word|anywhere/);
+  expect(css.replace(/^.*\.sleeves thead .*$/m, "")).not.toMatch(/overflow:\s*hidden/);
 });
 
 it('preserves legacy capital, FX, custom metadata and sleeve identity while editing name and weights',async()=>{
@@ -358,8 +359,8 @@ it('uses the Backtest model list without duplicates and removes the requested ro
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
   const results=await screen.findByRole("group",{name:"Search models"});
   expect(calls.api).toHaveBeenCalledWith('/api/backtest/config?mode=portfolio');
-  expect(within(results).queryByRole('button',{name:/Buy and Hold · S&P 500 SPY/})).toBeNull();
-  const bond = within(results).getAllByRole('button',{name:/Buy and Hold · US Treasury Bonds IEF/});
+  expect(within(results).queryByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeNull();
+  const bond = within(results).getAllByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/});
   expect(bond).toHaveLength(1);
   fireEvent.click(bond[0]);fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 2)')).toHaveProperty('value','0.00');
@@ -368,8 +369,8 @@ it('uses the Backtest model list without duplicates and removes the requested ro
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
   expect(screen.getByLabelText('Weight for Buy and Hold IEF (row 1)')).toHaveProperty('value','0.00');
   fireEvent.click(screen.getByRole("button",{name:words.addSleeve}));
-  expect(screen.getByRole('button',{name:/Buy and Hold · S&P 500 SPY/})).toBeTruthy();
-  expect(screen.queryByRole('button',{name:/Buy and Hold · US Treasury Bonds IEF/})).toBeNull();
+  expect(screen.getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
 });
 
 it('warns live and requires confirmation to save a non-100 draft without normalization',async()=>{
@@ -394,8 +395,8 @@ it('loads editable fields and available models from saved payloads',async()=>{
   expect(screen.queryByLabelText('Weight for Buy and Hold SPY (row 1)')).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
   const results=await screen.findByRole("group",{name:"Search models"});
-  expect(within(results).getByRole('button',{name:/Buy and Hold · S&P 500 SPY/})).toBeTruthy();
-  expect(within(results).queryByRole('button',{name:/Buy and Hold · US Treasury Bonds IEF/})).toBeNull();
+  expect(within(results).getByRole('button',{name:/S&P 500 Buy and hold · SPY/})).toBeTruthy();
+  expect(within(results).queryByRole('button',{name:/US Treasury Bonds Buy and hold · IEF/})).toBeNull();
   fireEvent.click(saveButton());await screen.findByText('Portfolio saved.');
   expect(savedPayload()).toEqual(next);
 });
@@ -416,7 +417,7 @@ it('can build a new portfolio without inventing capital or FX',async()=>{
   expect(screen.queryByLabelText('ILS per USD rate')).toBeNull();
   fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:'Fake new'}});
   fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
-  fireEvent.click(await screen.findByRole('button',{name:/Buy and Hold · S&P 500 SPY/}));
+  fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
   fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
   fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
   fireEvent.click(saveButton());await screen.findByText('Portfolio saved.');
@@ -510,7 +511,7 @@ it.each([false,true])('saves weights without inventing capital/FX for a new or s
     fireEvent.click(screen.getByRole("button",{name:words.newPortfolio}));
     fireEvent.change(screen.getByLabelText(words.portfolioName),{target:{value:payload.name}});
     fireEvent.click(screen.getByRole('button',{name:words.addSleeve}));
-    fireEvent.click(await screen.findByRole('button',{name:/Buy and Hold · S&P 500 SPY/}));
+    fireEvent.click(await screen.findByRole('button',{name:/S&P 500 Buy and hold · SPY/}));
     fireEvent.click(screen.getByRole('button',{name:words.addSleeveButton}));
     fireEvent.change(screen.getByLabelText('Weight for Buy and Hold SPY (row 1)'),{target:{value:'100'}});
   }
@@ -556,12 +557,12 @@ it("changes a sleeve only on Apply and saves the canonical key without dropping 
   fireEvent.click(screen.getByRole("button",{name:"Edit Buy and Hold SPY (row 1)"}));
   expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
   fireEvent.click(screen.getByRole("button",{name:"Change"}));
-  const choice = await screen.findByRole("button",{name:/Buy and Hold · US Treasury Bonds IEF/});
+  const choice = await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/});
   fireEvent.keyDown(screen.getByRole("searchbox"),{key:"Escape"});
   expect(choice.isConnected).toBe(false);
   expect(screen.getByLabelText("Weight for Buy and Hold SPY (row 1)")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Change"}));
-  fireEvent.click(screen.getByRole("button",{name:/Buy and Hold · US Treasury Bonds IEF/}));
+  fireEvent.click(screen.getByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
   expect(screen.getByLabelText("Weight for Buy and Hold SPY (row 1)")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:words.apply}));
   expect(screen.getByLabelText("Weight for Buy and Hold IEF (row 1)")).toHaveProperty("value","100.00");

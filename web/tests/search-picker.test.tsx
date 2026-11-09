@@ -78,3 +78,22 @@ it("paginates long lists and keeps a selected model visible when it is filtered 
   expect(screen.getByText("Model 12")).toBeTruthy();
   expect(select).not.toHaveBeenCalled();
 });
+
+it("shows the exposure before the buy-and-hold rule and preserves the canonical choice", async () => {
+  const select = vi.fn();
+  const labels = ["Buy and Hold QQQ", "Buy and Hold World Value Israel"];
+  render(<SearchPicker models={labels.map(label => ({ label }))} value={labels[0]} onSelect={select} />);
+  expect(screen.getByText("QQQ")).toBeTruthy();
+  expect(screen.getByText("Buy and hold · QQQ")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Change" }));
+  const search = screen.getByRole("searchbox");
+  fireEvent.change(search, { target: { value: "world value" } });
+  const row = screen.getByRole("button", { name: "World Value Buy and hold · Israel · USD hedged" });
+  const details = row.parentElement!.querySelector("details")!;
+  fireEvent.click(details.querySelector("summary")!);
+  expect(details.open).toBe(true);
+  expect(select).not.toHaveBeenCalled();
+  expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+  fireEvent.click(row);
+  expect(select).toHaveBeenCalledExactlyOnceWith(labels[1]);
+});

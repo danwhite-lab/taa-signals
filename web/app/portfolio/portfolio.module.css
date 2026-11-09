@@ -39,17 +39,29 @@
 .sleeves td:nth-child(2) input { width: 7rem; box-sizing: border-box; }
 .sleeves button { min-width: 2.5rem; }
 .rowActions { display: flex; gap: 6px; justify-content: flex-end; }
-.editor fieldset { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; border: 0; padding: 0; }
+.sleeves .editor > td[colspan] { min-width: 0; white-space: normal; text-align: start; font-variant-numeric: normal; }
+.editor fieldset { min-inline-size: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: end; border: 0; padding: 0; }
 .editor fieldset > div:first-of-type { flex: 1 1 100%; min-width: 0; }
 .warning { border-left: 3px solid var(--warning); background: var(--warning-soft); padding: 12px; line-height: 1.6; }
 @media (max-width: 600px) {
   .portfolioPicker { flex-basis: 100%; }
   .settings > label { flex: 1 1 100%; width: 100%; }
-  .sleeves { table-layout: fixed; }
-  .sleeves th:first-child, .sleeves td:first-child { min-width: 0; }
-  .sleeves th, .sleeves td { padding: 10px 3px; }
-  .sleeves td:nth-child(2), .sleeves th:nth-child(2) { min-width: 0; width: 5.5rem; }
-  .sleeves th:last-child, .sleeves td:last-child { width: 4rem; }
-  .sleeves td:nth-child(2) input { width: 100%; padding: 6px; }
+  .sleeves, .sleeves tbody, .sleeves tfoot { display: block; }
+  .sleeves thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .sleeves .sleeveRow {
+    display: grid;
+    grid-template-columns: minmax(0, 6rem) minmax(0, 1fr);
+    align-items: center;
+    gap: .45rem;
+    padding-block: .6rem;
+    border-bottom: 1px solid var(--divider);
+  }
+  .sleeveRow > td:first-child { grid-column: 1 / -1; }
+  .sleeves .sleeveRow > td, .sleeves .editor > td[colspan] { min-width: 0; padding: 0; border: 0; }
+  .sleeves .weightCell input { width: 100%; margin: 0; padding: 6px; }
+  .sleeves .editor { display: block; padding-block: .65rem; border-bottom: 1px solid var(--divider); }
+  .sleeves .editor > td[colspan] { display: block; width: 100%; }
+  .sleeves tfoot tr { display: flex; gap: .65rem; }
+  .sleeves tfoot th:first-child { min-width: 0; }
   .rowActions { flex-wrap: wrap; }
 }

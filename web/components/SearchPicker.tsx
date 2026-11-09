@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import words from "../content/pickers.json";
-import { isKnownModel, loadPickerMetadata, matchingChoices, modelChoice, type Choice, type Metadata, type ModelOption } from "../lib/picker-display";
+import { fundChoice, type FundIdentity, isKnownModel, loadPickerMetadata, matchingChoices, modelChoice, type Choice, type Metadata, type ModelOption } from "../lib/picker-display";
 import styles from "./search-picker.module.css";
 
 const pageSize = 10;
@@ -31,12 +31,22 @@ export function ChoiceLabel({ choice }: { choice: Choice }) {
   return <span className={styles.name}>{choice.name}{choice.secondary && <>{" "}<small>{choice.secondary}</small></>}</span>;
 }
 
+export function ActualFundLabel({ fund }: { fund: FundIdentity }) {
+  return <ChoiceLabel choice={fundChoice(fund)} />;
+}
+
+export function ChoiceDetails({ children }: { children: ReactNode }) {
+  return <details className={styles.details}><summary>{words.details}</summary>
+    <div className={styles.detailBody}>{children}</div>
+  </details>;
+}
+
 type ResultsProps = {
   choices: Choice[]; selected: string[]; onSelect: (key: string) => void; searchLabel: string;
-  multi?: boolean; browse?: boolean; modelFilters?: boolean; autoFocus?: boolean; busy?: boolean; details?: (key: string) => ReactNode;
+  multi?: boolean; browse?: boolean; modelFilters?: boolean; autoFocus?: boolean; busy?: boolean; filtersContent?: ReactNode; details?: (key: string) => ReactNode;
 };
 
-export function SearchResults({ choices, selected, onSelect, searchLabel, multi, browse, modelFilters, autoFocus, busy, details }: ResultsProps) {
+export function SearchResults({ choices, selected, onSelect, searchLabel, multi, browse, modelFilters, autoFocus, busy, filtersContent, details }: ResultsProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -72,20 +82,24 @@ export function SearchResults({ choices, selected, onSelect, searchLabel, multi,
         className="btn btn-secondary" aria-pressed={filter === option.key}
         onClick={() => { setFilter(option.key); setPage(0); }}>{option.label}</button>)}
     </div>}
-    <p role="status">{words.count.replace("{count}", String(matched.length))}</p>
+    {filtersContent}
+    <p className={styles.count} role="status">{matched.length === 1 ? words.oneMatch : words.count.replace("{count}", String(matched.length))}</p>
     {!busy && matched.length === 0 && <p>{words.noMatches}</p>}
     <div ref={results} role="group" aria-label={searchLabel}>
       {visible.map((choice, index) => {
         const checked = selected.includes(choice.key);
+        const usesFamilyHeading = choice.family === choice.name && !!choice.secondary;
+        const rowChoice = usesFamilyHeading ? { ...choice, name: choice.secondary!, secondary: undefined } : choice;
+        const accessibleName = usesFamilyHeading ? `${choice.name} ${choice.secondary}` : undefined;
         return <div key={choice.key}>
           {choice.family && choice.family !== visible[index - 1]?.family && <h3 className={styles.family}>{choice.family}</h3>}
           <div className={styles.result}>
             {multi ? <label className={styles.check}>
-              <input data-picker-option type="checkbox" value={choice.key} checked={checked} onChange={() => onSelect(choice.key)}
+              <input aria-label={accessibleName} data-picker-option type="checkbox" value={choice.key} checked={checked} onChange={() => onSelect(choice.key)}
                 onKeyDown={event => move(event, index)} />
-              <ChoiceLabel choice={choice} />
-            </label> : <button type="button" data-picker-option className="btn btn-secondary" aria-pressed={browse ? checked : undefined}
-              onClick={() => onSelect(choice.key)} onKeyDown={event => move(event, index)}><ChoiceLabel choice={choice} /></button>}
+              <ChoiceLabel choice={rowChoice} />
+            </label> : <button type="button" data-picker-option className={styles.option} aria-label={accessibleName} aria-pressed={browse ? checked : undefined}
+              onClick={() => onSelect(choice.key)} onKeyDown={event => move(event, index)}><ChoiceLabel choice={rowChoice} /></button>}
             {details?.(choice.key)}
           </div>
         </div>;
@@ -116,12 +130,11 @@ export function FundFacts({ fund, quoteCurrency }: { fund?: Metadata["funds"][st
 
 export function ModelFacts({ label, metadata }: { label: string; metadata?: Metadata }) {
   const entry = metadata?.models[label];
-  return <details className={styles.details}><summary>{words.details}</summary>
+  return <ChoiceDetails>
     <dl className={styles.facts}>
       <dt>{words.held}</dt><dd>{entry?.held?.length ? <ul>{entry.held.map(id => {
         const fund = metadata?.funds[id];
-        return <li key={id}>{fund?.name ?? id} <small>{[fund?.identifier, fund?.market, fund?.currency].filter(Boolean).join(" · ")}</small>
-          <details><summary>{words.details}</summary><FundFacts fund={fund} /></details></li>;
+        return <li key={id}>{fund ? <ActualFundLabel fund={{ ...fund, label: fund.name }} /> : id}</li>;
       })}</ul> : entry?.held ? words.notApplicable : words.notSpecified}</dd>
       <dt>{words.signal}</dt><dd>{entry?.signal?.length ? <ul>{entry.signal.map(series => <li key={series.identifier}>{seriesText(series)}</li>)}</ul>
         : entry?.signal ? words.notApplicable : words.notSpecified}</dd>
@@ -130,7 +143,7 @@ export function ModelFacts({ label, metadata }: { label: string; metadata?: Meta
       {entry?.source && <><dt>{words.source}</dt><dd>{entry.source}</dd></>}
     </dl>
     {entry?.notes && <p>{entry.notes}</p>}
-  </details>;
+  </ChoiceDetails>;
 }
 
 export function ModelResults({ models, selected, onSelect, multi, browse, autoFocus }: {
@@ -168,13 +181,13 @@ export default function SearchPicker({ value, onSelect, disabled, onOpen, loadin
         {value ? words.change : caption ?? words.chooseModel}
       </button>
     </div>
-    {open && <>
+    {open && <div className={styles.panel}>
       {error ? <p role="alert">{error} {retry && <button type="button" className="btn btn-secondary" onClick={retry}>{retryLabel ?? words.retry}</button>}</p>
         : loading ? <p role="status">{words.loading}</p>
         : models ? <ModelResults models={models} selected={[value]} onSelect={choose} autoFocus />
         : <SearchResults choices={choices ?? []} selected={[value]} onSelect={choose} autoFocus searchLabel={words.searchProxies}
-          details={key => <details className={styles.details}><summary>{words.details}</summary><p>{choices?.find(choice => choice.key === key)?.aliases?.[0]}</p></details>} />}
+          details={key => <ChoiceDetails><p>{choices?.find(choice => choice.key === key)?.aliases?.[0]}</p></ChoiceDetails>} />}
       <button className="btn btn-secondary" type="button" onClick={close}>{words.cancel}</button>
-    </>}
+    </div>}
   </div>;
 }

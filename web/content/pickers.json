@@ -1,6 +1,8 @@
 {
   "chooseModel": "Choose model",
   "change": "Change",
+  "done": "Done",
+  "buyAndHold": "Buy and hold",
   "cancel": "Cancel",
   "retry": "Retry",
   "loading": "Loading choices…",
@@ -24,6 +26,7 @@
   "cashRetreat": "Cash retreat",
   "unavailable": "Unavailable",
   "noMatches": "No matching choices.",
+  "oneMatch": "1 match",
   "count": "{count} matches",
   "page": "{page} of {pages}",
   "previous": "Previous",

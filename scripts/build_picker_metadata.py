@@ -15,11 +15,11 @@ from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.data import default_ticker_map
 from haa.model_catalog import MODEL_CATALOG
 from haa.portfolio import EXECUTION_SECURITY_LABELS, EXECUTION_REPLACEMENTS
-from haa.rebalance_holdings import execution_security, security
+from haa.rebalance_holdings import security
 from haa.strategies import buy_and_hold as bh
 from haa.strategies.inflation_compass_steady import InflationCompassBase
 from haa.strategies.growth_inflation import GrowthInflationBase
-from haa.tase_data import TASE_ISRAEL_ASSET_IDS, TASE_ETF_ASSETS
+from haa.tase_data import TASE_EXECUTION_ASSET_IDS, TASE_ISRAEL_ASSET_IDS, TASE_ETF_ASSETS
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTENT = ROOT / "web/content"
@@ -55,7 +55,7 @@ def inputs(model):
             holdings = tuple(cls.execution_proxies[asset] for asset in holdings)
         return holdings, signal or c.VAA_G4_DATA_ASSETS
     if family in {"GEM", "GGCEM"}:
-        holdings = tuple(cls.execution_proxies.values()) if model.implementation == "Israel" else signal
+        holdings = tuple(cls.execution_proxies.values()) if model.implementation == "Israel" else ("SPY", "VEU", "AGG") if family == "GEM" else c.GGCEM_MARKET_ASSETS
         return holdings, (*signal, c.OECD_CLI_DIFFUSION_ASSET) if family == "GGCEM" else signal
     if issubclass(cls, InflationCompassBase):
         holdings = tuple(c.INFLATION_COMPASS_ISRAEL_EXECUTION_MAP.values()) if model.implementation == "Israel" else ("XLE", "XLK", "XLU", "XLP", "IEF")
@@ -96,14 +96,26 @@ def metadata():
             aliases[key].add(asset)
         return key
 
-    for currency, asset in EXECUTION_SECURITY_LABELS:
-        register(execution_security(asset, currency), asset)
+    # The proxy roles in local_execution are the declared local portfolio routes
+    # from src/haa/portfolio.py. Some differ from the substitution-lab defaults.
+    local_ids = {**overrides["local_execution"], **TASE_EXECUTION_ASSET_IDS}
+    for asset, number in local_ids.items():
+        label = EXECUTION_SECURITY_LABELS.get(("ILS", asset))
+        register(security(number, "TASE", label=label), asset)
+    for record in overrides["notebook_securities"]:
+        register(security(**record), record["identifier"])
     excluded = {*c.FRED_ASSETS, c.OECD_CLI_DIFFUSION_ASSET, *TASE_ISRAEL_ASSET_IDS,
                 *(fund.holding_asset for fund in BUY_AND_HOLD_FUNDS.values() if fund.price_only)}
-    for model in MODEL_CATALOG:
-        for asset in getattr(model.model_class, "data_assets", c.ASSETS):
-            if asset not in excluded:
-                register(security(asset, "US"), asset)
+    us_assets = {asset for model in MODEL_CATALOG for asset in getattr(model.model_class, "data_assets", c.ASSETS)
+                 if asset not in excluded}
+    for asset in sorted(us_assets):
+        register(security(asset, "US"), asset)
+
+    def holding_id(asset, local):
+        if local:
+            number = local_ids.get(asset)
+            return f"TASE:{number}" if number else None
+        return f"US:{asset}" if asset in us_assets else None
 
     def series(asset):
         if asset in overrides["series"]:
@@ -119,18 +131,19 @@ def metadata():
     for model in MODEL_CATALOG:
         cls = model.model_class
         holdings, signal = inputs(model)
-        ids = None if holdings is None else list(dict.fromkeys(
-            register(execution_security(asset, model.execution_currency), asset) for asset in holdings))
+        israel = (model.implementation == "Israel" or model.implementation.startswith("US signals / TASE")
+                  or cls in {bh.BuyAndHoldGoldIsrael, bh.BuyAndHoldHarelBondsIsrael, bh.TA125SmartMomentum})
+        ids = None if holdings is None else list(dict.fromkeys(holding_id(asset, israel) for asset in holdings))
+        if ids is not None and None in ids:
+            ids = None  # The complete execution set could not be verified.
         flags = overrides["versions"].get(model.label, [])
         if model.signal_mode == "daily":
             flags = [*flags, "daily"]
         name = model.strategy
         version = [model.variant, model.implementation]
         if name == "Buy and Hold":
-            name = f"{name} · {model.variant}"
-            version = [words["israel"] if cls is bh.BuyAndHoldGoldIsrael else model.implementation]
-        israel = (model.implementation == "Israel" or model.implementation.startswith("US signals / TASE")
-                  or cls in {bh.BuyAndHoldGoldIsrael, bh.BuyAndHoldHarelBondsIsrael, bh.TA125SmartMomentum})
+            name = model.variant
+            version = [words["buyAndHold"], words["israel"] if cls is bh.BuyAndHoldGoldIsrael else model.implementation]
         model_labels[model.label] = {
             "name": name, "family": model.strategy,
             "version": list(dict.fromkeys(filter(None, [*version, *(words[flag] for flag in flags)]))),
@@ -158,7 +171,7 @@ def metadata():
         local_names = sorted(re.sub(r"\s+[-–—]\s+\d{7}$", "", name) for name in local if name)
         default_name = local_names[0] if local_names else identifier
         provider_ids = default_ticker_map(aliases[key])
-        entry = {**item, "name": default_name, "full_name": local_names[0] if local_names else None,
+        entry = {**item, "name": default_name, "full_name": None,
                  "ticker": identifier if item["market"] == "US" else None,
                  "security_number": identifier if item["market"] == "TASE" else None,
                  "aliases": sorted(aliases[key]),

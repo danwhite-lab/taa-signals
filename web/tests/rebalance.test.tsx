@@ -739,3 +739,30 @@ it('keeps step navigation horizontal and content full-width without changing the
   expect(steps).not.toMatch(/sticky|top:/);
   expect(css).toContain('.rebalance-steps button { flex: 1; text-align: center; padding: .65rem .3rem; }');
 });
+
+it("shows the actual TASE identifier and currency through comparison, sale, buy and record", async () => {
+  const fund = { id: "TASE:1189596", identifier: "1189596", market: "TASE", currency: "ILS", label: "World Value Israel — 1189596" };
+  const localState = {...state, instruments: {...state.instruments,[fund.id]:fund},
+    comparison: [{...state.comparison[0], id:fund.id, Fund:fund.label}],
+    sell_review: [{id:fund.id,action:"sell",before_units:"2",after_units:"0"}]};
+  const localPlan = {...plan, orders:[{...plan.orders[0],id:fund.id}]};
+  mock.request.mockImplementation(async (path:string) => path === "/api/rebalance/plan" ? {state:localState,plan:localPlan}
+    : path === "/api/rebalance/record" ? {account:candidate} : localState);
+  mock.save.mockResolvedValue({saved:{revision:2,payload:{holdings_account:candidate}},uncertain:false});
+  render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  for (const tab of [text.actionTabs.balance,text.actionTabs.sell]) {
+    fireEvent.click(screen.getByRole("tab",{name:tab}));
+    expect(within(screen.getByRole("tabpanel")).getByText("1189596 · TASE · ILS")).toBeTruthy();
+  }
+  fireEvent.click(screen.getByRole("button",{name:text.generate}));
+  const record = await screen.findByText(text.record);
+  expect(within(screen.getByRole("tabpanel")).getByText("1189596 · TASE · ILS")).toBeTruthy();
+  fireEvent.click(record);
+  expect(screen.getAllByText("1189596 · TASE · ILS", {selector:".record-order small"})).toHaveLength(1);
+  fireEvent.change(screen.getByLabelText(text.bought),{target:{value:"1"}});
+  fireEvent.change(screen.getByLabelText(text.paid),{target:{value:"40"}});
+  fireEvent.click(screen.getByLabelText(text.acknowledge)); fireEvent.click(screen.getByText(text.done));
+  await screen.findByText(text.recorded);
+  expect(mock.request.mock.calls.find(([path])=>path==="/api/rebalance/record")![1].confirmations).toEqual([{id:fund.id,units:"1",paid_ils:"40"}]);
+});

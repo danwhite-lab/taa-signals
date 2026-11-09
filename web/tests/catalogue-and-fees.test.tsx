@@ -37,7 +37,7 @@ it("filters explicit implementations and fetches rules only for the chosen model
   open(); const list=await screen.findByRole("group",{name:"Search models"});
   expect(fetch).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button",{name:"Israel"}));
-  expect(within(list).getAllByRole("button").map(row=>row.textContent)).toEqual(["Alpha Israel"]);
+  expect(within(list).getAllByRole("button").map(row=>row.textContent)).toEqual(["Israel"]);
   expect(fetch).toHaveBeenCalledTimes(1);
   fireEvent.click(within(list).getByRole("button",{name:"Alpha Israel"}));
   await screen.findByText("Plain Alpha");

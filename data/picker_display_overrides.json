@@ -17,10 +17,20 @@
     "TASE:5139837": {"name": "Harel Russell 2000 (unhedged)", "tracks": "Russell 2000", "source": "data/buy_and_hold_funds.json"},
     "TASE:1189596": {"name": "Tachlit World Value (USD hedged)", "full_name": "Tachlit World Value ETF", "source": "data/buy_and_hold_funds.json"},
     "TASE:1150507": {"name": "MTF S&P Utilities (ILS hedged)", "source": "src/haa/model_catalog.py and src/haa/portfolio.py"},
+    "TASE:5131834": {"name": "IBI DJ US Real Estate", "source": "src/haa/portfolio.py"},
     "TASE:1159102": {"name": "1159102", "source": "src/haa/portfolio.py"},
     "TASE:1159169": {"name": "1159169", "source": "src/haa/portfolio.py"},
     "TASE:5139076": {"name": "5139076", "source": "src/haa/portfolio.py"}
   },
+  "local_execution": {
+    "QQQ": "1186063", "VWO": "1159169", "VEA": "5142476", "VXUS": "5142476", "ACWX": "5142476",
+    "BND": "1159102", "BNDW": "1159102", "TIP": "1159060", "DBC": "1147875", "GLDM": "1147875",
+    "BIL": "5136866", "TLT": "1159268", "LQD": "1159185", "IEF": "1159268", "SPY": "1159250",
+    "VNQ": "5131834", "XLK": "1159193", "XLU": "1150507", "XLE": "1145903", "XLP": "1150366"
+  },
+  "notebook_securities": [
+    {"identifier": "5139076", "market": "TASE", "currency": "USD", "label": "BIL USD - 5139076"}
+  ],
   "series": {
     "T5YIE": {"name": "5-Year Breakeven Inflation Rate", "type": "Rate", "source": "FRED", "currency": null},
     "OECD_CLI_DIFFUSION": {"name": "OECD CLI diffusion", "type": "Macro indicator", "source": "OECD", "currency": null},

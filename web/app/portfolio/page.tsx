@@ -65,17 +65,17 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
   return <div className={styles.summary} role="region" aria-label="Portfolio summary">
     <h2>{name.trim() || "Name not entered"}</h2>
     {!payload && <p role="alert">{words.summaryUnavailable}</p>}
-    {sleeves ? <div className={styles.tableScroll}><table className={styles.sleeves} aria-label="Portfolio sleeves">
-      <thead><tr><th scope="col">Sleeve name</th><th scope="col">Weight</th><th scope="col">Actions</th></tr></thead>
-      <tbody>{sleeves.map((row, index) => <><tr key={index}><td><ChoiceLabel choice={(models ? models.includes(row.name) : isKnownModel(row.name))
-        ? modelChoice({ label: row.name }) : { key: row.name, name: row.name, secondary: pickerWords.unavailable }} /></td><td>
+    {sleeves ? <div className={styles.tableScroll}><table role="table" className={styles.sleeves} aria-label="Portfolio sleeves">
+      <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Sleeve name</th><th role="columnheader" scope="col">Weight</th><th role="columnheader" scope="col">Actions</th></tr></thead>
+      <tbody role="rowgroup">{sleeves.map((row, index) => <><tr role="row" className={styles.sleeveRow} key={index}><td role="cell"><ChoiceLabel choice={(models ? models.includes(row.name) : isKnownModel(row.name))
+        ? modelChoice({ label: row.name }) : { key: row.name, name: row.name, secondary: pickerWords.unavailable }} /></td><td role="cell" className={styles.weightCell}>
         <NumberField label={`Weight for ${row.name} (row ${index + 1})`} value={row.weight} decimals={2} disabled={disabled}
           onChange={value => editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), weight: value } : original))} />
-      </td><td><div className={styles.rowActions}><button className="btn btn-secondary" type="button" aria-label={`${words.edit} ${row.name} (row ${index + 1})`} disabled={disabled}
+      </td><td role="cell"><div className={styles.rowActions}><button className="btn btn-secondary" type="button" aria-label={`${words.edit} ${row.name} (row ${index + 1})`} disabled={disabled}
         onClick={() => { setEditing(index); setEditModel(row.name); setEditWeight(row.weight); }}>{words.edit}</button><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
-        onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr className={styles.editor}><td colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend><SearchPicker value={editModel} models={editOptions.map(label => ({ label }))} disabled={disabled}
+        onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr role="row" className={styles.editor}><td role="cell" colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend><SearchPicker value={editModel} models={editOptions.map(label => ({ label }))} disabled={disabled}
         onOpen={openModels} loading={models === null} error={modelsError} retry={reloadModels} retryLabel={words.retry} onSelect={setEditModel} /><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></fieldset></td></tr>}</>)}</tbody>
-      <tfoot><tr><th scope="row">Total</th><td>{weight(total)}</td><td /></tr></tfoot>
+      <tfoot role="rowgroup"><tr role="row"><th role="rowheader" scope="row">Total</th><td role="cell">{weight(total)}</td><td role="cell" /></tr></tfoot>
     </table></div> : <p>{words.sleevesUnavailable}</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
 

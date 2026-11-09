@@ -77,7 +77,7 @@ it.each(['models','portfolios'] as const)('Compare %s forwards USD mode and rend
  if(mode==='portfolios')fireEvent.click(screen.getByRole('radio',{name:compareWords.modes.portfolios}));
  const summary=screen.getByText(mode==='models'?compareWords.models:compareWords.saved,{selector:'summary'});
  fireEvent.click(summary);
- const names=mode==='models'?['HAA Simple · Israel','Buy and Hold · Gold Israel · Hedged execution · Unhedged history']:['Alpha','Beta'];
+ const names=mode==='models'?['HAA Simple · Israel','Gold Buy and hold · Israel · Hedged execution · Unhedged history']:['Alpha','Beta'];
  for(const name of names)fireEvent.click(await screen.findByRole('checkbox',{name}));
  fireEvent.click(summary);
  fireEvent.click(screen.getByRole('switch',{name:words.toggle}));

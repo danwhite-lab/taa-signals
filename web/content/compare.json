@@ -8,7 +8,7 @@
   },
   "models": "Models",
   "saved": "Load saved portfolios",
-  "modelsCaption": "Each selected model is independently backtested, then restarted over the exact shared completed holding periods. Comparison settings below are independent of the Backtest page. This is informational only and does not recommend one model.",
+  "modelsCaption": "Each model restarts at the beginning of the same completed periods. Compare uses its own settings. Results are informational.",
   "savedCaption": "Save portfolios on the Portfolio page first. Loading here does not change your default portfolio.",
   "method": "Portfolio method",
   "methods": {
@@ -86,7 +86,6 @@
   "running": "Running comparison…",
   "progress": "Loading public data and running the existing engines. No saved data is changed.",
   "completed": "Comparison completed.",
-  "before": "Choose at least two entries, then press Run comparison.",
   "changed": "Settings changed. Run comparison again.",
   "empty": "No rows available.",
   "preview": "Display preview",

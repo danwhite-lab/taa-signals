@@ -91,7 +91,7 @@ export default function ResearchPage() {
       onSelect={next => { setLabel(next); clear(); }} />}
     {loadingModels && <p role="status">{text.loading}</p>}{loading && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
     {!loading && !loadingModels && error && <button className="btn btn-secondary" onClick={() => setAttempt(v => v+1)}>{text.retry}</button>}
-    {gated ? <p className="signal-info">{options?.reason}</p> : options?.profile && !loading && <>
+    {gated ? (options?.reason && <p className="signal-info">{options.reason}</p>) : options?.profile && !loading && <>
       <p>{text.caption}</p><details><summary>{text.readTitle}</summary><Markdown>{text.readMarkdown.replace(/^ {4,}/gm, "")}</Markdown></details>
       <p>{options.profile.caption}</p><details><summary>{text.scope}</summary><DataTable value={options.profile.parameters} /><p>{options.profile.notes}</p></details>
       <h2>{text.quick}</h2><p>{result?.history.caption ?? options.history?.caption}</p><p>{text.info}</p>
