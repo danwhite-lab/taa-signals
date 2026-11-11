@@ -115,6 +115,10 @@ def parse_published_eod_closes(csv_text: str) -> pd.DataFrame:
                               index=pd.DatetimeIndex(dates, name="Date")).sort_index()
         if result.index.has_duplicates or result.empty:
             raise ValueError("Duplicate dates or empty published history")
+        # Preserve explicit provider units for admission checks. Do not infer
+        # currency from the foreign fund's base currency or price magnitude.
+        if "Close" in columns and columns["Close"].strip() == "Closing Price (0.01 ILS)":
+            result.attrs["close_unit"] = "0.01 ILS"
         return result
     except Exception as exc:
         raise TaseDataError(f"Cannot parse published TASE closing valuations: {exc}") from exc

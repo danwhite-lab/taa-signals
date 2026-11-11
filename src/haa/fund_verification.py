@@ -144,11 +144,44 @@ def _maya(identifier):
     raise FundVerificationError("identity")
 
 
+def foreign_tase_identity(identifier):
+    from tasekit.api import TaseClient
+
+    listing = TaseClient().fetch_security_data(identifier)
+    if not isinstance(listing, dict) or str(listing.get("Id", "")).lstrip("0") != identifier:
+        raise FundVerificationError("identity")
+    # Official company/securitydata classes, not security-number allowlists.
+    classes = {"4401": "Trade foreign fund Equity", "4501": "Traded foreign fund Bonds"}
+    if (listing.get("IsForeignETF") is not True or listing.get("Type") != "Foreign ETF"
+            or listing.get("ShareType") not in classes
+            or listing.get("SecuritySubType") != classes[listing["ShareType"]]):
+        raise FundVerificationError("fund_type")
+    if ("SuspendStatus" not in listing or listing["SuspendStatus"] is not None
+            or listing.get("isTrading") is not True):
+        raise FundVerificationError("inactive")
+    name, isin = listing.get("LongName"), listing.get("ISIN")
+    if (not isinstance(name, str) or not name.strip() or not isinstance(isin, str)
+            or not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin)):
+        raise FundVerificationError("identity")
+    # Foreign fund base currencies are not the local listing's quote currency.
+    # Establish units here too: saved funds recheck this identity for quotes/history.
+    frame = download_published_eod_closes(identifier)
+    if frame.attrs.get("close_unit") != "0.01 ILS":
+        raise FundVerificationError("foreign_currency")
+    return {"identifier": identifier, "market": "TASE", "name": name.strip(),
+            "kind": "etf", "currency": "ILS", "isin": isin}, {"published_eod": frame}
+
+
 def tase_identity(identifier):
     if not re.fullmatch(r"[1-9][0-9]{6}", identifier):
         raise FundVerificationError("security_number")
     try:
-        kind, detail = _maya(identifier)
+        try:
+            kind, detail = _maya(identifier)
+        except FundVerificationError as exc:
+            if exc.reason != "identity":
+                raise
+            return foreign_tase_identity(identifier)
         if detail.get("deleted") is not False or "mergingLiquidationStatus" not in detail or detail["mergingLiquidationStatus"] is not None:
             raise FundVerificationError("inactive")
         flags = [item.get("enabled") for item in detail.get("features", []) if item.get("title") == DOLLAR_UNITS]
@@ -177,7 +210,7 @@ def tase_identity(identifier):
     except FundVerificationError:
         raise
     except (requests.RequestException, ValueError, TypeError, AttributeError):
-        raise FundVerificationError("price") from None
+        raise FundVerificationError("verification") from None
 
 
 def maya_observation(detail):
@@ -248,7 +281,7 @@ def verify_fund(market, value):
                 else:
                     raise FundVerificationError("document")
                 return fund, maya_observation(detail)
-            frame = download_published_eod_closes(identifier)
+            frame = detail["published_eod"] if "published_eod" in detail else download_published_eod_closes(identifier)
             return fund, _close(frame.assign(Close=frame["Close"] / 100), "Close", "TASE closing price (agorot / 100)")
         ticker = yahoo_ticker(identifier)
         frame = ticker.history(period="1mo", interval="1d", auto_adjust=False, timeout=8)
@@ -265,4 +298,4 @@ def verify_fund(market, value):
     except FundVerificationError:
         raise
     except Exception:
-        raise FundVerificationError("price") from None
+        raise FundVerificationError("verification") from None
