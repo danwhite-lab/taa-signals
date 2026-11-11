@@ -6,9 +6,11 @@
     "inactive": "This fund is inactive, merging or liquidating.",
     "fund_type": "Only verified funds can be added. Shares and indices cannot be added.",
     "tase_currency": "MAYA did not confirm that the fund units are denominated in shekels.",
+    "foreign_currency": "TASE did not confirm that this listing is quoted in shekels, in units of 0.01 ILS.",
     "document": "The fund’s official report did not verify its identity, one-shekel nominal units and redemption price as a percentage of that nominal value.",
     "currency": "The listing currency is unavailable or unsupported. Pence-quoted listings are currently unsupported.",
     "price": "A dated automatic price is unavailable. Try again later.",
+    "verification": "The fund could not be verified due to an unexpected error. Try again later.",
     "fx": "A dated shekel exchange rate is unavailable. Try again later."
   },
   "actualHistory": "Actual fund observations start {date}. No earlier history is included.",
