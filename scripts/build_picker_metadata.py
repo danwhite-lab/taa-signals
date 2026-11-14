@@ -36,6 +36,8 @@ def inputs(model):
         if cls is bh.BuyAndHoldJapan:
             return (), ()
         return ("ACWI" if cls is bh.BuyAndHoldACWI else cls.holding_asset,), ()
+    if family == "Gold Cross-Asset":
+        return cls.execution_assets, signal
     if family == "Century Momentum":
         return tuple(cls.execution_proxies.values()) if model.implementation == "Israel" else (cls.equity_asset, cls.defensive_asset), signal
     if family == "HAA":

@@ -302,9 +302,14 @@ def load_portfolio_signals(labels, ticker_items, replacements):
             local = tuple(a for a in assets if a in TASE_ISRAEL_ASSET_IDS)
             fred = tuple(a for a in assets if a in FRED_ASSETS)
             yahoo = tuple(a for a in assets if a not in (*local, *fred, OECD_CLI_DIFFUSION_ASSET))
-            strict = getattr(model, "us_data_assets", ()) if getattr(model, "signal_calendar", None) == "XNYS" else ()
+            strict = data.adjusted_assets(model)
             sources = {a: tickers.get(a, a) for a in yahoo}
-            if strict and (any(sources.get(a) != a for a in strict) or set(replacements).intersection(strict)):
+            if getattr(model, "execution_market", None):
+                if any(sources.get(a) != a for a in strict) or set(replacements).intersection(strict):
+                    raise ValueError("Gold Cross-Asset requires original Yahoo adjusted closes.")
+                # The signal can be calculated even when execution quotes are unavailable.
+                local = ()
+            elif strict and (any(sources.get(a) != a for a in strict) or set(replacements).intersection(strict)):
                 raise ValueError("This exact US V3 signal requires original US sources, not replacements.")
             frames = []
             if yahoo:

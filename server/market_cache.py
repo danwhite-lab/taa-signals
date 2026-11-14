@@ -90,7 +90,7 @@ def model_inputs(definition, live_loader, *, daily_bars=False):
                     raise ValueError("TASE security mismatch")
                 metadata.loc[asset] = [first["source"], first["security_id"], first["field"]]
         metadata = pd.DataFrame({column: metadata[column].tolist() for column in metadata}, index=metadata.index)
-        strict = tuple(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None) == "XNYS" else ()
+        strict = data.adjusted_assets(strategy)
         if strict and not daily_bars:
             metadata.loc[list(strict), "price_field"] = "Required adjusted close; no raw Close fallback"
         # Use the same normalization as live_inputs. No ffill/dropna/splicing.

@@ -1,4 +1,5 @@
 {
+  "signalInputs": "Signal inputs",
   "title": "Today",
   "setup": "Set up a portfolio, then choose **Use as Today default** on the Portfolio page. It will sync privately across your devices.",
   "sleeveSignals": "Sleeve signals",

@@ -13,19 +13,23 @@ def monthly_strategy_input(daily_prices, market_assets):
     return monthly_market, monthly_market.join(values)
 
 
-def portfolio_signal(model_class, all_prices):
+def portfolio_signal(model_class, all_prices, *, as_of=None):
     strategy = model_class()
     assets = getattr(strategy, "data_assets", ASSETS)
     prices = all_prices.loc[:, assets]
     market_assets = getattr(strategy, "market_data_assets", assets)
+    if as_of is not None:
+        prices = prices.loc[prices.index.to_period("M") < as_of.tz_localize(None).to_period("M")]
     monthly, monthly_input = monthly_strategy_input(prices, market_assets)
     decision_prices = prices if getattr(strategy, "uses_daily_signals", False) else monthly_input
     status_prices = prices if getattr(strategy, "execution_frequency", "monthly") == "daily" else monthly
     try:
-        decisions = strategy.decisions(decision_prices)
+        decisions = (strategy.decisions(decision_prices, as_of=as_of)
+                     if getattr(strategy, "execution_market", None) else strategy.decisions(decision_prices))
     except ValueError as exc:
         return None, str(exc)
-    status = latest_actionable_signal(decisions, status_prices, market_assets)
+    status = (latest_actionable_signal(decisions, status_prices, market_assets, as_of=as_of)
+              if as_of is not None else latest_actionable_signal(decisions, status_prices, market_assets))
     if status.decision is None:
         return None, status.reason
     decision = status.decision

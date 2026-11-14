@@ -45,6 +45,7 @@ def test_israel_asset_ids_are_fixed_to_tase_and_maya_instruments():
         "XLP_IL": "1150366",
         "XLU_IL": "1150507",
         "GOLD_IL": "1147875",
+        "TACHLIT_HEDGED_GOLD_IL": "5141627",
         "HAREL_GOV_BONDS_IL": "5131792",
         "WORLD_VALUE_HEDGED_IL": "1189596",
         "MVSMHTR_IL": "5132972",

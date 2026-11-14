@@ -308,3 +308,15 @@ it("uses content-file words with no browser financial/date math or user-data wri
     { label: "Strategy Catalogue", href: "/strategy-catalogue/" },
   ]);
 });
+
+it("shows the Gold Cross-Asset signal inputs beside its local holding", async () => {
+  const details = { "Signal month-end": "2026-10-31", "US close date": "2026-10-30",
+    "GLD 12-month return": "12.00%", "IEF 12-month return": "2.00%",
+    "Rule result": "Both positive", "Target holding": "Tachlit Gold 5141627", "Execution currency": "ILS" };
+  mock.response.mockResolvedValue(json({ ...payload, signals: [{ ...payload.signals[0],
+    label: "Gold Cross-Asset Israel", signal_details: details }] }));
+  render(<Page />);
+  fireEvent.click(await screen.findByText(text.signalInputs));
+  const panel = within(screen.getByText(text.signalInputs).closest("details")!);
+  for (const value of Object.values(details)) expect(panel.getByText(value)).toBeTruthy();
+});

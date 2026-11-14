@@ -89,7 +89,16 @@ def present(request, comparison, loaded, bounds):
             latest = r.monthly.iloc[-1]
             weights = latest.get("target_weights")
             allocation = ", ".join(f"{a} {w:.0%}" for a,w in weights.items()) if isinstance(weights, dict) else latest["selected_asset"]
-            allocations.append({"model":name,"signal_date":latest["signal_date"],"regime":latest["regime"],"target allocation":allocation})
+            row = {"model": name, "signal_date": latest["signal_date"], "regime": latest["regime"],
+                   "target allocation": allocation}
+            if "GLD_12m_return" in latest:
+                from haa.portfolio import execution_security_label
+
+                currency = latest["execution_currency"]
+                row.update({column: latest[column] for column in
+                            ("source_month_end", "GLD_12m_return", "IEF_12m_return", "both_positive", "execution_currency")})
+                row["target allocation"] = f"100% {execution_security_label(latest['selected_asset'], currency)}"
+            allocations.append(row)
             filename = name.lower().replace(" ", "_").replace("(", "").replace(")", "")+"_comparison_audit.csv"
             export("audit:"+name, r.audit, filename, W["auditDownload"].format(name=name))
         tables["allocation"] = preview(pd.DataFrame(allocations).set_index("model"))

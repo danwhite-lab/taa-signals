@@ -12,6 +12,7 @@ from typing import Callable, Iterable, Mapping
 
 import pandas as pd
 
+from .constants import TACHLIT_HEDGED_GOLD_ASSET
 from .buy_and_hold_funds import tase_asset_ids, tase_etf_assets
 
 
@@ -39,6 +40,7 @@ TASE_ISRAEL_ASSET_IDS = {
     "XLP_IL": "1150366",
     "XLU_IL": "1150507",
     "GOLD_IL": "1147875",
+    TACHLIT_HEDGED_GOLD_ASSET: "5141627",
     "HAREL_GOV_BONDS_IL": "5131792",
     **tase_asset_ids(),
 }

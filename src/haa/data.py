@@ -27,6 +27,13 @@ def default_ticker_map(assets: Iterable[str]) -> dict[str, str]:
     return {asset: DEFAULT_TICKER_MAP.get(asset, asset) for asset in assets}
 
 
+def adjusted_assets(strategy):
+    """Required adjusted-close roles, including the existing exact US V3 models."""
+    if getattr(strategy, "signal_calendar", None) == "XNYS":
+        return strategy.us_data_assets
+    return getattr(strategy, "require_adjusted_assets", ())
+
+
 def _normalise_frame(frame: pd.DataFrame, asset: str, require_adjusted: bool = False, price_only: bool = False) -> pd.Series:
     """Extract an adjusted close series, falling back to Close only if necessary."""
     fields = ("Close", "Adj Close") if price_only else (("Adj Close",) if require_adjusted else ("Adj Close", "Close"))

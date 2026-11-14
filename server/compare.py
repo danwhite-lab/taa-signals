@@ -95,7 +95,7 @@ def load(request, chosen):
         # a daily sleeve needs them. Canonical IDs, never saved identifiers.
         labels = list(dict.fromkeys(s["model"] for sleeves in chosen for s in sleeves))
         descriptor = SimpleNamespace(sleeves=[multi.Sleeve(id=i, model=label, weight=100/len(labels)) for i, label in enumerate(labels, 1)],
-                                     daily_valuation=request.method == "daily", usd_equivalents=request.usd_equivalents)
+                                     daily_valuation=request.method == "daily", usd_equivalents=request.usd_equivalents, shared_benchmark=True)
         templates, version, metadata, warnings, _, cutoff = multi.live_inputs(descriptor)
         templates = {label: templates[f"{label} ({i})"][1] for i, label in enumerate(labels, 1)}
         portfolios = {}
@@ -109,9 +109,9 @@ def load(request, chosen):
                 "cutoff": cutoff, "bounds": None}
     definitions = [usd.resolve(label) if request.usd_equivalents else definition(label) for label in chosen]
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"))))
-    strict = tuple(dict.fromkeys(a for d in definitions if getattr(d.model_class, "signal_calendar", None) == "XNYS" for a in d.model_class.us_data_assets))
-    descriptor = SimpleNamespace(model_class=lambda: SimpleNamespace(data_assets=assets, us_data_assets=strict,
-        benchmark_asset=getattr(definitions[0].model_class, "benchmark_asset", "SPY"), signal_calendar="XNYS" if strict else None))
+    strict = tuple(dict.fromkeys(a for d in definitions for a in base.data.adjusted_assets(d.model_class)))
+    descriptor = SimpleNamespace(model_class=lambda: SimpleNamespace(data_assets=assets, require_adjusted_assets=strict,
+        benchmark_asset=getattr(definitions[0].model_class, "benchmark_asset", "SPY")))
     prices, metadata, warnings = signals.load_inputs(descriptor)
     inputs, bounds, cutoffs = {}, [], {}
     for original_label, d in zip(chosen, definitions):
@@ -122,7 +122,13 @@ def load(request, chosen):
         monthly = base.data.to_month_end(daily.loc[:, list(market)])
         decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else monthly)
         inputs[original_label] = ModelInput(original_label, decisions, monthly, daily, getattr(strategy, "benchmark_asset", "SPY"), execution_currency=d.execution_currency)
-        first, last = base.data.common_monthly_period(monthly)
+        if getattr(strategy, "execution_market", None):
+            from haa.monthly_execution import execution_schedule
+
+            schedule = execution_schedule(decisions, daily, strategy.benchmark_asset)
+            first, last = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
+        else:
+            first, last = base.data.common_monthly_period(monthly)
         if first is None or last is None: raise ValueError(WORDS["noMonthly"].format(name=d.label))
         bounds.append((first.date(), last.date()))
         if hasattr(strategy, "completed_cutoff"): cutoffs[d.label] = str(strategy.completed_cutoff())

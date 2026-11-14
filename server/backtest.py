@@ -142,6 +142,12 @@ def prepare(selected, all_prices, *, warnings=None):
     monthly, monthly_input = monthly_strategy_input(prices, market)
     common_start, common_end = data.common_monthly_period(monthly)
     captions = []
+    if getattr(strategy, "execution_market", None):
+        from haa.monthly_execution import execution_schedule
+
+        schedule = execution_schedule(strategy.decisions(prices), prices, benchmark)
+        common_start, common_end = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
+        captions.append(strategy.notes)
     if common_start is None or common_end is None or common_start > common_end:
         from haa.fund_verification import WORDS
         if selected.label.startswith("MY-FUND-"):
@@ -168,7 +174,7 @@ def prepare(selected, all_prices, *, warnings=None):
             warnings.append(f"Latest fund prices are still pending. Backtest history stops at the last complete session: {common_end.date()}.")
         if common_start is None or common_start > common_end:
             raise ValueError("No completed post-signal execution session is available.")
-    end_limit = common_end if daily or actual_window else prices.index.max()
+    end_limit = common_end if daily or actual_window or getattr(strategy, "execution_market", None) else prices.index.max()
     frequency = "daily execution" if daily else "monthly"
     bounds = {"start_min": common_start.date().isoformat(), "start_max": common_end.date().isoformat(),
               "end_min": common_start.date().isoformat(), "end_max": end_limit.date().isoformat()}
@@ -278,6 +284,9 @@ def report(selected, request, strategy, prices, monthly, metadata, decisions, re
               "data_validation": table(metadata.loc[list(prices.columns)].join(data.date_ranges(prices))),
               "calculated_at": datetime.now(timezone.utc).isoformat(), "calculation_timing": timing,
               "data_origin": "Existing live loaders; no cached/live price splice or proxy substitution."}
+    if getattr(strategy, "execution_market", None):
+        public["actual_execution_start"] = result.audit.execution_date.min().isoformat()
+        public["captions"].append(f"Actual execution starts {result.audit.execution_date.min():%Y-%m-%d}.")
     if getattr(strategy, "backtest_window", None):
         public["actual_execution_start"] = result.audit.execution_date.min().isoformat()
         public["captions"].append(f"Actual TASE execution starts {result.audit.execution_date.min():%Y-%m-%d}. ILS-hedged utilities (MTF 1150507); actual fund history only.")

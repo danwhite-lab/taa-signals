@@ -191,7 +191,13 @@ def _run_weighted_backtest(
     decision_dates = pd.DatetimeIndex(decisions.index)
     actual_schedule = None
     price_warnings = []
-    if decisions.attrs.get("ic_israel_actual_execution"):
+    if decisions.attrs.get("monthly_execution_market"):
+        from .monthly_execution import execution_schedule
+
+        if daily_prices is None:
+            raise ValueError("This monthly strategy requires actual daily execution prices.")
+        actual_schedule = execution_schedule(decisions, execution_prices, benchmark_asset, start, end, execution_delay_business_days)
+    elif decisions.attrs.get("ic_israel_actual_execution"):
         from .ic_israel_execution import execution_schedule
         if daily_prices is None:
             raise ValueError("Inflation Compass Israel requires actual daily TASE fund prices.")

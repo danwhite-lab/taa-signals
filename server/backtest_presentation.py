@@ -15,6 +15,9 @@ def performance_table(strategy, result, initial, tax_enabled):
     pre_tax_label = f"{strategy.name} pre-tax"
     after_tax_label = f"{strategy.name} after-tax"
     benchmark_label = f"{getattr(strategy, 'benchmark_asset', 'SPY')} buy-and-hold"
+    if hasattr(strategy, "signal_details"):
+        from haa.portfolio import execution_security_label
+        benchmark_label = f"{execution_security_label(strategy.benchmark_asset, strategy.execution_currency)} buy-and-hold"
     comparison = {pre_tax_label: backtest_result_metrics(result, "pre_tax_value", initial)}
     if tax_enabled:
         comparison[after_tax_label] = backtest_result_metrics(result, "after_tax_value", initial)
@@ -42,6 +45,8 @@ def performance_table(strategy, result, initial, tax_enabled):
 
 
 def captions_for(strategy, decisions, result, benchmark_label):
+    if hasattr(strategy, "signal_details"):
+        return [strategy.notes]
     captions = ["These settings configure this backtest only."]
     if result.daily is not None:
         local = decisions.attrs.get("local_daily_execution", False)
@@ -82,6 +87,8 @@ def audit_view(strategy, result, data_assets):
         audit_columns += [f'{asset}_13612w' for asset in data_assets] + ['breadth_bad_count', 'breadth_threshold', 'offensive_winner', 'defensive_winner', 'target_weights', 'previous_weights']
     if isinstance(strategy, BAAG4Aggressive):
         audit_columns += [f'{asset}_13612w' for asset in strategy.canary_assets] + [f'{asset}_sma12' for asset in data_assets] + ['breadth_bad_count', 'selected_defensive_assets', 'bil_replacements', 'target_weights', 'previous_weights']
+    if hasattr(strategy, "signal_details"):
+        audit_columns += ["source_month_end", "GLD_12m_return", "IEF_12m_return", "both_positive", "execution_currency"]
     if isinstance(strategy, GEM):
         audit_columns += [f'{asset}_12m_return' for asset in strategy.signal_assets] + ['signal_selected_asset']
     if isinstance(strategy, GGCEMLinkOriginal):

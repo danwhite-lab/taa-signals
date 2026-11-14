@@ -2,6 +2,7 @@
 from copy import deepcopy
 from time import time
 import pandas as pd
+from haa.data import adjusted_assets
 from .cache import ResultCache
 from .performance import engine_revision, span
 
@@ -37,7 +38,7 @@ def inputs(strategy, daily_bars, compute):
     # Keys are canonical public instruments/settings only, never saved user IDs.
     params = {"assets": list(getattr(strategy, "data_assets", ())),
               "benchmark": getattr(strategy, "benchmark_asset", "SPY"),
-              "strict": list(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None)=="XNYS" else [],
+              "strict": list(adjusted_assets(strategy)),
               "daily_bars": daily_bars, "code": engine_revision()}
     # Compare/Research can request the same instruments with the default window.
     # Keep those keys unchanged, but isolate longer published-close bundles.

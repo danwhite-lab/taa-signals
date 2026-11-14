@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from haa.constants import ASSETS, DEFAULT_TAX_RATE, FRED_ASSETS, ISRAEL_SIMPLE_ASSETS, OECD_CLI_DIFFUSION_ASSET, TA125_SMART_MOMENTUM_ASSET
 # Comparison logic stays outside the UI so it can enforce a shared period.
 from haa.comparison import ModelInput, compare_models
-from haa.data import combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, download_yahoo_daily_bars, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
+from haa.data import adjusted_assets, combine_replacements, common_monthly_period, date_ranges, default_ticker_map, download_fred_series, download_latest_yahoo_close, download_oecd_cli_diffusion, download_yahoo_prices, download_yahoo_daily_bars, parse_ticker_map, read_uploaded_csv, to_month_end, upload_asset_from_filename
 from haa.deep_history import ALL_DEEP_HISTORY_SPECS, DEEP_HISTORY_BENCHMARKS, DEEP_HISTORY_SPECS, deep_history_model_input, deep_history_options, load_deep_history
 from haa.backtest_options import result_metrics as backtest_result_metrics, unit_curves
 from haa.buy_and_hold_funds import declared_proxy_assets, price_only_yahoo_assets
@@ -24,6 +24,7 @@ from haa.portfolio_comparison import compare_portfolios
 
 
 from haa.engine import run_backtest
+from haa.monthly_execution import observed_execution_date
 from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -133,6 +134,8 @@ Sources: [creator V3 post](https://www.reddit.com/r/TQQQ/comments/1se30ow/update
 }
 ALL_MODEL_ASSETS = tuple(dict.fromkeys(asset for model_class in MODEL_OPTIONS.values() for asset in getattr(model_class, "data_assets", ASSETS)))
 for _definition in MODEL_CATALOG:
+    if _definition.strategy == "Gold Cross-Asset":
+        MODEL_RULES[_definition.label] = _definition.description
     if getattr(_definition.model_class, "signal_calendar", None) == "XNYS":
         MODEL_RULES[_definition.label] = (
             MODEL_RULES["A-RVol Shifter V3 Cash-Only"] + "\n\n"
@@ -1543,6 +1546,14 @@ needs_oecd = OECD_CLI_DIFFUSION_ASSET in runtime_assets
 
 try:
     execution_opens = None
+    exact_gold_assets = {asset for label in active_model_labels
+                         for asset in getattr(MODEL_OPTIONS[label], "require_adjusted_assets", ())}
+    exact_gold_holdings = {asset for label in active_model_labels
+                           if getattr(MODEL_OPTIONS[label], "execution_market", None)
+                           for asset in MODEL_OPTIONS[label].execution_assets}
+    if any(ticker_map.get(asset) != asset for asset in exact_gold_assets):
+        st.error("Gold Cross-Asset requires the original Yahoo ticker sources. Restore the default tickers to continue.")
+        st.stop()
     mixed_portfolio_requested = page == "Backtest" and backtest_mode == "Portfolio" and any(getattr(MODEL_OPTIONS[label], "execution_frequency", "monthly") == "daily" for label in active_model_labels)
     needs_open_prices = page == "Backtest" and (mixed_portfolio_requested or (backtest_mode != "Portfolio" and getattr(strategy, "execution_frequency", "monthly") == "daily"))
     needs_open_prices = needs_open_prices or (page == "Compare" and comparison_mode == "Portfolios" and portfolio_drift)
@@ -1552,8 +1563,7 @@ try:
         downloaded, execution_opens = load_daily_bars(tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets))
     else:
         strict_us_assets = tuple(dict.fromkeys(asset for label in active_model_labels
-            if getattr(MODEL_OPTIONS[label], "signal_calendar", None) == "XNYS"
-            for asset in MODEL_OPTIONS[label].us_data_assets))
+            for asset in adjusted_assets(MODEL_OPTIONS[label])))
         source_items = tuple((asset, ticker_map[asset]) for asset in runtime_yahoo_assets)
         downloaded = (load_strict_us_data(source_items, strict_us_assets) if strict_us_assets
                       else load_data(source_items)) if runtime_yahoo_assets else pd.DataFrame()
@@ -1633,6 +1643,10 @@ if page == "Backtest":
             st.error(str(exc))
     st.session_state["uploaded_replacements"] = replacements
 downloaded_all = downloaded.join(tase_prices, how="outer").join(fred_prices, how="outer").join(oecd_prices, how="outer")
+if (set(replacements).intersection(exact_gold_assets | exact_gold_holdings)
+        or (getattr(strategy, "execution_market", None) and (yahoo_substitutions or tase_substitutions))):
+    st.error("Gold Cross-Asset uses original signal and execution histories. Remove substitutions and replacement files for this model.")
+    st.stop()
 all_prices = combine_replacements(downloaded_all, replacements, runtime_assets)
 if any(getattr(MODEL_OPTIONS[label], "signal_calendar", None) == "XNYS" for label in active_model_labels):
     if set(replacements).intersection(("QQQ", "SPY", "HYG", "LQD", "TQQQ", "QLD", "BIL")):
@@ -1855,6 +1869,14 @@ if page in {"Backtest", "Research", "Rules"}:
     all_monthly = to_month_end(all_prices)
     ranges = date_ranges(prices)
     common_start, common_end = common_monthly_period(monthly)
+    if getattr(strategy, "execution_market", None):
+        from haa.monthly_execution import execution_schedule
+        try:
+            schedule = execution_schedule(strategy.decisions(prices), prices, benchmark_asset)
+        except ValueError as exc:
+            st.error(str(exc))
+            st.stop()
+        common_start, common_end = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
 
     if substitution_all_prices is not None:
         if getattr(strategy, "execution_frequency", "monthly") == "daily":
@@ -1901,7 +1923,7 @@ if page in {"Backtest", "Research", "Rules"}:
             st.error("No completed post-signal execution session is available.")
             st.stop()
     start = st.session_state.get("start", common_start.date())
-    execution_end_limit = prices.index.max().date()
+    execution_end_limit = common_end.date() if getattr(strategy, "execution_market", None) else prices.index.max().date()
     if getattr(strategy, "execution_frequency", "monthly") == "daily":
         execution_end_limit = common_end.date()
     if substitution_prices is not None:
@@ -2941,7 +2963,7 @@ if page == "Signals":
         is_daily_execution = getattr(signal_strategy, "execution_frequency", "monthly") == "daily"
         signal_status = latest_actionable_signal(signal_decisions, signal_prices if is_daily_execution else signal_monthly, signal_market_assets)
         preview_status = None
-        if signal_definition.strategy_mode != "buy_and_hold" and not is_daily_execution:
+        if signal_definition.strategy_mode != "buy_and_hold" and not is_daily_execution and not getattr(signal_strategy, "execution_market", None):
             preview_monthly, preview_price_as_of, preview_reason = month_to_date_snapshot(
                 signal_monthly, signal_prices, signal_market_assets
             )
@@ -3016,7 +3038,9 @@ if page == "Signals":
         else:
             signal = signal_status.decision
             signal_date = pd.Timestamp(signal.name)
-            effective_start = first_trading_day_after(signal_prices, signal_date, execution_assets(signal))
+            execution_market = getattr(signal_strategy, "execution_market", None)
+            effective_start = (observed_execution_date(signal_prices, signal_date, execution_assets(signal), execution_market)
+                               if execution_market else first_trading_day_after(signal_prices, signal_date, execution_assets(signal)))
             previous = signal["previous_asset"] if pd.notna(signal["previous_asset"]) else "No prior allocation"
             weights = signal.get("target_weights", {signal["selected_asset"]: 1.0})
             if getattr(signal_strategy, "is_multi_asset", False):
@@ -3121,6 +3145,8 @@ if page == "Signals":
                         st.write("BTAL's blended 1/3/6/12-month momentum is strictly greater than BIL's, so the 50% satellite holds BTAL alongside the permanent 25% QLD / 25% BTAL core.")
                     else:
                         st.write("BTAL's blended 1/3/6/12-month momentum is at or below BIL's, so the 50% satellite holds QLD alongside the permanent 25% QLD / 25% BTAL core.")
+                elif hasattr(signal_strategy, "signal_details"):
+                    st.dataframe(pd.DataFrame([signal_strategy.signal_details(signal)]), hide_index=True)
                 elif isinstance(signal_strategy, (CenturyMomentum, CenturyMomentumIsrael)):
                     comparison = "above" if signal["trend_up"] else "at or below"
                     st.write(f"{signal_strategy.equity_asset}'s completed month-end close is {comparison} its 10-month SMA, so Century Momentum holds {execution_security_label(signal['selected_asset'], signal_execution_currency)}.")
@@ -3248,6 +3274,9 @@ if page == "Signals":
         if signal_definition.strategy_mode == "buy_and_hold" or signal_status.decision is None:
             signal_history_view, signal_data_view = st.tabs(["History", "Data"])
         history_columns = ["regime", "selected_asset", "previous_asset", "trade"]
+        execution_market = getattr(signal_strategy, "execution_market", None)
+        if execution_market and not signal_decisions.empty:
+            history_columns += ["source_month_end", "GLD_12m_return", "IEF_12m_return", "both_positive", "execution_currency"]
         if "target_weights" in signal_decisions:
             history_columns.insert(2, "target_weights")
         if signal_decisions.empty:
@@ -3255,7 +3284,11 @@ if page == "Signals":
             history.index.name = "signal_date"
         else:
             history = signal_decisions.loc[:, history_columns].copy()
-            history["effective_start"] = [first_trading_day_after(signal_prices, date, execution_assets(history.loc[date])) for date in history.index]
+            history["effective_start"] = [
+                observed_execution_date(signal_prices, date, execution_assets(history.loc[date]), execution_market)
+                if execution_market else first_trading_day_after(signal_prices, date, execution_assets(history.loc[date]))
+                for date in history.index
+            ]
             if "target_weights" in history:
                 history["target_weights"] = history["target_weights"].map(lambda weights: ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()))
             history.index = pd.to_datetime(history.index).strftime("%Y-%m-%d")
@@ -3318,6 +3351,8 @@ if page == "Rules":
         st.write(f"Months with at least one missing canonical price: **{len(missing)}**")
     audit_momentum_assets = getattr(strategy, "signal_assets", data_assets)
     audit_columns = [f"{asset}_price" for asset in data_assets]
+    if hasattr(strategy, "signal_details"):
+        audit_columns += ["source_month_end", "GLD_12m_return", "IEF_12m_return", "both_positive", "execution_currency"]
     if not isinstance(strategy, (BAAG4Aggressive, CenturyMomentum, CenturyMomentumIsrael, GEM, GrowthInflationConcentrated, GrowthInflationDiversified, VAAG4, OrthogonalAlpha)):
         audit_columns += [f"{asset}_13612u" for asset in audit_momentum_assets]
     if isinstance(strategy, (HAAClassicNoQQQ, HAAClassicLeveragedNoQQQ, HAA4, HAA4Leveraged2x)):

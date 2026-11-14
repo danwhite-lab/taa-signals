@@ -31,6 +31,10 @@ def report(request, result, models, passed, benchmark_asset, metadata, bounds, c
     after = W["blendAfter"] if proxy and blend else W["singleAfter"].format(label=spec.label) if proxy else W["portfolioAfter"]
     benchmark = deep.DEEP_HISTORY_BENCHMARKS[request.benchmark] if proxy else None
     benchmark_label = benchmark.label if proxy else W["localSpy"] if benchmark_asset == "RVOL_SPY_IL" else W["spy"]
+    if not proxy and benchmark_asset not in {"SPY", "RVOL_SPY_IL"}:
+        from haa.portfolio import execution_security_label
+        currency = next(iter(models.values()))[1].execution_currency
+        benchmark_label = f"{execution_security_label(benchmark_asset, currency)} buy-and-hold"
     mapping = {pre: "pre_tax_value", **({after: "after_tax_value"} if taxed else {}), benchmark_label: "benchmark_value"}
     raw_metrics = {"pre_tax": result_metrics(result, "pre_tax_value", initial), "after_tax": result_metrics(result, "after_tax_value", initial), "benchmark": result_metrics(result, "benchmark_value", initial)}
     summary = pd.DataFrame({label: result_metrics(result, column, initial) for label, column in mapping.items()})

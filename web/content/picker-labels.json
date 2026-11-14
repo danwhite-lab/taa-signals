@@ -37,6 +37,8 @@
     "GEM Israel": {"name": "GEM", "family": "GEM", "version": ["Standard", "Israel"], "filter": "israel"},
     "GGCEM Link Original": {"name": "GGCEM", "family": "GGCEM", "version": ["Link Original", "Original"], "filter": "originals"},
     "GGCEM Link Original Israel": {"name": "GGCEM", "family": "GGCEM", "version": ["Link Original", "Israel"], "filter": "israel"},
+    "Gold Cross-Asset": {"name": "Gold Cross-Asset", "family": "Gold Cross-Asset", "version": ["USD"], "filter": "originals"},
+    "Gold Cross-Asset Israel": {"name": "Gold Cross-Asset", "family": "Gold Cross-Asset", "version": ["Israel"], "filter": "israel"},
     "Growth-Inflation Concentrated": {"name": "Growth-Inflation Sector Timing", "family": "Growth-Inflation Sector Timing", "version": ["Concentrated", "Original"], "filter": "originals"},
     "Growth-Inflation Concentrated Israel": {"name": "Growth-Inflation Sector Timing", "family": "Growth-Inflation Sector Timing", "version": ["Concentrated", "Israel"], "filter": "israel"},
     "Growth-Inflation Diversified": {"name": "Growth-Inflation Sector Timing", "family": "Growth-Inflation Sector Timing", "version": ["Diversified", "Original"], "filter": "originals"},
