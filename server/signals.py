@@ -94,7 +94,7 @@ def live_inputs(definition, *, daily_bars=False):
     oecd = OECD_CLI_DIFFUSION_ASSET in runtime
     yahoo = tuple(asset for asset in runtime if asset not in (*private, *tase, *fred, OECD_CLI_DIFFUSION_ASSET))
     mapping = data.default_ticker_map(yahoo)
-    strict = tuple(getattr(strategy, "us_data_assets", ())) if getattr(strategy, "signal_calendar", None) == "XNYS" else ()
+    strict = data.adjusted_assets(strategy)
     try:
         opens = None
         if daily_bars and yahoo:
@@ -167,6 +167,16 @@ def decision_record(decision):
                   "target_weights": decision.get("target_weights", {decision["selected_asset"]: 1.0})})
 
 
+def observed_execution_date(strategy, prices, date, decision):
+    market = getattr(strategy, "execution_market", None)
+    assets = engine_signals.execution_assets(decision)
+    if not market:
+        return engine_signals.first_trading_day_after(prices, date, assets)
+    from haa.monthly_execution import observed_execution_date as observed_monthly_execution
+
+    return observed_monthly_execution(prices, date, assets, market)
+
+
 def history_payload(decisions, prices, strategy, daily):
     if daily:
         dates = [c for c in ("decision_date", "scheduled_execution_date") if c in decisions]
@@ -175,6 +185,8 @@ def history_payload(decisions, prices, strategy, daily):
                 "count": len(decisions), "csv": decisions.to_csv(), "filename": "rvol_shifter_daily_signals.csv",
                 "download_label": "Download daily signal history CSV"}
     columns = ["regime", "selected_asset", "previous_asset", "trade"]
+    if getattr(strategy, "execution_market", None) and not decisions.empty:
+        columns += ["source_month_end", "GLD_12m_return", "IEF_12m_return", "both_positive", "execution_currency"]
     if "target_weights" in decisions:
         columns.insert(2, "target_weights")
     if decisions.empty:
@@ -182,7 +194,7 @@ def history_payload(decisions, prices, strategy, daily):
         history.index.name = "signal_date"
     else:
         history = decisions.loc[:, columns].copy()
-        history["effective_start"] = [engine_signals.first_trading_day_after(prices, date, engine_signals.execution_assets(history.loc[date])) for date in history.index]
+        history["effective_start"] = [observed_execution_date(strategy, prices, date, history.loc[date]) for date in history.index]
         if "target_weights" in history:
             history["target_weights"] = history["target_weights"].map(lambda weights: ", ".join(f"{asset} {weight:.0%}" for asset, weight in weights.items()))
         history.index = pd.to_datetime(history.index).strftime("%Y-%m-%d")
@@ -284,11 +296,16 @@ def build_payload(definition, all_prices, metadata, failures, as_of):
         previous_security = execution_security_label(str(previous), definition.execution_currency) if previous != "No prior allocation" else previous
         instruction = "Hold" if not bool(signal["trade"]) else (f"Buy {selected}" if previous == "No prior allocation" else f"Switch {previous_security} → {selected}")
         allocation = f"100% {selected}"
-    effective = engine_signals.first_trading_day_after(prices, pd.Timestamp(signal.name), engine_signals.execution_assets(signal))
+    effective = observed_execution_date(strategy, prices, pd.Timestamp(signal.name), signal)
     result["current"].update(allocation=allocation, instruction=instruction, effective_start=clean(effective),
         signal_date=pd.Timestamp(signal.name).date().isoformat(), regime=str(signal["regime"]).replace("-", " ").title(),
         effective_text=f"Effective holding period: **{effective.date()}** until the next month-end decision." if effective is not None else "No later trading observation is available yet, so an effective start date cannot be shown.")
     result["rationale"] = rationale(strategy, signal, definition.execution_currency, getattr(strategy, "signal_assets", assets))
+    if getattr(strategy, "execution_market", None):
+        result["captions"].append(strategy.notes)
+        if effective is None:
+            result["current"]["effective_text"] = "The target is based on the US signal. The scheduled execution price or NAV is unavailable."
+        return clean(result)
     preview_monthly, price_as_of, preview_reason = engine_signals.month_to_date_snapshot(monthly, prices, market, as_of=as_of)
     if preview_reason is not None:
         preview_status = engine_signals.latest_preview_signal(pd.DataFrame(), price_as_of)

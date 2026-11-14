@@ -57,6 +57,8 @@ def preview_for(model_label, all_prices):
         decision = status.decision
         weights = decision.get("target_weights", {decision["selected_asset"]: 1.0})
         return {"decision": decision, "weights": dict(weights), "price_as_of": status.price_as_of}, None
+    if getattr(MODEL_OPTIONS.get(model_label), "execution_market", None):
+        return None, "This sleeve uses completed months only."
     return next_portfolio_preview(model_label)
 
 
@@ -80,19 +82,20 @@ def cached_sleeve(definition, prices, metadata, warnings, code, clock, include_p
     try:
         if warnings or registered_fund(definition.label):
             # Retrieval failures must not be hidden by an earlier valid hit.
-            result = build_sleeve(definition, prices, metadata, warnings, include_preview)
+            result = build_sleeve(definition, prices, metadata, warnings, include_preview, clock=clock)
             return result, {"hit": None, "warnings": ["Unavailable or degraded sleeve result was not cached."] if warnings else []}, version
         result, info = RESULTS.run(model=definition.label, params=params, start=str(prices.index.min()), end=str(prices.index.max()),
-                                  version=version, compute=lambda: build_sleeve(definition, prices, metadata, warnings, include_preview))
+                                  version=version, compute=lambda: build_sleeve(definition, prices, metadata, warnings, include_preview, clock=clock))
     except Unavailable as exc:
         result = exc.payload
         info = {"hit": None, "warnings": ["Unavailable or degraded sleeve result was not cached."]}
     return result, info, version
 
 
-def build_sleeve(definition, prices, metadata, warnings, include_preview=True):
+def build_sleeve(definition, prices, metadata, warnings, include_preview=True, *, clock=None):
     model = definition.model_class
-    signal, reason = portfolio_signal(model, prices)
+    signal, reason = (portfolio_signal(model, prices, as_of=clock) if getattr(model, "execution_market", None)
+                      else portfolio_signal(model, prices))
     result = {"model": definition.label, "currency": definition.execution_currency,
               "current": None, "reason": reason, "preview": None, "preview_reason": None,
               "metadata": table(metadata), "warnings": list(warnings), "data_ranges": table(signals_page.data.date_ranges(prices))}
@@ -114,6 +117,12 @@ def build_sleeve(definition, prices, metadata, warnings, include_preview=True):
             "trade": bool(decision.get("trade", False)),
             "holding": display_allocation(signal["weights"], definition.execution_currency),
             "status": f"Ready · {decision['regime']}"}
+        if getattr(model, "execution_market", None):
+            strategy = signal["strategy"]
+            result["current"]["signal_details"] = strategy.signal_details(decision)
+            if signals_page.observed_execution_date(strategy, prices, pd.Timestamp(decision.name), decision) is None:
+                result["current"]["execution_pending"] = True
+                result["current"]["status"] = "Scheduled execution price or NAV unavailable."
     if not include_preview:
         result = clean(result)
         if warnings or signal is None: raise Unavailable(result)
@@ -128,7 +137,9 @@ def build_sleeve(definition, prices, metadata, warnings, include_preview=True):
         result["preview"] = {"decision": signals_page.decision_record(preview["decision"]), "weights": preview["weights"],
                              "price_as_of": preview["price_as_of"].isoformat(),
                              "allocation": display_allocation(preview["weights"], definition.execution_currency)}
-    skipped_preview = definition.strategy_mode == "buy_and_hold" or getattr(model, "execution_frequency", "monthly") == "daily"
+    skipped_preview = (definition.strategy_mode == "buy_and_hold"
+                       or getattr(model, "execution_frequency", "monthly") == "daily"
+                       or getattr(model, "execution_market", None))
     # Expected continuous/daily messages are not failures. Missing monthly
     # previews, failed inputs and unavailable current signals are not cached.
     result = clean(result)
@@ -258,12 +269,19 @@ def compose(portfolios, account, code, clock=None, include_preview=True):
             age = (clock.tz_localize(None).normalize() - pd.Timestamp(signal["signal_date"]).tz_localize(None).normalize()).days
             row.update(holding_display=allocation_display(signal["weights"], public["currency"]),
                        regime=signal.get("regime"), status_code="check_data" if age > 45 else "ok")
+            if "signal_details" in signal:
+                row["signal_details"] = signal["signal_details"]
+                if signal.get("execution_pending"):
+                    row["status_code"] = "check_data"
             decision = signal["decision"]
             signal_dates.append(pd.Timestamp(signal["signal_date"]))
             if bool(decision.get("trade", False)):
                 changed_models.append(label)
             current_weights_by_model[label] = signal["weights"]
-            valid_sleeves.append({"name": label, "weight": weight, "currency": public["currency"], "target_weights": signal["weights"]})
+            if signal.get("execution_pending"):
+                result["action_notice"] = "cannot_price"
+            else:
+                valid_sleeves.append({"name": label, "weight": weight, "currency": public["currency"], "target_weights": signal["weights"]})
         elif weight is not None:
             row["status"] = public["reason"]
         result["signals"].append(row)

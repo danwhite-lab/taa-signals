@@ -9,6 +9,18 @@
     "satellite": "Leveraged satellite: not meant as a core holding."
   },
   "strategies": {
+    "Gold Cross-Asset": {
+      "label": "Gold Cross-Asset",
+      "execution_currency": "USD",
+      "plain_language": "Implementation interpretation - exact Laurent conventions unverified. At the end of each completed month, check whether GLD and IEF both rose over the past 12 months. Hold GLD if both did. Otherwise hold BIL, a short-term US Treasury-bill ETF used as near-cash. A missing input makes the signal unavailable. Switching can miss a recovery and incur costs or tax.",
+      "flags": []
+    },
+    "Gold Cross-Asset Israel": {
+      "label": "Gold Cross-Asset Israel",
+      "execution_currency": "ILS",
+      "plain_language": "Implementation interpretation - exact Laurent conventions unverified. Use the same GLD and IEF signal as the USD version. Hold shekel-hedged Tachlit gold (5141627) if both rose over the past 12 months. Otherwise hold Ayalon Kaspit (5117700), a shekel money-market fund. The backtest uses actual local fund history. Switching can miss a recovery and incur costs or tax.",
+      "flags": []
+    },
     "Century Momentum Israel": {
       "label": "Century Momentum Israel",
       "execution_currency": "ILS",

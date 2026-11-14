@@ -27,6 +27,10 @@ def display_allocation(weights: dict[str, float], currency: str) -> str:
 def rationale(signal_strategy, signal, signal_execution_currency, signal_momentum_assets):
     display = Presentation()
     display.subheader('Why this allocation')
+    if hasattr(signal_strategy, "signal_details"):
+        display.dataframe(pd.DataFrame([signal_strategy.signal_details(signal)]), hide_index=True)
+        display.caption(signal_strategy.notes)
+        return display.result
     if isinstance(signal_strategy, (HAA4, HAA4Leveraged2x)):
         if signal['regime'] == 'risk-off':
             holding = signal['selected_asset'] if isinstance(signal_strategy, HAA4Leveraged2x) else signal['defensive_winner']

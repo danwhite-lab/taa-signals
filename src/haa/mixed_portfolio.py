@@ -169,7 +169,12 @@ def monthly_daily_book(model, sessions, capital, fee, taxed, tax_rate, monthly_c
     proportionally. No forced liquidation of retained assets or final holdings.
     """
     decisions=model.decisions.sort_index()
-    execution=(scheduled_tase_execution_dates if model.execution_currency == 'ILS' else scheduled_execution_dates)(decisions.index)
+    market = decisions.attrs.get("monthly_execution_market")
+    if market:
+        from .monthly_execution import execution_dates
+        execution = execution_dates(decisions.index, market)
+    else:
+        execution = (scheduled_tase_execution_dates if model.execution_currency == 'ILS' else scheduled_execution_dates)(decisions.index)
     schedule={d:(s,row) for d,(s,row) in zip(execution,decisions.iterrows())}
     prior=decisions.loc[decisions.index<sessions[0]]
     if prior.empty:
@@ -302,6 +307,9 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
             from .market_sessions import scheduled_us_tase_execution_dates
             first_execution = (pd.Timestamp(model.decisions.attrs['cash_start_date']) if model.decisions.attrs.get('cash_start_date')
                                else scheduled_us_tase_execution_dates(model.decisions.index[:1])[0])
+        elif (market := model.decisions.attrs.get("monthly_execution_market")):
+            from .monthly_execution import execution_dates
+            first_execution = execution_dates(model.decisions.index[:1], market)[0]
         else:
             first_execution = schedule_dates(model.decisions.index[:1])[0]
         lower.extend([quotes.index[valid][0],first_execution])
@@ -323,7 +331,12 @@ def run_mixed_portfolio(sleeves, initial, fee=0., taxed=False, tax_rate=.25, sta
                 raise ValueError('Missing opening prices within mixed DCA history.')
         if model.decisions.attrs.get('execution_frequency') != 'daily':
             from .backtest_options import contribution_for
-            scheduled = set(schedule_dates(model.decisions.index))
+            market = model.decisions.attrs.get("monthly_execution_market")
+            if market:
+                from .monthly_execution import execution_dates
+                scheduled = set(execution_dates(model.decisions.index, market))
+            else:
+                scheduled = set(schedule_dates(model.decisions.index))
             prior_day = None
             for day in sessions:
                 if prior_day is None or day in scheduled or contribution_for(day, None, prior_day, monthly_contribution):

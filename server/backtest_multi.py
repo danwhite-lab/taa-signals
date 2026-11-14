@@ -144,15 +144,15 @@ def live_inputs(request):
     definitions = [usd.resolve(s.model) if getattr(request,"usd_equivalents",False) else base.definition(s.model) for s in request.sleeves]
     mixed = getattr(request, "daily_valuation", False) or any(getattr(d.model_class, "execution_frequency", "monthly") == "daily" for d in definitions)
     local = all(d.execution_currency == "ILS" for d in definitions)
-    benchmark = "RVOL_SPY_IL" if mixed and local else "SPY"
+    gold_local = local and any(getattr(d.model_class, "execution_market", None) == "TASE" for d in definitions)
+    benchmark = "RVOL_SPY_IL" if local and (mixed or gold_local) else "SPY"
     assets = tuple(dict.fromkeys(a for d in definitions for a in (*getattr(d.model_class, "data_assets", base.ASSETS), getattr(d.model_class, "benchmark_asset", "SPY"), benchmark)))
-    strict = tuple(dict.fromkeys(a for d in definitions if getattr(d.model_class, "signal_calendar", None) == "XNYS" for a in d.model_class.us_data_assets))
+    strict = tuple(dict.fromkeys(a for d in definitions for a in base.data.adjusted_assets(d.model_class)))
     # Loader-only union descriptor. All decisions still use the original class.
     class PortfolioInputs:
         data_assets = assets
         benchmark_asset = benchmark
-        us_data_assets = strict
-        signal_calendar = "XNYS" if strict else None
+        require_adjusted_assets = strict
 
     years = [d.model_class.tase_history_years for d in definitions if hasattr(d.model_class, "tase_history_years")]
     if years:
@@ -167,18 +167,22 @@ def live_inputs(request):
     models = {}
     for sleeve, definition in zip(request.sleeves, definitions):
         strategy = definition.model_class()
-        sleeve_assets = tuple(dict.fromkeys((*getattr(strategy, "data_assets", base.ASSETS), benchmark)))
+        sleeve_benchmark = (strategy.benchmark_asset
+                            if not mixed and not getattr(request, "shared_benchmark", False)
+                            and getattr(strategy, "execution_market", None) else benchmark)
+        sleeve_assets = tuple(dict.fromkeys((*getattr(strategy, "data_assets", base.ASSETS), sleeve_benchmark)))
         daily = prices.loc[:, sleeve_assets]
-        market = tuple(dict.fromkeys((*getattr(strategy, "market_data_assets", sleeve_assets), benchmark)))
+        market = tuple(dict.fromkeys((*getattr(strategy, "market_data_assets", sleeve_assets), sleeve_benchmark)))
         monthly, decision_monthly = monthly_strategy_input(daily, market)
         decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else decision_monthly)
         key = f"{sleeve.model} ({sleeve.id})"
-        models[key] = (sleeve.weight/100, ModelInput(key, decisions, monthly, daily, benchmark, opens, definition.execution_currency))
+        models[key] = (sleeve.weight/100, ModelInput(key, decisions, monthly, daily, sleeve_benchmark, opens, definition.execution_currency))
     observations = {str(a): [{"date": day.isoformat(), "value": clean(v)} for day, v in prices[a].items()] for a in prices}
     if opens is not None:
         observations.update({"open:"+str(a): [{"date": day.isoformat(), "value": clean(v)} for day, v in opens[a].items()] for a in opens})
     cutoff = {d.label: str(d.model_class().completed_cutoff()) for d in definitions if hasattr(d.model_class, "completed_cutoff")}
-    return models, data_version(observations), metadata, warnings, benchmark, cutoff
+    portfolio_benchmark = next(iter(models.values()))[1].benchmark_asset
+    return models, data_version(observations), metadata, warnings, portfolio_benchmark, cutoff
 
 
 def proxy_inputs(request):

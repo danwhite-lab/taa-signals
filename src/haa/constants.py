@@ -87,6 +87,8 @@ GGCEM_ISRAEL_DATA_ASSETS = tuple(dict.fromkeys((*GGCEM_DATA_ASSETS, *GGCEM_ISRAE
 # Carlson's Orthogonal Alpha holds a permanent QLD/BTAL core and switches its
 # satellite between those same instruments using BTAL relative to T-bills.
 ORTHOGONAL_ALPHA_DATA_ASSETS = ("QLD", "BTAL", "BIL", "SPY")
+TACHLIT_HEDGED_GOLD_ASSET = "TACHLIT_HEDGED_GOLD_IL"
+
 CENTURY_MOMENTUM_DATA_ASSETS = ("SPMO", "IEF", "SPY")
 CENTURY_MOMENTUM_CASH_DATA_ASSETS = ("SPMO", "BIL", "SPY")
 # Israel implementations derive the trend signal from SPMO and retain local
