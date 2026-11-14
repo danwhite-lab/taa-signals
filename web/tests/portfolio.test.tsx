@@ -1,16 +1,16 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import words from "../content/portfolio.json";
 
-const calls = vi.hoisted(() => ({ api: vi.fn(), signOut: vi.fn() }));
-vi.mock("../lib/api", () => ({ api: calls.api }));
+const calls = vi.hoisted(() => ({ api: vi.fn(), authorizedResponse: vi.fn(), signOut: vi.fn() }));
+vi.mock("../lib/api", () => ({ api: calls.api, authorizedResponse: calls.authorizedResponse }));
 vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: { signOut: calls.signOut } }) }));
 import Portfolio from "../app/portfolio/page";
 
 const payload = { version: 1, name: "Fake portfolio", sleeves: [{ model: "Buy and Hold SPY", weight: 100 }], total_ils: 100, ils_per_usd: 4 };
 const saved = { id: "fake-id", name: "Fake portfolio", payload, updated_at: "mock-timestamp", is_default: true };
-afterEach(() => { cleanup(); calls.api.mockReset(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); calls.api.mockReset(); calls.authorizedResponse.mockReset(); vi.restoreAllMocks(); });
 it("keeps the moved Add a sleeve control lazy and leaves choosing a model non-mutating",async()=>{
   mockLoad();render(<Portfolio/>);await chooseSaved();
   const add=screen.getByRole("button",{name:words.addSleeve});
@@ -19,6 +19,7 @@ it("keeps the moved Add a sleeve control lazy and leaves choosing a model non-mu
   expect(actions.lastElementChild?.contains(add)).toBe(true);
   expect(screen.getByRole("region",{name:"Portfolio summary"}).contains(add)).toBe(false);
   expect(calls.api.mock.calls.some(([path])=>path.includes("/api/backtest/config"))).toBe(false);
+  expect(calls.authorizedResponse).not.toHaveBeenCalled();
   fireEvent.click(add);
   fireEvent.click(await screen.findByRole("button",{name:"Global"}));
   fireEvent.click(await screen.findByRole("button",{name:/US Treasury Bonds Buy and hold · IEF/}));
@@ -574,4 +575,29 @@ it("changes a sleeve only on Apply and saves the canonical key without dropping 
   expect(screen.getByLabelText("Weight for Buy and Hold IEF (row 1)")).toHaveProperty("value","100.00");
   fireEvent.click(saveButton()); await screen.findByText("Portfolio saved.");
   expect(savedPayload()).toEqual({...initial,sleeves:[{id:42,model:"Buy and Hold IEF",weight:100}]});
+});
+
+it("resolves saved My Funds names with the picker closed and distinguishes a missing fund", async () => {
+  const model = "MY-FUND-00000000-0000-4000-8000-000000000001";
+  const missing = "MY-FUND-00000000-0000-4000-8000-000000000002";
+  const customPayload = { ...payload, sleeves: [{ model, weight: 70 }, { model: missing, weight: 30 }] };
+  let finish!: (value: Response) => void;
+  calls.authorizedResponse.mockReturnValue(new Promise<Response>(resolve => { finish = resolve; }));
+  mockLoad(customPayload);
+  render(<Portfolio />);
+  await chooseSaved();
+  const table = within(screen.getByRole("table", { name: "Portfolio sleeves" }));
+  expect(table.getAllByText(words.loadingFundName)).toHaveLength(2);
+  expect(table.queryByText(words.missingFund)).toBeNull();
+  expect(calls.authorizedResponse).toHaveBeenCalledExactlyOnceWith("/api/my-funds", {});
+  expect(calls.api.mock.calls.some(([path]) => path.includes("/api/backtest/config"))).toBe(false);
+
+  await act(async () => finish(Response.json({ configured: true, rejected: 0, funds: [
+    { model, name: "Fixture fund", identifier: "5139837", market: "TASE", kind: "mutual", currency: "ILS", archived: true },
+  ] })));
+  expect(table.getByText("Fixture fund")).toBeTruthy();
+  expect(table.getByText(words.missingFund)).toBeTruthy();
+  expect(table.queryByText(words.loadingFundName)).toBeNull();
+  expect(table.queryByText(model)).toBeNull();
+  expect(calls.api.mock.calls.every(([, init]) => !init?.method)).toBe(true);
 });
