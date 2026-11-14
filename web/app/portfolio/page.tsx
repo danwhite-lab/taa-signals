@@ -1,15 +1,16 @@
 "use client";
 
-import { asModel } from "../../components/MyFunds";
+import { asModel, useMyFunds } from "../../components/MyFunds";
 import SearchPicker, { ChoiceLabel } from "../../components/SearchPicker";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { registryMessage } from "../../lib/my-funds-errors";
 import { api, type SavedPortfolio, type Workspace } from "../../lib/api";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { date, percent } from "../../lib/format";
 import styles from "./portfolio.module.css";
 import words from "../../content/portfolio.json";
+import fundWords from "../../content/my-funds.json";
 import pickerWords from "../../content/pickers.json";
 import { isKnownModel, modelChoice, type ModelOption, type RegisteredFund } from "../../lib/picker-display";
 import { savedOrder } from "../../lib/ui-order";
@@ -60,6 +61,21 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
     const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
     return { name: typeof row.model === "string" && row.model.trim() ? row.model : "Unavailable", weight: numeric(row.weight) };
   }) : null;
+  const registry = useMyFunds(sleeves?.some(row => row.name.startsWith("MY-FUND-")) ?? false);
+  function sleeveChoice(key: string) {
+    const model = models?.find(option => option.label === key);
+    if (key.startsWith("MY-FUND-")) {
+      const fund = model?.fund ?? registry.funds?.find(entry => entry.model === key);
+      if (fund) return modelChoice(asModel(fund));
+      if (registry.error) return { key, name: words.customFund, secondary: registry.error };
+      if (!registry.funds) return { key, name: words.customFund, secondary: words.loadingFundName };
+      if (!registry.configured) return { key, name: words.customFund, secondary: fundWords.unconfigured };
+      if (registry.rejected > 0) return { key, name: words.customFund, secondary: fundWords.rejectedRows };
+      return { key, name: words.customFund, secondary: words.missingFund };
+    }
+    return (models ? !!model : isKnownModel(key))
+      ? modelChoice(model ?? { label: key }) : { key, name: key, secondary: pickerWords.unavailable };
+  }
   const total = totalWeight(payload);
   const weight = (value: number | null) => value !== null && Number.isFinite(value) ? percent(value / 100) : "Unavailable";
   const editOptions = editing === null ? [] : (models?.filter(model => model.label === sleeves?.[editing]?.name || !sleeves?.some((row, index) => index !== editing && row.name === model.label)) ?? []);
@@ -69,14 +85,20 @@ function PortfolioSummary({ name, json, disabled, models, modelsError, reloadMod
     {!payload && <p role="alert">{words.summaryUnavailable}</p>}
     {sleeves ? <div className={styles.tableScroll}><table role="table" className={styles.sleeves} aria-label="Portfolio sleeves">
       <thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Sleeve name</th><th role="columnheader" scope="col">Weight</th><th role="columnheader" scope="col">Actions</th></tr></thead>
-      <tbody role="rowgroup">{sleeves.map((row, index) => <><tr role="row" className={styles.sleeveRow} key={index}><td role="cell"><ChoiceLabel choice={(models ? models.some(model => model.label === row.name) : isKnownModel(row.name))
-        ? modelChoice(models?.find(model => model.label === row.name) ?? { label: row.name }) : { key: row.name, name: row.name, secondary: pickerWords.unavailable }} /></td><td role="cell" className={styles.weightCell}>
+      <tbody role="rowgroup">{sleeves.map((row, index) => {
+        const choice = sleeveChoice(row.name);
+        return <Fragment key={index}><tr role="row" className={styles.sleeveRow}><td role="cell">
+          <ChoiceLabel choice={choice} />
+          {row.name.startsWith("MY-FUND-") && registry.error && choice.name === words.customFund &&
+            <button type="button" className="btn btn-secondary" onClick={registry.retry}>{words.retryFundNames}</button>}
+        </td><td role="cell" className={styles.weightCell}>
         <NumberField label={`Weight for ${row.name} (row ${index + 1})`} value={row.weight} decimals={2} disabled={disabled}
           onChange={value => editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), weight: value } : original))} />
       </td><td role="cell"><div className={styles.rowActions}><button className="btn btn-secondary" type="button" aria-label={`${words.edit} ${row.name} (row ${index + 1})`} disabled={disabled}
         onClick={() => { setEditing(index); setEditModel(row.name); setEditWeight(row.weight); }}>{words.edit}</button><button className="btn btn-destructive" type="button" aria-label={`Remove ${row.name} (row ${index + 1})`} disabled={disabled}
         onClick={() => editSleeves((payload!.sleeves as unknown[]).filter((_, i) => i !== index))}>-</button></div></td></tr>{editing === index && <tr role="row" className={styles.editor}><td role="cell" colSpan={3}><fieldset disabled={disabled}><legend>{words.editSleeve}</legend><SearchPicker value={editModel} models={editOptions} onFundChange={onFundChange} excludeFunds={sleeves.filter((_, i) => i !== index).map(s => s.name)} disabled={disabled}
-        onOpen={openModels} loading={models === null} error={modelsError} retry={reloadModels} retryLabel={words.retry} onSelect={setEditModel} /><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></fieldset></td></tr>}</>)}</tbody>
+        onOpen={openModels} loading={models === null} error={modelsError} retry={reloadModels} retryLabel={words.retry} onSelect={setEditModel} /><NumberField label={words.editWeight} value={editWeight} decimals={2} disabled={disabled} onChange={setEditWeight}/><div className={styles.rowActions}><button className="btn btn-primary" type="button" onClick={() => { editSleeves((payload!.sleeves as unknown[]).map((original, i) => i === index ? { ...(original as object), model: editModel, weight: editWeight } : original)); setEditing(null); }}>{words.apply}</button><button className="btn btn-secondary" type="button" onClick={() => setEditing(null)}>{words.cancel}</button></div></fieldset></td></tr>}</Fragment>;
+      })}</tbody>
       <tfoot role="rowgroup"><tr role="row"><th role="rowheader" scope="row">Total</th><td role="cell">{weight(total)}</td><td role="cell" /></tr></tfoot>
     </table></div> : <p>{words.sleevesUnavailable}</p>}
     {total !== null && Math.abs(total - 100) > 1e-9 && <p role="alert" className={styles.warning}>Weights total {weight(total)}, not 100%. You may save after confirmation, but signals and backtests require 100%. Weights are not normalized.</p>}
