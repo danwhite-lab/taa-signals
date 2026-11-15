@@ -63,7 +63,8 @@ def test_completed_session_parity(original, market, now):
     assert port.last_completed_session(market, now) == original.last_completed_session(market, now)
 
 
-@pytest.mark.parametrize("identifier", list(port.MAYA_ILS_UNIT_FUNDS))
+# New web-only funds are not admitted by the retired Streamlit reference.
+@pytest.mark.parametrize("identifier", [n for n in port.MAYA_ILS_UNIT_FUNDS if n != "5140918"])
 @pytest.mark.parametrize("stamp", ["2026-10-15", "2026-10-12", "2026-10-18"])
 def test_allowlist_conversion_and_stale_future_parity(original, identifier, stamp):
     published = publication(identifier); published["ratesAsOf"] = stamp
@@ -74,7 +75,7 @@ def test_allowlist_conversion_and_stale_future_parity(original, identifier, stam
     assert actual["as_of"] == stamp and actual["is_execution_price"] is False
 
 
-@pytest.mark.parametrize("identifier", ["5117700", "5139837", "5142476", "5132972"])
+@pytest.mark.parametrize("identifier", ["5117700", "5139837", "5142476", "5132972", "5140918"])
 @pytest.mark.parametrize("change", [{"fundId": 0}, {"isin": "BAD"}, {"fundTypeId": 9}, {"mutualFundSubType": 2}, {"deleted": True},
     {"mergingLiquidationStatus": "Merged"}, {"features": []}, {"features": [{"title": "יחידות הקרן נקובות ב- $", "enabled": True}]},
     {"ratesAsOf": None}, {"ratesAsOf": "bad"}, {"redemptionPrice": 0}, {"redemptionPrice": "NaN"}])
@@ -85,13 +86,14 @@ def test_identity_change_fails_closed_exactly(original, identifier, change):
 
 
 @pytest.mark.parametrize("identifier,expected,stamp", [
+    ("5140918", "1.0527", "2026-11-12"),
     ("5139837", "1.0885", "2026-11-04"),
     ("5142476", "0.9776", "2026-11-03"),
     ("5132972", "2.9494", "2026-11-05"),
 ])
 def test_new_fund_fixture_uses_exact_live_redemption_value_and_date(identifier, expected, stamp):
     published = json.loads((ROOT / "api" / "tests" / "fixtures" / f"maya_fund_{identifier}.json").read_text())
-    quote = port.quote_from_maya_fund(published, security(identifier, "TASE"), "2026-11-05T08:00:00Z")
+    quote = port.quote_from_maya_fund(published, security(identifier, "TASE"), "2026-11-15T08:00:00Z")
     assert quote["price"] == expected
     assert quote["as_of"] == stamp
     assert quote["raw_published_value"] == str(published["redemptionPrice"])
@@ -272,3 +274,26 @@ def test_reassessment_removes_awaiting_marker_when_new_fund_price_is_current(ori
     # Receiving malformed metadata later must not leave a misleading fund basis.
     fallback=port.assess_quote({**after,'dealing_schedule':'invalid'},'TASE','2026-11-09T09:00:00Z')
     assert 'awaiting_dealing_day' not in fallback and 'expected_basis' not in fallback
+
+
+def test_gold_cash_holding_uses_its_own_verified_maya_publication(monkeypatch):
+    from tasekit.api import TaseClient
+
+    published = json.loads((ROOT / 'api/tests/fixtures/maya_fund_5140918.json').read_text())
+    requested = []
+
+    def fetch(_self, identifier):
+        requested.append(identifier)
+        return published
+
+    monkeypatch.setattr(TaseClient, 'fetch_maya_fund_info', fetch)
+    monkeypatch.setattr(port, 'utc_now', lambda: '2026-11-15T08:00:00Z')
+    port.fetch_unit_quote.clear()
+    try:
+        quote = port.fetch_unit_quote(security('5140918', 'TASE'))
+        assert requested == ['5140918']
+        assert quote['price'] == '1.0527'
+        assert quote['as_of'] == '2026-11-12'
+        assert quote['valuation_kind'] == 'fund_nav'
+    finally:
+        port.fetch_unit_quote.clear()

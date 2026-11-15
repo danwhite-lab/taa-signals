@@ -21,6 +21,7 @@ from haa.tase_data import (TASE_ISRAEL_ASSET_IDS, TASE_ETF_ASSETS,
 # are percentages of nominal, so /100 gives actual ILS per held unit.
 # Verification documents and dates are recorded in docs/rebalance-holdings.md.
 MAYA_ILS_UNIT_FUNDS = {
+    "5140918": {"isin": "IL0051409188", "fund_type_id": 1},
     "5117700": {"isin": "IL0051177009", "fund_type_id": 1},
     "5131792": {"isin": "IL0051317928", "fund_type_id": 4},
     "5140850": {"isin": "IL0051408503", "fund_type_id": 4},

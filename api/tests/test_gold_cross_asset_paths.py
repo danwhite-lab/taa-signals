@@ -16,7 +16,7 @@ def histories(monkeypatch):
     prices = pd.DataFrame({"GLD": 100. + np.arange(len(us)), "IEF": 100. + np.arange(len(us)),
                            "BIL": 100. + .02 * np.arange(len(us)), "SPY": 100. + np.arange(len(us))}, index=us)
     prices[TACHLIT_HEDGED_GOLD_ASSET] = np.nan
-    prices["RVOL_CASH_IL"] = np.nan
+    prices["GOLD_CASH_IL"] = np.nan
     calls = []
     def yahoo(mapping, require_adjusted_assets=()):
         calls.append((mapping, set(require_adjusted_assets)))
@@ -47,8 +47,11 @@ def test_gold_rules_and_selectors(histories):
             assert label in {model["label"] for model in client.get(path, headers=AUTH).json()["models"]}
 
 
-def test_today_and_signals_keep_us_signal_if_tase_feed_fails(histories, monkeypatch):
-    _, calls = histories
+@pytest.mark.parametrize("risk_off", [False, True])
+def test_today_and_signals_keep_us_signal_if_tase_feed_fails(histories, monkeypatch, risk_off):
+    prices, calls = histories
+    if risk_off:
+        prices["IEF"] = 100.
     label = "Gold Cross-Asset Israel"
     definition = definition_for_label(label)
     as_of = pd.Timestamp("2025-07-10", tz="UTC")
@@ -60,12 +63,13 @@ def test_today_and_signals_keep_us_signal_if_tase_feed_fails(histories, monkeypa
     row = values["signals"][0]
     assert row["signal_details"]["Execution currency"] == "ILS"
     assert row["status_code"] == "check_data"
-    assert row["holding_display"][0]["security_number"] == "5141627"
+    assert row["holding_display"][0]["security_number"] == ("5140918" if risk_off else "5141627")
     payload = client.get("/api/signals", headers=AUTH, params={"label": label, "as_of": "2025-07-10"}).json()
     assert payload["current"]["available"] and payload["current"]["effective_start"] is None
-    assert payload["current"]["decision"]["selected_asset"] == definition.model_class.benchmark_asset
+    assert payload["current"]["decision"]["selected_asset"] == definition.model_class.execution_assets[1 if risk_off else 0]
     assert payload["current"]["decision"]["GLD_12m_return"] > 0
-    assert payload["current"]["decision"]["IEF_12m_return"] > 0
+    assert (payload["current"]["decision"]["IEF_12m_return"] == 0 if risk_off
+            else payload["current"]["decision"]["IEF_12m_return"] > 0)
     assert all(required == {"GLD", "IEF"} for _, required in calls)
     denied = client.get("/api/backtest/options", headers=AUTH, params={"label": label})
     assert denied.status_code == 400
@@ -97,7 +101,7 @@ def test_israel_backtest_uses_only_actual_local_fund_history(histories, monkeypa
     sessions = tase_equity_sessions("2025-02-01", "2025-08-26")
 
     def tase(assets, **kwargs):
-        assert set(assets) == {TACHLIT_HEDGED_GOLD_ASSET, "RVOL_CASH_IL"}
+        assert set(assets) == {TACHLIT_HEDGED_GOLD_ASSET, "GOLD_CASH_IL"}
         history = pd.DataFrame({asset: 100. + np.arange(len(sessions)) for asset in assets}, index=sessions)
         metadata = pd.DataFrame({"source": "MAYA", "identifier": [
             signals.tase_data.TASE_ISRAEL_ASSET_IDS[asset] for asset in assets],

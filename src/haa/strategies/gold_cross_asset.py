@@ -102,11 +102,11 @@ class GoldCrossAsset:
 
 class GoldCrossAssetIsrael(GoldCrossAsset):
     name = "Gold Cross-Asset Israel"
-    execution_assets = (TACHLIT_HEDGED_GOLD_ASSET, "RVOL_CASH_IL")
+    execution_assets = (TACHLIT_HEDGED_GOLD_ASSET, "GOLD_CASH_IL")
     data_assets = (*GoldCrossAsset.signal_assets, *execution_assets)
     require_adjusted_assets = GoldCrossAsset.signal_assets
     benchmark_asset = TACHLIT_HEDGED_GOLD_ASSET
     execution_currency = "ILS"
     execution_market = "TASE"
     full_coverage_assets = ()
-    notes = f"{INTERPRETATION}. {RULE} Israel uses the same USD signal. It holds hedged Tachlit gold (5141627) or Ayalon Kaspit (5117700), a shekel money-market fund used as near-cash. Benchmark: buy-and-hold hedged Tachlit gold. Returns use actual ILS redemption history only, with no earlier fund or USD proxy spliced in. Execution dates use TASE sessions and the hedged gold fund’s dealing schedule, including for the benchmark."
+    notes = f"{INTERPRETATION}. {RULE} Israel uses the same USD signal. It holds hedged Tachlit gold (5141627) or Altshuler Shaham Kaspit Liquidity Management (5140918), a shekel money-market fund used as near-cash. Benchmark: buy-and-hold hedged Tachlit gold. Gold returns use actual ILS redemption history only, with no earlier gold fund or USD proxy spliced in. Cash return history continues to use the existing Ayalon Kaspit (5117700) series as proxy history; this does not claim that Ayalon and Altshuler have identical returns. Execution dates use TASE sessions and the hedged gold fund’s dealing schedule, including for the benchmark."

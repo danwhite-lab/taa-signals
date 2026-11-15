@@ -63,13 +63,16 @@ def test_us_signal_is_independent_of_local_history_and_legacy_gold(month_ends):
     prices = pd.DataFrame({"GLD": np.arange(len(month_ends)) + 100.,
                            "IEF": np.arange(len(month_ends)) + 100.}, index=month_ends)
     original = GoldCrossAsset().decisions(prices, as_of=AS_OF)
-    for local in (prices, prices.assign(**{TACHLIT_HEDGED_GOLD_ASSET: 2., "RVOL_CASH_IL": np.nan})):
+    for local in (prices, prices.assign(**{TACHLIT_HEDGED_GOLD_ASSET: 2., "GOLD_CASH_IL": np.nan})):
         israeli = GoldCrossAssetIsrael().decisions(local, as_of=AS_OF)
         for field in ("GLD_12m_return", "IEF_12m_return", "regime"):
             pd.testing.assert_series_equal(original[field], israeli[field])
     assert TASE_ISRAEL_ASSET_IDS["GOLD_IL"] == "1147875"
     assert TASE_EXECUTION_ASSET_IDS["GOLD_IL"] == "5141627"
     assert TASE_ISRAEL_ASSET_IDS["RVOL_CASH_IL"] == "5117700"
+    assert TASE_EXECUTION_ASSET_IDS["RVOL_CASH_IL"] == "5117700"
+    assert TASE_ISRAEL_ASSET_IDS["GOLD_CASH_IL"] == "5117700"
+    assert TASE_EXECUTION_ASSET_IDS["GOLD_CASH_IL"] == "5140918"
     requested = []
     def security(number):
         requested.append(number)
@@ -77,6 +80,8 @@ def test_us_signal_is_independent_of_local_history_and_legacy_gold(month_ends):
     history = TasePriceSource(security).fetch_asset(TACHLIT_HEDGED_GOLD_ASSET)
     assert requested == ["5141627"]
     assert "redemption" in history.field
+    TasePriceSource(security).fetch_asset("GOLD_CASH_IL")
+    assert requested == ["5141627", "5117700"]
 
 
 def test_monthly_execution_uses_actual_cash_fund_returns_and_realized_switches(month_ends):

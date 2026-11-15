@@ -43,6 +43,9 @@ def test_declared_execution_securities_stay_in_their_market():
             assert all(key.startswith("US:") for key in models[definition.label]["held"])
     assert models["HAA-Simple Israel"]["held"] == ["TASE:1159250", "TASE:1159268", "TASE:5136866"]
     assert models["Century Momentum Move to Cash Israel"]["held"] == ["TASE:5140850", "TASE:5117700"]
+    assert models["Gold Cross-Asset Israel"]["held"] == ["TASE:5141627", "TASE:5140918"]
+    assert details["funds"]["TASE:5117700"]["name"] == "Ayalon Kaspit"
+    assert details["funds"]["TASE:5140918"]["name"] == "Altshuler Shaham Kaspit Liquidity Management"
     assert models["Buy and Hold Gold Israel"]["held"] == ["TASE:5141627"]
     assert models["Buy and Hold Gold Israel"]["benchmark"]["identifier"] == "1147875"
     assert details["funds"]["TASE:1159102"]["full_name"] is None

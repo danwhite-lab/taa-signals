@@ -169,7 +169,11 @@ def metadata():
         identifier = item["identifier"]
         raw_labels = {identifier, *labels[key]}
         # Prefer a name from the local asset role, rather than a US return proxy label.
-        local = [EXECUTION_SECURITY_LABELS.get(("ILS", asset), "") for asset in aliases[key]]
+        # A history alias can execute in a different fund. Name the actual
+        # security from matching execution IDs, not from its history aliases.
+        local = [EXECUTION_SECURITY_LABELS.get(("ILS", asset), "")
+                 for asset, number in TASE_EXECUTION_ASSET_IDS.items()
+                 if item["market"] == "TASE" and number == identifier]
         local_names = sorted(re.sub(r"\s+[-–—]\s+\d{7}$", "", name) for name in local if name)
         default_name = local_names[0] if local_names else identifier
         provider_ids = default_ticker_map(aliases[key])

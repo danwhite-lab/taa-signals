@@ -23,6 +23,7 @@ EXECUTION_SECURITY_LABELS = {
     ("ILS", "RVOL_LQD_IL"): "iShares $ Corp Bond UCITS — 1159185",
     ("ILS", "RVOL_HYG_IL"): "iShares $ High Yield Corp Bond UCITS — 1159078",
     ("ILS", "TACHLIT_HEDGED_GOLD_IL"): "Tachlit TTF LBMA Gold AM currency hedged — 5141627",
+    ("ILS", "GOLD_CASH_IL"): "Altshuler Shaham Kaspit Liquidity Management - 5140918",
     ("ILS", "RVOL_CASH_IL"): "Ayalon Kaspit — 5117700",
     ("ILS", "CSPX_IL"): "CSPX — 1159250",
     ("ILS", "FTSE_ALL_WORLD_IL"): "FTSE All-World — 1209220",
