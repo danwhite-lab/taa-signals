@@ -7,7 +7,7 @@ import pickerStyles from "../../components/search-picker.module.css";
 import { ActualFundLabel, ChoiceDetails, FundFacts, MetadataStatus, SearchResults, usePickerMetadata } from "../../components/SearchPicker";
 import pickerWords from "../../content/pickers.json";
 import { fundChoice, fundName, modelCaption } from "../../lib/picker-display";
-import { savedOrder } from "../../lib/ui-order";
+import { byLabel, savedOrder } from "../../lib/ui-order";
 import fundWords from "../../content/my-funds.json";
 import HoldingEditorRow from "../../components/HoldingEditorRow";
 import { rebalanceRequest as request, saveHoldings, saveAllocationMode, type AllocationMode, RebalanceError } from "../../lib/rebalanceApi";
@@ -270,6 +270,16 @@ export default function RebalanceHoldings() {
   const comparison=state ? state.comparison.filter(row=>!row.companion_of).flatMap(row=>[
     row,...state.comparison.filter(child=>child.companion_of===row.id),
   ]).concat(state.comparison.filter(row=>row.companion_of&&!state.comparison.some(anchor=>anchor.id===row.companion_of))) : [];
+  const sellRows = (state?.sell_review ?? []).filter(row => row.action === "sell");
+  const pendingRows = (state?.sell_review ?? []).filter(row => row.action === "pending");
+  const keepRows = (state?.sell_review ?? []).filter(row => row.action === "keep");
+  const reviewName = (id: string) => fundName(id, state?.instruments[id]?.label ?? id);
+  for (const group of [sellRows, pendingRows, keepRows]) group.sort((a, b) => byLabel(reviewName(a.id), reviewName(b.id)));
+  const holdingMarker = (id: string) => {
+    const row = state?.rows.find(row => row.Security === id);
+    if (row?.["Outside the rebalance"] || state?.comparison.some(row => row.id === id && row.Status === "Outside the rebalance")) return holdings.outside;
+    return row?.["Companion of"] ? holdings.roles.companion : null;
+  };
   const staleFunds = state?.stale ?? [];
   const isStale = (id: string) => staleFunds.includes(id);
   const staleDate = (id: string) => String(state?.quotes[id]?.as_of ?? "—");
@@ -403,10 +413,20 @@ export default function RebalanceHoldings() {
       <div role="tabpanel" id="action-panel-sell" aria-labelledby="action-tab-sell" tabIndex={0} hidden={actionTab !== "sell"}>
         <section><h2>{text.sellTitle}</h2><p>{text.sellCaption}</p>
         {dirty || !state.portfolio_id || state.errors.length > 0 ? <p role="status">{text.sellUnavailable}</p> : <>
-          {!state.sell_review?.length && <p>{text.noSells}</p>}
-          {!!state.sell_review?.length && <table className="rebalance-data-table"><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.beforeUnits}</th><th>{text.afterUnits}</th></tr></thead><tbody>
-            {state.sell_review.map(row => <tr key={row.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[row.id]} /></td><td data-label={text.action}>{row.action === "sell" ? text.sellAction : row.action === "pending" ? text.pendingReplacement : text.keepAction}</td><td data-label={text.beforeUnits}>{fmt.cell(row.before_units, "units")}</td><td data-label={text.afterUnits}>{fmt.cell(row.after_units, "units")}</td></tr>)}
+          {!sellRows.length && <p>{text.noSells}</p>}
+          {!!sellRows.length && <table className="rebalance-data-table" aria-label={text.sellTitle}><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.sellUnits}</th></tr></thead><tbody>
+            {sellRows.map(row => <tr key={row.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[row.id]} /></td><td data-label={text.action}>{text.sellAction}</td><td data-label={text.sellUnits}>{fmt.cell(row.before_units, "units")}</td></tr>)}
           </tbody></table>}
+          {!!pendingRows.length && <div><h3>{text.needsReview}</h3><p>{text.replacementReview}</p>
+            <table className="rebalance-data-table" aria-label={text.needsReview}><thead><tr><th>{text.fund}</th><th>{text.action}</th><th>{text.currentUnits}</th></tr></thead><tbody>
+              {pendingRows.map(row => <tr key={row.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[row.id]} /></td><td data-label={text.action}>{text.pendingReplacement}</td><td data-label={text.currentUnits}>{fmt.cell(row.before_units, "units")}</td></tr>)}
+            </tbody></table>
+          </div>}
+          {!!keepRows.length && <details><summary>{text.keepSummary.replace("{count}", String(keepRows.length))}</summary>
+            <table className="rebalance-data-table" aria-label={text.keepAction}><thead><tr><th>{text.fund}</th><th>{text.currentUnits}</th></tr></thead><tbody>
+              {keepRows.map(row => <tr key={row.id}><td data-label={text.fund}><ActualFundLabel fund={state.instruments[row.id]} />{holdingMarker(row.id) && <small className="companion-note">{holdingMarker(row.id)}</small>}</td><td data-label={text.currentUnits}>{fmt.cell(row.before_units, "units")}</td></tr>)}
+            </tbody></table>
+          </details>}
         </>}
         <button type="button" className="btn btn-secondary" onClick={() => setStep("holdings")}>{text.backHoldings}</button>
         <button type="button" className="btn btn-primary" onClick={openBuy}>{text.nextBuy}</button>

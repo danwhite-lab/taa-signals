@@ -534,7 +534,9 @@ it("reviews full exits without recording trades or funding buys from sales", asy
   fireEvent.click(screen.getByRole("button", {name:text.steps.action}));
   fireEvent.click(screen.getByRole("tab", {name:text.actionTabs.sell}));
   expect(screen.getByRole("cell", {name:text.sellAction})).toBeTruthy();
-  expect(screen.getByRole("cell", {name:"0"})).toBeTruthy();
+  expect(screen.queryByRole("columnheader", {name:text.beforeUnits})).toBeNull();
+  expect(screen.queryByRole("columnheader", {name:text.afterUnits})).toBeNull();
+  expect(screen.getByRole("cell", {name:"2"})).toBeTruthy();
   expect(mock.save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", {name:text.nextBuy}));
   mock.request.mockResolvedValue({state,plan});
@@ -794,4 +796,62 @@ it('keeps ordinary stale quote wording in the price-source table and warning',as
   fireEvent.click(within(panel).getByText('Price sources (1)',{selector:'summary'}));
   expect(within(panel).getByRole('cell',{name:'Stale'})).toBeTruthy();
   expect(within(panel).queryByText(/^Awaiting/)).toBeNull();
+});
+
+it("puts sorted sells and pending reviews before collapsed, marked keeps", async () => {
+  const entries = [
+    {id:"US:ZS",label:"Zulu sell",action:"sell",units:"12"},
+    {id:"US:ZK",label:"Zulu protected",action:"keep",units:"23",outside:true},
+    {id:"US:ZP",label:"Zulu review",action:"pending",units:"34"},
+    {id:"US:AS",label:"alpha sell",action:"sell",units:"45"},
+    {id:"US:AK",label:"alpha keep",action:"keep",units:"56"},
+    {id:"US:AP",label:"alpha review",action:"pending",units:"67"},
+  ];
+  mock.request.mockResolvedValue({...state,
+    instruments:Object.fromEntries(entries.map(e=>[e.id,{...item,id:e.id,identifier:e.id.slice(3),label:e.label}])),
+    rows:entries.map(e=>({...row,Security:e.id,Fund:e.label,Units:e.units,"Outside the rebalance":e.outside??false})),
+    sell_review:entries.map(e=>({id:e.id,action:e.action,before_units:e.units,after_units:e.action==="sell"?"0":e.units})),
+  });
+  render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab",{name:text.actionTabs.sell}));
+  const panel=screen.getByRole("tabpanel",{name:text.actionTabs.sell});
+  const sells=within(panel).getByRole("table",{name:text.sellTitle});
+  const pending=within(panel).getByRole("table",{name:text.needsReview});
+  const keeps=within(panel).getByText(text.keepSummary.replace("{count}","2")).closest("details")!;
+  expect(keeps.open).toBe(false);
+  expect(sells.compareDocumentPosition(pending)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(pending.compareDocumentPosition(keeps)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for(const [table,names] of [[sells,["alpha sell","Zulu sell"]],[pending,["alpha review","Zulu review"]],[keeps,["alpha keep","Zulu protected"]]] as const) {
+    expect([...table.querySelectorAll("tbody tr")].map(r=>r.firstElementChild?.textContent)).toEqual(names.map(n=>expect.stringContaining(n)));
+  }
+  expect(within(sells).getAllByRole("columnheader").map(h=>h.textContent)).toEqual([text.fund,text.action,text.sellUnits]);
+  expect([...sells.querySelectorAll("tbody tr")].map(r=>[...r.children].slice(1).map(c=>c.textContent))).toEqual([
+    [text.sellAction,"45"],[text.sellAction,"12"]]);
+  expect(within(pending).queryByText(text.sellAction)).toBeNull();
+  expect(within(pending).getAllByText(text.pendingReplacement)).toHaveLength(2);
+  expect(within(pending).getByRole("columnheader",{name:text.currentUnits})).toBeTruthy();
+  expect(within(panel).getAllByText(text.sellAction)).toHaveLength(2);
+  expect([...keeps.querySelectorAll("th")].map(h=>h.textContent)).toEqual([text.fund,text.currentUnits]);
+  expect(keeps.querySelector("tbody tr:last-child small.companion-note")?.textContent).toBe(holdings.outside);
+  expect(mock.save).not.toHaveBeenCalled();
+});
+
+it.each(["pending","keep"])("shows no confirmed sells with %s-only holdings", async action => {
+  mock.request.mockResolvedValue({...state,sell_review:[{id:item.id,action,before_units:"2",after_units:"2"}]});
+  render(<Page/>); await screen.findByText(text.holdings);
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  fireEvent.click(screen.getByRole("tab",{name:text.actionTabs.sell}));
+  const panel=screen.getByRole("tabpanel",{name:text.actionTabs.sell});
+  expect(within(panel).getByText(text.noSells)).toBeTruthy();
+  expect(within(panel).queryByRole("table",{name:text.sellTitle})).toBeNull();
+  expect(within(panel).queryByText(text.sellAction)).toBeNull();
+  if(action==="pending") {
+    expect(within(panel).getByRole("heading",{name:text.needsReview})).toBeTruthy();
+    expect(within(panel).getByText(text.replacementReview)).toBeTruthy();
+    expect(panel.querySelector("details")).toBeNull();
+  } else {
+    expect(within(panel).queryByRole("heading",{name:text.needsReview})).toBeNull();
+    expect((panel.querySelector("details") as HTMLDetailsElement).open).toBe(false);
+  }
 });
