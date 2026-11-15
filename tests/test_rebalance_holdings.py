@@ -459,3 +459,19 @@ def test_alias_respects_explicit_anchor_exclusion_without_changing_account():
     rows,_,total=compare_holdings(account,instruments,targets,quotes,1,aliases)
     assert next(row for row in rows if row['id']==legacy)['Status']=='Outside the rebalance'
     assert total == Decimal(account['cash_ils'])
+
+
+def test_gold_and_cm_risk_off_cash_remain_separate_targets():
+    from haa.strategies import GoldCrossAssetIsrael
+    from haa.strategies.century_momentum import CenturyMomentumMoveToCashIsrael
+
+    gold_cash = GoldCrossAssetIsrael.execution_assets[1]
+    cm_cash = CenturyMomentumMoveToCashIsrael.execution_proxies['BIL']
+    instruments, targets = combined_targets([
+        {'name': 'Century Momentum Move to Cash Israel', 'currency': 'ILS',
+         'weight': 40, 'target_weights': {cm_cash: 1}},
+        {'name': 'Gold Cross-Asset Israel', 'currency': 'ILS',
+         'weight': 60, 'target_weights': {gold_cash: 1}},
+    ])
+    assert targets == {'TASE:5117700': .4, 'TASE:5140918': .6}
+    assert set(instruments) == {'TASE:5117700', 'TASE:5140918'}

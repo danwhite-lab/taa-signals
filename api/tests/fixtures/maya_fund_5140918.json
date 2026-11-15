@@ -1,0 +1,118 @@
+{
+  "fundId": 5140918,
+  "name": "אש כספית ניהול נזילות",
+  "longName": "אלטשולר שחם (00) כספית ניהול נזילות",
+  "fundType": "קרן פתוחה",
+  "fundTypeId": 1,
+  "isin": "IL0051409188",
+  "deleted": false,
+  "mutualFundSubType": 1,
+  "mergingLiquidationStatus": null,
+  "managerId": 10017,
+  "managerName": "אלטשולר-שחם קרנות",
+  "trusteeId": 10013,
+  "trusteeName": "יובנק נאמנות",
+  "managementFee": 0.06,
+  "trusteeFee": 0.01,
+  "variableFee": null,
+  "purchasePrice": 105.27,
+  "redemptionPrice": 105.27,
+  "ratesAsOf": "2026-11-12",
+  "assetValueNISMillions": 12748.0,
+  "assetValueAsOf": "2026-10-30T00:00:00",
+  "saleLoad": 0.0,
+  "taxStatusName": "פטורה",
+  "isInternational": false,
+  "distributionCommissionName": "0.1%",
+  "paymentPolicyName": "לא מתחייבת לחלק תשלומים",
+  "designatedHours": "ביום ו' - 13:00, בימים ב'-ה' - 16:00",
+  "tradingSuspendDescription": null,
+  "lastProspectusReportId": 1678492,
+  "lastAnnualReportId": 1770312,
+  "lastMonthlyReportId": 1771386,
+  "fundTransition": null,
+  "exposureProfile": {
+    "shareSymbol": "0",
+    "fxSymbol": "0",
+    "sharesDesc": "ללא חשיפה",
+    "fxDesc": "ללא חשיפה"
+  },
+  "classification": {
+    "major": "קרן כספית",
+    "main": "כספית שקלית",
+    "secondary": "כספית שקלית עם קונצרני"
+  },
+  "features": [
+    {
+      "title": "הקרן הינה קרן בלתי מוגבלת בני\"ע חוץ",
+      "enabled": false
+    },
+    {
+      "title": "הקרן הינה קרן ממונפת",
+      "enabled": false
+    },
+    {
+      "title": "לפי מדיניות השקעותיה הקרן הינה קרן מחקה",
+      "enabled": false
+    },
+    {
+      "title": "לפי מדיניות השקעותיה הקרן הינה קרן חשיפה הפוכה",
+      "enabled": false
+    },
+    {
+      "title": "הקרן עוקבת תיק של",
+      "enabled": false
+    },
+    {
+      "title": "הקרן היא קרן מועדים קבועים",
+      "enabled": false
+    },
+    {
+      "title": "יחידות הקרן נקובות ב- $",
+      "enabled": false
+    },
+    {
+      "title": "קרן להשקעות חוץ – מטבע עיקרי",
+      "enabled": false
+    },
+    {
+      "title": "קרן להשק חוץ-פטור ממס לתושבי חוץ",
+      "enabled": false
+    },
+    {
+      "title": "קרן כשרה",
+      "enabled": false
+    }
+  ],
+  "yields": {
+    "dueDate": "2026-11-12",
+    "dayYield": 0.0,
+    "dayYieldAvg": 0.003658,
+    "dayYieldRemarkType": null,
+    "monthYield": 0.09,
+    "monthYieldAvg": 0.091707,
+    "monthYieldRemarkType": null,
+    "yearYield": 3.25,
+    "yearYieldAvg": 3.079268,
+    "yearYieldRemarkType": null,
+    "last12MonthYield": 3.96,
+    "last12MonthYieldAvg": 3.627073,
+    "last12MonthYieldRemarkType": null,
+    "standardDeviation": 0.0,
+    "standardDeviationRemarkType": null
+  },
+  "underlyingAssets": [
+    {
+      "name": "תל גוב-מק\"מ",
+      "indexId": 800,
+      "weight": 100.0
+    }
+  ],
+  "upcomingEvents": [],
+  "redemptionFirstOrLast": null,
+  "redemptionPeriodName": null,
+  "redemptionOther": null,
+  "redemptionDays": null,
+  "securityRedemptions": [],
+  "estimatedYield": null
+}

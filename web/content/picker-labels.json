@@ -94,6 +94,7 @@
     "TASE:5139076": {"name": "5139076", "labels": ["5139076", "BIL USD", "BIL USD - 5139076"]},
     "TASE:5139837": {"name": "Harel Russell 2000 (unhedged)", "labels": ["5139837", "Russell 2000 Israel", "Russell 2000 Israel — 5139837"]},
     "TASE:5140850": {"name": "MTF Tracking S&P 500 Momentum (4D)", "labels": ["5140850", "MTF Tracking S&P 500 Momentum (4D)", "MTF Tracking S&P 500 Momentum (4D) — 5140850"]},
+    "TASE:5140918": {"name": "Altshuler Shaham Kaspit Liquidity Management", "labels": ["5140918", "Altshuler Shaham Kaspit Liquidity Management", "Altshuler Shaham Kaspit Liquidity Management - 5140918"]},
     "TASE:5141627": {"name": "Tachlit Gold (currency hedged)", "labels": ["5141627", "Tachlit TTF LBMA Gold AM currency hedged", "Tachlit TTF LBMA Gold AM currency hedged — 5141627"]},
     "TASE:5142476": {"name": "IBI MSCI AC World ex USA (currency hedged)", "labels": ["5142476", "ACWX proxy", "ACWX proxy — 5142476", "Ex-US Israel", "Ex-US Israel — 5142476", "VXUS proxy", "VXUS proxy — 5142476"]},
     "US:ACWI": {"name": "iShares MSCI ACWI ETF", "labels": ["ACWI"]},
