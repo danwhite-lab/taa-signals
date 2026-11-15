@@ -249,12 +249,28 @@ def run(request, code):
         if mapping: params["usd_mapping"] = {"version": usd.VERSION, "rows": mapping}
         def compute():
             began = perf_counter()
-            preliminary = calculate(request, models, passed)
+            gold_sleeves = [model for _, model in models.values() if model.decisions.attrs.get("full_coverage_assets")]
+            window = {}
+            if gold_sleeves and (request.start is not None or request.end is not None):
+                from haa.monthly_execution import execution_bounds
+
+                for model in gold_sleeves:
+                    first, last = execution_bounds(model.decisions, model.daily_prices, model.benchmark_asset)
+                    start = pd.Timestamp(request.start) if request.start else first
+                    end = pd.Timestamp(request.end) if request.end else last
+                    if not first <= start <= end <= last:
+                        error("dateRange")
+                window = {"start": request.start, "end": request.end}
+            preliminary = calculate(request, models, passed, **window)
             common = preliminary.common_index if hasattr(preliminary, "common_index") else preliminary.monthly.index
             lower, upper = common.min().date(), common.max().date()
-            start, end = request.start or lower, request.end or upper
-            if not lower <= start <= end <= upper: error("dateRange")
-            result = preliminary if start == lower and end == upper else calculate(request, models, passed, start=pd.Timestamp(start), end=pd.Timestamp(end))
+            if window:
+                start, end = lower, upper
+                result = preliminary
+            else:
+                start, end = request.start or lower, request.end or upper
+                if not lower <= start <= end <= upper: error("dateRange")
+                result = preliminary if start == lower and end == upper else calculate(request, models, passed, start=pd.Timestamp(start), end=pd.Timestamp(end))
             nav = result.daily if result.daily is not None else result.monthly
             # Synthetic daily NAV intentionally has no invented daily benchmark.
             if nav.empty or not np.isfinite(nav[[c for c in ("pre_tax_value", "after_tax_value", "benchmark_value") if c in nav]].to_numpy()).all() or not np.isfinite(result.monthly[["pre_tax_value", "after_tax_value", "benchmark_value"]].to_numpy()).all(): error("invalidResult")

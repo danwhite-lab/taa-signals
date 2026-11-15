@@ -91,7 +91,7 @@ def test_monthly_execution_uses_actual_cash_fund_returns_and_realized_switches(m
     for day, gold, cash in zip(fills, [200, 220, 220, 230, 240], [100, 102, 104, 106, 108]):
         prices.loc[day] = [gold, 300, cash]
     result = run_backtest(decisions, prices, 1000, tax_enabled=True, daily_prices=prices,
-                          benchmark_asset="GLD", trading_fees=TradingFees("USD", usd_flat=1))
+                          benchmark_asset="GLD", end=fills[-1], trading_fees=TradingFees("USD", usd_flat=1))
     assert list(result.audit.execution_date) == list(fills[:-1])
     assert list(result.audit.holding_period_return) == pytest.approx([.10, 104/102-1, 106/104-1, 240/230-1])
     assert list(result.monthly.pre_tax_fee) == pytest.approx([1, 2, 0, 2])

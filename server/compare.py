@@ -123,10 +123,9 @@ def load(request, chosen):
         decisions = cached_decisions(strategy, daily if getattr(strategy, "uses_daily_signals", False) else monthly)
         inputs[original_label] = ModelInput(original_label, decisions, monthly, daily, getattr(strategy, "benchmark_asset", "SPY"), execution_currency=d.execution_currency)
         if getattr(strategy, "execution_market", None):
-            from haa.monthly_execution import execution_schedule
+            from haa.monthly_execution import execution_bounds
 
-            schedule = execution_schedule(decisions, daily, strategy.benchmark_asset)
-            first, last = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
+            first, last = execution_bounds(decisions, daily, strategy.benchmark_asset)
         else:
             first, last = base.data.common_monthly_period(monthly)
         if first is None or last is None: raise ValueError(WORDS["noMonthly"].format(name=d.label))
