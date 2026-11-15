@@ -110,3 +110,62 @@ def test_israel_backtest_uses_only_actual_local_fund_history(histories, monkeypa
     assert result.json()["actual_execution_start"].startswith("2025-02-02")
     assert "5141627" in result.text and "buy-and-hold" in result.text
     assert "1147875" not in result.text
+
+
+@pytest.fixture
+def late_cash_history(histories):
+    prices, _ = histories
+    prices.loc[:"2024-06-19", "BIL"] = np.nan
+    prices.loc["2024-04-30", "IEF"] = 95.  # A risk-off month before cash history exists.
+    return prices
+
+
+def test_usd_default_window_and_early_start_validation(late_cash_history):
+    label = "Gold Cross-Asset"
+    options = client.get("/api/backtest/options", headers=AUTH, params={"label": label})
+    assert options.status_code == 200, options.text
+    assert options.json()["bounds"]["start_min"] == "2024-08-01"
+    result = client.post("/api/backtest", headers=AUTH, json={"label": label})
+    assert result.status_code == 200, result.text
+    assert result.json()["actual_execution_start"][:10] == "2024-07-01"
+    assert result.json()["first_date"][:10] == "2024-08-01"
+    early = client.post("/api/backtest", headers=AUTH, json={"label": label, "start": "2024-06-01"})
+    assert early.status_code == 400
+    assert early.json()["detail"] == "Start date is outside the available data range."
+
+
+def test_explicit_window_ignores_earlier_gap_but_rejects_gap_inside(late_cash_history):
+    # The gold holding already exists. An isolated missing fill is not inception.
+    late_cash_history.loc["2024-09-03", "GLD"] = np.nan
+    label = "Gold Cross-Asset"
+    supported = {"start": "2025-01-01", "end": "2025-05-01"}
+    for payload in ({"label": label}, {"mode": "portfolio", "fees_enabled": False, "sleeves": [
+        {"id": 1, "model": label, "weight": 50}, {"id": 2, "model": "Buy and Hold SPY", "weight": 50},
+    ]}):
+        result = client.post("/api/backtest", headers=AUTH, json={**payload, **supported})
+        assert result.status_code == 200, result.text
+        chart = result.json()["value_chart"]
+        assert chart["start"][:10] >= supported["start"] and chart["end"][:10] <= supported["end"]
+    compared = client.post("/api/compare", headers=AUTH, json={
+        "models": [label, "Buy and Hold Gold GLD"], **supported})
+    assert compared.status_code == 200, compared.text
+    assert compared.json()["bounds"]["start"] == "2024-08-01"
+    assert compared.json()["window"]["start"] >= supported["start"]
+    assert compared.json()["window"]["end"] <= supported["end"]
+
+    rejected = client.post("/api/backtest", headers=AUTH, json={"label": label})
+    assert rejected.status_code == 400
+    assert "missing actual daily price on scheduled execution date 2024-09-03" in rejected.json()["detail"]
+
+
+@pytest.mark.parametrize("gap", ["missing signal", "early cash end"])
+def test_full_coverage_window_refuses_later_data_loss(late_cash_history, gap):
+    if gap == "missing signal":
+        late_cash_history.loc["2024-09-30", "IEF"] = np.nan
+        expected = "Missing monthly signal"
+    else:
+        late_cash_history.loc["2025-01-01":, "BIL"] = np.nan
+        expected = "BIL: missing actual daily price"
+    rejected = client.post("/api/backtest", headers=AUTH, json={"label": "Gold Cross-Asset"})
+    assert rejected.status_code == 400
+    assert expected in rejected.json()["detail"]

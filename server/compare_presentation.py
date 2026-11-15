@@ -109,6 +109,8 @@ def present(request, comparison, loaded, bounds):
         "success":W["success"].format(start=window["start"],end=window["end"],n=len(common)) if models else None,
         "source_caption":W["sharedSource"].format(start=bounds[0],end=bounds[1]) if models else W["portfolioCurrencyCaption"].format(currency=next(iter(next(iter(loaded["inputs"].values())).values()))[1].execution_currency),
         "coverage":preview(comparison.available_periods), "tables":tables, "charts":charts, "data_validation":loaded["metadata"]}
+    if models and any(model.decisions.attrs.get("full_coverage_assets") for model in loaded["inputs"].values()):
+        public["source_caption"] = f"Shared holding-period bounds after full asset coverage: {bounds[0]} through {bounds[1]}."
     from .price_warnings import annotate_price_warnings
     from haa.valuation_gaps import collected_warnings
     return clean(annotate_price_warnings({"kind":f"compare-{request.mode}-v1", "public":public, "downloads":downloads}, collected_warnings(comparison.results.values())))

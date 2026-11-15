@@ -24,7 +24,7 @@ from haa.portfolio_comparison import compare_portfolios
 
 
 from haa.engine import run_backtest
-from haa.monthly_execution import observed_execution_date
+from haa.monthly_execution import execution_bounds, observed_execution_date
 from haa.daily_engine import daily_performance_metrics
 from haa.metrics import annual_returns, performance_metrics, rolling_annualized_returns, worst_rolling_annualized_return
 from haa.model_catalog import MODEL_CATALOG, definition_for_label, implementations, resolve, strategies as catalog_strategies, variants
@@ -1738,16 +1738,30 @@ if page == "Backtest" and backtest_mode == "Portfolio":
                     sleeve_key, sleeve_strategy.decisions(sleeve_decision_prices), sleeve_monthly, sleeve_daily, portfolio_benchmark_asset,
                     execution_opens, definition_for_label(sleeve_name).execution_currency
                 ))
-            preliminary_portfolio = run_portfolio_backtest(
-                portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra
-            )
+            if any(model.decisions.attrs.get("full_coverage_assets") for _, model in portfolio_inputs.values()):
+                ranges = [
+                    execution_bounds(model.decisions, model.daily_prices, model.benchmark_asset)
+                    if model.decisions.attrs.get("monthly_execution_market")
+                    else common_monthly_period(model.monthly_prices)
+                    for _, model in portfolio_inputs.values()
+                ]
+                if any(first is None or last is None for first, last in ranges):
+                    raise ValueError("The selected sleeves have no common executable holding periods.")
+                portfolio_start_min = max(first for first, _ in ranges).date()
+                portfolio_end_max = min(last for _, last in ranges).date()
+                if portfolio_start_min > portfolio_end_max:
+                    raise ValueError("The selected sleeves have no common executable holding periods.")
+            else:
+                preliminary_portfolio = run_portfolio_backtest(
+                    portfolio_inputs, initial, transaction_cost=cost_pct, tax_enabled=tax_enabled, tax_rate=tax_rate, **backtest_extra
+                )
+                portfolio_start_min = preliminary_portfolio.common_index.min().date()
+                portfolio_end_max = preliminary_portfolio.common_index.max().date()
         except (ValueError, KeyError) as exc:
             title_column.title("Portfolio backtest")
             st.error(str(exc))
             st.stop()
 
-        portfolio_start_min = preliminary_portfolio.common_index.min().date()
-        portfolio_end_max = preliminary_portfolio.common_index.max().date()
         saved_portfolio_start = st.session_state.get("portfolio_backtest_start", portfolio_start_min)
         saved_portfolio_end = st.session_state.get("portfolio_backtest_end", portfolio_end_max)
         portfolio_start = min(max(saved_portfolio_start, portfolio_start_min), portfolio_end_max)
@@ -1870,13 +1884,11 @@ if page in {"Backtest", "Research", "Rules"}:
     ranges = date_ranges(prices)
     common_start, common_end = common_monthly_period(monthly)
     if getattr(strategy, "execution_market", None):
-        from haa.monthly_execution import execution_schedule
         try:
-            schedule = execution_schedule(strategy.decisions(prices), prices, benchmark_asset)
+            common_start, common_end = execution_bounds(strategy.decisions(prices), prices, benchmark_asset)
         except ValueError as exc:
             st.error(str(exc))
             st.stop()
-        common_start, common_end = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
 
     if substitution_all_prices is not None:
         if getattr(strategy, "execution_frequency", "monthly") == "daily":
@@ -2817,15 +2829,19 @@ if page == "Compare":
                     selected_market_assets = getattr(selected_strategy, "market_data_assets", selected_assets)
                     selected_monthly = to_month_end(selected_daily.loc[:, list(selected_market_assets)])
                     selected_decision_prices = selected_daily if getattr(selected_strategy, "uses_daily_signals", False) else selected_monthly
+                    selected_decisions = selected_strategy.decisions(selected_decision_prices)
                     comparison_inputs[selected_name] = ModelInput(
                         selected_name,
-                        selected_strategy.decisions(selected_decision_prices),
+                        selected_decisions,
                         selected_monthly,
                         selected_daily,
                         getattr(selected_strategy, "benchmark_asset", "SPY"),
                         trading_fees=getattr(selected_strategy, "default_trading_fees", None),
                     )
-                    first_date, last_date = common_monthly_period(selected_monthly)
+                    if getattr(selected_strategy, "execution_market", None):
+                        first_date, last_date = execution_bounds(selected_decisions, selected_daily, comparison_inputs[selected_name].benchmark_asset)
+                    else:
+                        first_date, last_date = common_monthly_period(selected_monthly)
                     if first_date is None or last_date is None:
                         raise ValueError(f"{selected_name} has no common monthly data.")
                     comparison_bounds.append((first_date, last_date))

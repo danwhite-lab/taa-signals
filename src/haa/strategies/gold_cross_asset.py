@@ -30,6 +30,7 @@ class GoldCrossAsset:
     benchmark_asset = "GLD"
     execution_currency = "USD"
     execution_market = "US"
+    full_coverage_assets = data_assets
     uses_daily_signals = True
     backtest_available = True
     notes = f"{INTERPRETATION}. {RULE} USD holds GLD or BIL, a 1–3 month Treasury-bill ETF used as a cash proxy. Benchmark: buy-and-hold GLD. Actual histories only, with no pre-inception splice."
@@ -82,6 +83,9 @@ class GoldCrossAsset:
             previous, previous_month = selected, month
         result = pd.DataFrame(rows).set_index("signal_date") if rows else pd.DataFrame()
         result.attrs["monthly_execution_market"] = self.execution_market
+        if self.full_coverage_assets:
+            result.attrs["full_coverage_assets"] = self.full_coverage_assets
+            result.attrs["completed_month"] = last_month
         return result
 
     def signal_details(self, signal):
@@ -104,4 +108,5 @@ class GoldCrossAssetIsrael(GoldCrossAsset):
     benchmark_asset = TACHLIT_HEDGED_GOLD_ASSET
     execution_currency = "ILS"
     execution_market = "TASE"
+    full_coverage_assets = ()
     notes = f"{INTERPRETATION}. {RULE} Israel uses the same USD signal. It holds hedged Tachlit gold (5141627) or Ayalon Kaspit (5117700), a shekel money-market fund used as near-cash. Benchmark: buy-and-hold hedged Tachlit gold. Returns use actual ILS redemption history only, with no earlier fund or USD proxy spliced in. Execution dates use TASE sessions and the hedged gold fund’s dealing schedule, including for the benchmark."

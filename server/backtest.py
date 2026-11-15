@@ -132,7 +132,7 @@ def load_data(selected):
     return prices, metadata, warnings, opens
 
 
-def prepare(selected, all_prices, *, warnings=None):
+def prepare(selected, all_prices, *, warnings=None, start=None, end=None):
     warnings = [] if warnings is None else warnings
     strategy = selected.model_class()
     benchmark = getattr(strategy, "benchmark_asset", "SPY")
@@ -143,10 +143,18 @@ def prepare(selected, all_prices, *, warnings=None):
     common_start, common_end = data.common_monthly_period(monthly)
     captions = []
     if getattr(strategy, "execution_market", None):
-        from haa.monthly_execution import execution_schedule
+        from haa.monthly_execution import execution_bounds, execution_schedule
 
-        schedule = execution_schedule(strategy.decisions(prices), prices, benchmark)
-        common_start, common_end = next(iter(schedule.values()))[1], list(schedule.values())[-1][1]
+        decisions = cached_decisions(strategy, prices)
+        common_start, common_end = execution_bounds(decisions, prices, benchmark)
+        if getattr(strategy, "full_coverage_assets", ()):
+            if start is not None and not common_start <= pd.Timestamp(start) <= common_end:
+                raise ValueError("Start date is outside the available data range.")
+            if end is not None and (not common_start <= pd.Timestamp(end) <= common_end
+                                    or (start is not None and end < start)):
+                raise ValueError("End date is outside the available data range or before start.")
+            if start is not None or end is not None:
+                execution_schedule(decisions, prices, benchmark, start=start, end=end)
         captions.append(strategy.notes)
     if common_start is None or common_end is None or common_start > common_end:
         from haa.fund_verification import WORDS
@@ -307,7 +315,7 @@ def run(request, code):
             trading_fees(request, selected.execution_currency)
         all_prices, metadata, warnings, opens = load_data(selected)
         loaded = perf_counter()
-        strategy, prices, monthly, monthly_input, bounds, range_captions = prepare(selected, all_prices, warnings=warnings)
+        strategy, prices, monthly, monthly_input, bounds, range_captions = prepare(selected, all_prices, warnings=warnings, start=request.start, end=request.end)
         start = request.start or date.fromisoformat(bounds["start_min"])
         end = request.end or date.fromisoformat(bounds["end_max"])
         if not date.fromisoformat(bounds["start_min"]) <= start <= date.fromisoformat(bounds["start_max"]):
@@ -350,6 +358,10 @@ def run(request, code):
             if fund:
                 bundle["public"]["model_name"] = fund["name"]
                 bundle["public"]["captions"] += range_captions[3:]
+            if getattr(strategy, "full_coverage_assets", ()):
+                bundle["public"]["captions"].append(
+                    f"Full-coverage holding-period bounds: {bounds['start_min']} through {bounds['end_max']}."
+                )
             return usd.annotate(bundle, mapping, request, (nav.index.min().date(), nav.index.max().date()))
         bundle, info = private_result(compute) if registered_fund(selected.label) else RESULTS.run(model="backtest:" + selected.label, params=params, start=str(start), end=str(end), version=version, compute=compute)
         public = bundle["public"]
