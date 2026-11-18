@@ -17,7 +17,7 @@ from .fund_scope import account_scope, require_fund, require_holdings_funds, req
 from haa.buy_and_hold_funds import BUY_AND_HOLD_FUNDS
 from haa.rebalance_holdings import (empty_account, validate_account, number, security,
     execution_security, combined_targets, companion_anchor_map, rebalance_targets, compare_holdings,
-    make_buy_plan, apply_purchases, fingerprint, CompanionError, excluded_holdings)
+    make_buy_plan, apply_purchases, fingerprint, CompanionError, TargetCompanionError, excluded_holdings)
 from haa.tase_data import TASE_ISRAEL_ASSET_IDS
 from haa.portfolio import EXECUTION_SECURITY_LABELS, EXECUTION_REPLACEMENTS
 from . import private_api as private, rebalance_quotes as market
@@ -222,7 +222,25 @@ def snapshot(workspace, account, portfolios, request):
         if key not in instruments:
             instruments[key] = security(position["identifier"], position["market"], position["currency"], position.get("label"))
     anchor_map = companion_anchor_map(sources)
-    targets = rebalance_targets(account, targets, anchor_map)
+    conflicts = []
+    try:
+        targets = rebalance_targets(account, targets, anchor_map)
+    except TargetCompanionError as exc:
+        # Recover only this portfolio-dependent conflict. Keep the account and
+        # original target identities intact so the user can correct the editor.
+        conflicts = [{"id": key, "companion_of": account["positions"][key]["companion_of"]}
+                     for key in sorted(exc.conflicts)]
+        for conflict in conflicts:
+            key, anchor = conflict["id"], conflict["companion_of"]
+            fund = f"{instruments[key]['label']} ({key})"
+            companion = f"{instruments[anchor]['label']} ({anchor})" if anchor in instruments else anchor
+            message = (f"{fund} is a target fund but is also set as a companion of {companion}. "
+                       "In Your shared holdings, change this fund's Role from Companion to Normal "
+                       "to clear its Companion of setting, then Save holdings. "
+                       "Calculations, sells, buys and recording remain blocked until corrected. "
+                       "No saved holdings or Outside settings were changed.")
+            errors = [*errors, message]
+            diagnostics = [*diagnostics, {"stage": "holdings", "code": "target_companion_conflict", "message": message}]
     replacements = replacement_review(account, targets, instruments)
     excluded = excluded_holdings(account, targets, anchor_map)
     visible = set(targets) | set(account["positions"])
@@ -244,7 +262,7 @@ def snapshot(workspace, account, portfolios, request):
     needs_fx = any(instruments[k]["currency"] == "USD" for k in relevant - excluded)
     rebalance_fx = fx if needs_fx else {"price": "1", "fresh": True}
     comparison, total, full_total = [], None, None
-    if not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
+    if not conflicts and not missing_held and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None:
         try:
             comparison, _, total = compare_holdings(account, instruments, targets, quotes, rates, anchor_map)
         except (ValueError, KeyError, TypeError):
@@ -254,7 +272,7 @@ def snapshot(workspace, account, portfolios, request):
         for row in full["positions"].values():
             row["outside_rebalance"] = False
             row.pop("companion_of", None)
-        if not fx.get("error"):
+        if not conflicts and not fx.get("error"):
             _, _, full_total = compare_holdings(full, instruments, {}, quotes, rates)
     except (ValueError, KeyError, TypeError):
         pass
@@ -267,15 +285,15 @@ def snapshot(workspace, account, portfolios, request):
         if row["id"] in excluded:
             row.update({"Target %": None, "Actual %": None, "Status": "Outside the rebalance"})
         anchor = account["positions"].get(row["id"], {}).get("companion_of")
-        if anchor:
+        if anchor and not conflicts:
             row.update(companion_of=anchor_map.get(anchor, anchor) if anchor not in targets else anchor, **{"Target %": None, "Actual %": None,
                 "Status": "Outside the rebalance" if row["id"] in excluded else "Companion"})
         row["target_display"] = f'{row["Target %"]:.2%}' if row.get("Target %") is not None else "—"
         row["actual_display"] = f'{row["Actual %"]:.2%}' if row.get("Actual %") is not None else "—"
-    eligible = {k: w for k, w in targets.items() if k not in blocked}
+    eligible = {} if conflicts else {k: w for k, w in targets.items() if k not in blocked}
     ready = bool(portfolio and not errors and not replacements and total is not None and not held_blocked and not rebalance_fx.get("error") and rebalance_fx.get("price") is not None and rebalance_fx.get("fresh") and eligible)
     active_quotes = {k: quotes[k] for k in sorted(relevant)}
-    context = {"portfolio": portfolio, "targets": targets, "quotes": active_quotes, "fx": fx, "other_fx": other_fx, "allocation_mode": mode,
+    context = {"portfolio": portfolio, "targets": {} if conflicts else targets, "quotes": active_quotes, "fx": fx, "other_fx": other_fx, "allocation_mode": mode,
                "new_money": str(number(request.new_money)), "excluded": sorted(blocked), "editor": fingerprint(account), "companion_anchor_map": anchor_map}
     editor_rows = []
     for key in sorted(visible):
@@ -293,8 +311,8 @@ def snapshot(workspace, account, portfolios, request):
         # The add-holding catalogue is requested separately.  The initial page
         # only needs instruments already held or targeted.
         "instruments": {key: instruments[key] for key in visible}, "rows": editor_rows, "quotes": quotes, "fx": fx, "other_fx": other_fx, "source_settings": source,
-        "sell_review": sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}, anchor_map),
-        "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": targets, "eligible": eligible, "comparison": comparison,
+        "sell_review": [] if conflicts else sell_review(account, targets, instruments, bool(portfolio and not errors), {item["from"] for item in replacements}, anchor_map),
+        "signals": sources, "errors": errors, "target_diagnostics": diagnostics, "targets": {} if conflicts else targets, "eligible": eligible, "comparison": comparison,
         "target_funds": [{"id": k, "label": target_display_name(k, instruments[k])} for k in targets],
         "total_ils": str(total) if total is not None else None, "full_total_ils": str(full_total) if full_total is not None else None,
         "total_display": f"₪{total:,.2f}" if total is not None else "Unavailable",
@@ -302,7 +320,8 @@ def snapshot(workspace, account, portfolios, request):
         "blocked": sorted(blocked), "stale": sorted(stale), "held_blocked": sorted(held_blocked), "partial": bool(blocked-excluded),
         "ready": ready, "replacement_review": replacements, "context": context, "rebalance_fx": rebalance_fx,
         "overweight": any(r["Status"] == "Overweight" for r in comparison),
-        "seconds": round(perf_counter()-started, 6)}
+        "seconds": round(perf_counter()-started, 6),
+        **({"companion_conflicts": conflicts} if conflicts else {})}
 
 
 def target_display_name(key, instrument):
