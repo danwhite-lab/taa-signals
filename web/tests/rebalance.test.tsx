@@ -855,3 +855,47 @@ it.each(["pending","keep"])("shows no confirmed sells with %s-only holdings", as
     expect((panel.querySelector("details") as HTMLDetailsElement).open).toBe(false);
   }
 });
+
+it("keeps target-companion recovery editable and saves only a corrected role, preserving outside holdings", async () => {
+  const semis = {id:"TASE:1234567",identifier:"1234567",market:"TASE",currency:"ILS",label:"Semis outside"};
+  const message = "Fake gold (US:GLD) is a target fund but is also set as a companion of Fake bonds (US:IEF). Change its Role from Companion to Normal, then Save holdings.";
+  const conflictRows = [{...row,"Companion of":other.id},
+    {...row,Security:semis.id,Fund:semis.label,Currency:"ILS",Units:"13","Outside the rebalance":true}];
+  const conflicted = {...state,rows:conflictRows,instruments:{...state.instruments,[semis.id]:semis},
+    ready:false,errors:[message],targets:{},eligible:{},sell_review:[],
+    target_funds:[{id:item.id,label:item.label},{id:other.id,label:other.label}],
+    total_ils:null,total_display:"Unavailable",full_total_ils:null,full_total_display:"Unavailable"};
+  const corrected = {...candidate,positions:{[item.id]:{...item,units:"2"},[semis.id]:{...semis,units:"13",outside_rebalance:true}}};
+  let saved = false;
+  mock.request.mockImplementation(async(path:string,body?:{rows?:Record<string,unknown>[]}) => {
+    if(path==="/api/rebalance/editor") {
+      if(body?.rows?.find(r=>r.Security===item.id)?.["Companion of"]) throw new RebalanceError(400,message);
+      expect(body?.rows?.find(r=>r.Security===semis.id)?.["Outside the rebalance"]).toBe(true);
+      return {...preview,account:corrected};
+    }
+    return saved ? {...conflicted,ready:true,errors:[],rows:conflictRows.map(r=>({...r,"Companion of":""}))} : conflicted;
+  });
+  mock.save.mockImplementation(async()=>{saved=true;return {saved:{revision:2,payload:{holdings_account:corrected}},uncertain:false};});
+  render(<Page/>); await screen.findByRole("table",{name:text.holdings});
+  expect(screen.getByRole("alert").textContent).toContain(message);
+  expect(screen.getByRole("combobox",{name:holdings.role+" "+item.id})).toHaveProperty("value","companion");
+  expect(screen.getByRole("combobox",{name:holdings.role+" "+semis.id})).toHaveProperty("value","outside");
+  expect(screen.getByRole("button",{name:text.save})).toHaveProperty("disabled",false);
+  expect(mock.save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:text.steps.action}));
+  expect(screen.getByRole("button",{name:text.generate})).toHaveProperty("disabled",true);
+  fireEvent.click(screen.getByRole("tab",{name:text.actionTabs.sell}));
+  expect(screen.getByText(text.sellUnavailable)).toBeTruthy();
+  expect(screen.queryByRole("button",{name:text.done})).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:text.steps.holdings}));
+  fireEvent.click(screen.getByRole("button",{name:text.save}));
+  await waitFor(()=>expect(mock.request.mock.calls.some(([p])=>p==="/api/rebalance/editor")).toBe(true));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.save})).toHaveProperty("disabled",false));
+  expect(mock.save).not.toHaveBeenCalled();
+  chooseRole(item.id,holdings.roles.normal);
+  fireEvent.click(screen.getByRole("button",{name:text.save}));
+  await screen.findByText(text.saved);
+  expect(mock.save).toHaveBeenCalledTimes(1);
+  expect(mock.save.mock.calls[0][1]).toEqual(corrected);
+  expect(screen.getByRole("combobox",{name:holdings.role+" "+semis.id})).toHaveProperty("value","outside");
+});

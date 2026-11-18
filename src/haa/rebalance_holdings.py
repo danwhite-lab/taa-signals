@@ -19,6 +19,14 @@ class CompanionError(ValueError):
     """Safe companion configuration errors, with no account amounts."""
 
 
+class TargetCompanionError(CompanionError):
+    """A valid saved holding became a target while retaining its companion role."""
+
+    def __init__(self, conflicts):
+        self.conflicts = tuple(conflicts)
+        super().__init__("A target fund cannot also be a companion. Clear its companion selection first.")
+
+
 def number(value, *, positive=False):
     try:
         result = Decimal(str(value))
@@ -214,8 +222,9 @@ def excluded_holdings(account, targets, anchor_map=None):
 def rebalance_targets(account, targets, anchor_map=None):
     """Remove explicitly excluded funds, retaining relative included targets."""
     excluded = excluded_holdings(account, targets, anchor_map)
-    if any(row.get("companion_of") and k in targets for k, row in account["positions"].items()):
-        raise CompanionError("A target fund cannot also be a companion. Clear its companion selection first.")
+    conflicts = [k for k, row in account["positions"].items() if row.get("companion_of") and k in targets]
+    if conflicts:
+        raise TargetCompanionError(conflicts)
     if not excluded.intersection(targets):
         return dict(targets)
     included = {k: number(w) for k, w in targets.items() if k not in excluded}

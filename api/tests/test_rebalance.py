@@ -523,3 +523,103 @@ def test_rotated_sleeve_keeps_companion_value_and_never_orders_it(book, monkeypa
     unmatched=client.get('/api/rebalance',headers=HEADERS).json()
     assert next(row for row in unmatched['comparison'] if row['id']==legacy)['Status']=='Outside the rebalance'
     assert next(row for row in unmatched['sell_review'] if row['id']==legacy)['action']=='keep'
+
+
+@pytest.fixture
+def target_companion_conflict(book):
+    remote, instruments, targets, quotes, fx = book
+    account = remote['payload']['holdings_account']
+    conflicts = list(targets)
+    for index, key in enumerate(conflicts):
+        instruments[key]['label'] = f'Conflicting fund {index + 1}'
+        account['positions'][key].update(label=instruments[key]['label'], units='7',
+            companion_of='US:GLD', minimum_ils='25', manual_price='9.1234',
+            manual_price_date='2026-10-15', manual_entered_at='2026-10-15T08:00:00Z')
+    semis = security('5132972', 'TASE', label='Semis outside')
+    instruments[semis['id']] = semis
+    account['positions'][semis['id']] = {**semis, 'units': '13', 'outside_rebalance': True,
+        'minimum_ils': '40', 'manual_price': '2.5', 'manual_price_date': '2026-10-15',
+        'manual_entered_at': '2026-10-15T08:00:00Z'}
+    targets[semis['id']] = .2
+    quotes[semis['id']] = {'price': '2.5', 'fresh': True, 'as_of': '2026-10-15'}
+    return remote, conflicts, semis['id']
+
+
+def test_conflict_load_and_refresh_return_editor_without_writes_or_calculations(target_companion_conflict, monkeypatch):
+    remote, conflicts, semis = target_companion_conflict
+    original = deepcopy(remote)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('A conflicting page load must not calculate or write')
+
+    monkeypatch.setattr(page, 'compare_holdings', forbidden)
+    monkeypatch.setattr(private.sync, 'save_workspace', forbidden)
+    monkeypatch.setattr(private.sync, 'save_holdings_workspace', forbidden)
+    for response in (client.get('/api/rebalance', headers=HEADERS), post('refresh', request(remote))):
+        assert response.status_code == 200, response.text
+        state = response.json()
+        assert not state['ready'] and not state['eligible'] and not state['targets']
+        assert state['total_ils'] is state['full_total_ils'] is None
+        assert state['sell_review'] == [] and 'plan' not in state
+        assert all(row['target_display'] == row['actual_display'] == '—' for row in state['comparison'])
+        assert {row['id'] for row in state['companion_conflicts']} == set(conflicts)
+        for key in conflicts:
+            message = next(error for error in state['errors'] if key in error)
+            assert original['payload']['holdings_account']['positions'][key]['label'] in message
+            assert 'US:GLD' in message and 'Role from Companion to Normal' in message
+        editor = {row['Security']: row for row in state['rows']}
+        for key, position in original['payload']['holdings_account']['positions'].items():
+            row = editor[key]
+            assert Decimal(row['Units']) == Decimal(position['units'])
+            assert row['Outside the rebalance'] == position.get('outside_rebalance', False)
+            assert row.get('Companion of') == position.get('companion_of')
+            assert row['Manual price per unit'] == position['manual_price']
+            assert row['Price date'] == position['manual_price_date']
+            assert row['Minimum order (₪)'] == position['minimum_ils']
+        assert editor[semis]['Outside the rebalance'] is True
+        assert {row['id'] for row in state['target_funds']} >= set(conflicts)
+    assert remote == original
+
+
+def test_conflict_blocks_actions_and_unresolved_editor_but_corrected_save_works(target_companion_conflict, monkeypatch):
+    remote, conflicts, semis = target_companion_conflict
+    original = deepcopy(remote)
+    writes = []
+
+    def save(*args):
+        payload = deepcopy(args[-2])
+        writes.append(payload)
+        remote.update(revision=remote['revision'] + 1, payload=payload)
+        return remote['revision']
+
+    monkeypatch.setattr(private.sync, 'save_workspace', save)
+    state = client.get('/api/rebalance', headers=HEADERS).json()
+    assert post('plan', request(remote)).status_code == 400
+    assert post('record', request(remote, plan={'id': str(uuid4())}, confirmations=[], acknowledge=True)).status_code == 400
+    draft = request(remote, rows=deepcopy(state['rows']), cash=state['account']['cash_ils'], manual_fx='')
+    assert post('editor', draft).status_code == 400
+    # Fixing only one of two conflicting roles must still fail closed.
+    next(row for row in draft['rows'] if row['Security'] == conflicts[0])['Companion of'] = ''
+    assert post('editor', draft).status_code == 400
+    assert not writes and remote == original
+    for row in draft['rows']:
+        if row['Security'] in conflicts:
+            row['Companion of'] = ''
+    response = post('editor', draft)
+    assert response.status_code == 200, response.text
+    candidate = response.json()['account']
+    assert not response.json()['errors'] and not writes
+    assert candidate['positions'][semis] == original['payload']['holdings_account']['positions'][semis]
+    assert all(not candidate['positions'][key].get('companion_of') for key in conflicts)
+    for key in conflicts:
+        for field in ('units', 'minimum_ils', 'manual_price', 'manual_price_date'):
+            assert candidate['positions'][key][field] == original['payload']['holdings_account']['positions'][key][field]
+    response = client.put('/api/workspace', headers=HEADERS,
+        json={'revision': state['workspace_revision'], 'payload': {'holdings_account': candidate}})
+    assert response.status_code == 200, response.text
+    assert len(writes) == 1
+    assert writes[0]['holdings_account']['positions'][semis]['outside_rebalance'] is True
+    recovered = client.get('/api/rebalance', headers=HEADERS).json()
+    assert not recovered['errors'] and 'companion_conflicts' not in recovered
+    assert recovered['ready']
+    assert post('plan', request(remote)).status_code == 200
