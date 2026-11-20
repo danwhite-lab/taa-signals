@@ -145,12 +145,15 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
       {!input.checks_only && <div className={styles.cards}>{payload.reports.map(report => <article key={report.key}>
         <header><h3>{text[report.key]}</h3><strong className={`${styles.light} ${styles[report.status]}`}>{text.lights[report.status]}</strong></header>
         <p>{report.summary ?? (report.reason ? message(report.reason) : text.lightReasons[report.status].replace("{measures}", report.triggered_by?.map(key => text.triggerNames[key]).join(", ") || text.history))}</p>
-        {report.proxy_before && <p className={styles.note}>{text.extensionLine.replace("{date}", fmt.date(report.proxy_before))}</p>}
-        {report.reference_start && <p className={styles.note}>{text.referenceLine.replace("{start}", fmt.date(report.reference_start)).replace("{fall}", numeric(report.metrics.drawdown?.structural_value) ? fmt.percent(report.metrics.drawdown!.structural_value!) : text.insufficient)}</p>}
       </article>)}</div>}
-      {[...notes.entries()].map(([note, models], index) => <p className={styles.note} key={index}>{models.size > 0 && `${[...models].join(" / ")} · `}{note}</p>)}
-      {!input.checks_only && <p className={styles.note}>{text.trafficRule}</p>}
-      <details open={input.checks_only}><summary className={styles.note}>{text.checks}</summary><p>{text.checksNote}</p><p>{text.historicalCheck}</p>
+      <details open={input.checks_only}><summary className={styles.note}>{text.checks}</summary>
+        {[...notes.entries()].map(([note, models], index) => <p className={styles.note} key={index}>{models.size > 0 && `${[...models].join(" / ")} · `}{note}</p>)}
+        {!input.checks_only && <p className={styles.note}>{text.trafficRule}</p>}
+        {payload.reports.map(report => <div key={report.key}>
+          {report.proxy_before && <p className={styles.note}>{text[report.key]} · {text.extensionLine.replace("{date}", fmt.date(report.proxy_before))}</p>}
+          {report.reference_start && <p className={styles.note}>{text[report.key]} · {text.referenceLine.replace("{start}", fmt.date(report.reference_start)).replace("{fall}", numeric(report.metrics.drawdown?.structural_value) ? fmt.percent(report.metrics.drawdown!.structural_value!) : text.insufficient)}</p>}
+        </div>)}
+        <p>{text.checksNote}</p><p>{text.historicalCheck}</p>
         {payload.checks.findings.map((finding, index) => <div className={styles.priceNote} key={index}><p>{finding.message}</p>{finding.action && <p>{text.suggested} · {finding.action}</p>}
           {finding.rows && <div className="signal-table-scroll"><table aria-label={text.holdings}><thead><tr><th>{text.mapping}</th><th>{text.reference}</th><th>{text.current}</th></tr></thead><tbody>{finding.rows.map((row, i) => <tr key={i}><td>{String(row.Fund ?? row.id)}</td><td>{numeric(row["Target %"] as number) ? fmt.percent(row["Target %"] as number) : text.insufficient}</td><td>{numeric(row["Actual %"] as number) ? fmt.percent(row["Actual %"] as number) : text.insufficient}</td></tr>)}</tbody></table></div>}
         </div>)}

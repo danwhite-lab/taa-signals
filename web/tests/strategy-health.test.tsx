@@ -34,7 +34,7 @@ it("shows only a light and one reason on each card, with settings hidden", async
   expect(screen.queryByRole('spinbutton')).toBeNull();
   expect(screen.queryByRole('img')).toBeNull();
   expect(screen.getByRole('button',{name:text.settings}).getAttribute('aria-expanded')).toBe('false');
-  expect(screen.getByText(text.trafficRule)).toBeTruthy();
+  expect(screen.getByText(text.trafficRule).closest('details')?.open).toBe(false);
   expect(mock.response).toHaveBeenCalledTimes(1);
 });
 
@@ -82,14 +82,23 @@ it("old percentile preferences do not override the new traffic-light defaults", 
   expect(JSON.parse(mock.response.mock.calls[0][1].body).thresholds).toEqual(text.thresholdDefaults);
 });
 
-it("source warnings and IWM proxy disclosures stay outside the coloured card", async () => {
-  mock.response.mockResolvedValue(reply({...payload, reports:[{...report,caveats:[{model:'Russell 2000 Israel',warning:'IWM proxy with adjusted closes.'}]}],checks:{findings:[{kind:'data',status:'review',message:'T5YIE dated source warning',action:text.technicalAction}],proxies:[]}}));
+it("hides source warnings, IWM notes and review advice inside Implementation checks", async () => {
+  mock.response.mockResolvedValue(reply({...payload, reports:[{...report,caveats:[{model:'Russell 2000 Israel',warning:'IWM proxy with adjusted closes.'},{model:'Inflation Compass Standard',warning:'Inflation Compass loader note: degraded T5YIE.'}]}],checks:{findings:[{kind:'data',status:'review',message:'T5YIE dated source warning',action:text.technicalAction}],proxies:[]}}));
   render(<StrategyHealth automatic />);
   await screen.findByText(/IWM proxy with adjusted closes/);
   expect(within(screen.getByRole('article')).getByText(text.lights.yellow)).toBeTruthy();
   expect(within(screen.getByRole('article')).queryByText(/IWM proxy/)).toBeNull();
   expect(screen.getByText(/IWM proxy with adjusted closes/).className).toContain('note');
   expect(screen.getByText('T5YIE dated source warning').closest('.signal-warning')).toBeNull();
+  const checks=screen.getByText(text.checks).closest('details')!;
+  expect(checks.open).toBe(false);
+  for (const note of [/IWM proxy with adjusted closes/, /Inflation Compass loader note/, text.trafficRule, 'T5YIE dated source warning']) {
+    expect(within(checks).getByText(note).closest('details')).toBe(checks);
+  }
+  fireEvent.click(within(checks).getByText(text.checks));
+  expect(checks.open).toBe(true);
+  expect(within(screen.getByRole('article')).getAllByRole('paragraph')).toHaveLength(1);
+
 });
 
 it("keeps historical metrics inspectable inside the hidden settings panel", async () => {
@@ -118,20 +127,22 @@ it("keeps the existing Backtest link beside the cards", async () => {
   expect(screen.getByRole('link',{name:text.open}).getAttribute('href')).toMatch(/\/backtest\/?\?health=default#strategy-health/);
 });
 
-it("shows the proxy cutoff, reference start and worst earlier fall on an extended card", async () => {
+it("keeps proxy cutoff, reference start and worst earlier fall inside Implementation checks", async () => {
   mock.response.mockResolvedValue(reply({...payload,reports:[{...report,proxy_before:'2016-07-01',reference_start:'1928-04-30',metrics:{...report.metrics,drawdown:{...metric,structural_value:.275}}}]}));
   render(<StrategyHealth automatic />);
-  await screen.findByText('History extended with a proxy before 1 Jul 2016');
-  expect(screen.getByText('History starts 30 Apr 1928 · Worst earlier fall 27.50%')).toBeTruthy();
+  const note=await screen.findByText(/History extended with a proxy before 1 Jul 2016/);
+  expect(note.closest('details')?.open).toBe(false);
+  expect(within(screen.getByRole('article')).getAllByRole('paragraph')).toHaveLength(1);
+  expect(screen.getByText(/History starts 30 Apr 1928 · Worst earlier fall 27.50%/)).toBeTruthy();
 });
 
-it("shows grey Short history for cash CM without claiming a bond extension", async () => {
-  mock.response.mockResolvedValue(reply({...payload,reports:[{...report,status:'short_history',summary:'Real history is shorter than 20 years and no earlier health proxy is available.',proxy_before:null,reference_start:'2016-07-01'}]}));
+it("keeps the short-history label and hides reference detail in Implementation checks", async () => {
+  mock.response.mockResolvedValue(reply({...payload,reports:[{...report,status:'short_history',summary:'Available health reference is shorter than 20 years.',proxy_before:null,reference_start:'2016-07-01'}]}));
   render(<StrategyHealth automatic />);
   const light=await screen.findByText(text.lights.short_history);
   expect(light.className).toContain('short_history');
   expect(screen.queryByText(/History extended with a proxy/)).toBeNull();
-  expect(screen.getByText('History starts 1 Jul 2016 · Worst earlier fall 12.00%')).toBeTruthy();
+  expect(screen.getByText(/History starts 1 Jul 2016 · Worst earlier fall 12.00%/).closest('details')?.open).toBe(false);
 });
 
 it("adds the 20-year setting while preserving existing browser threshold preferences", async () => {

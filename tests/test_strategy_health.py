@@ -169,3 +169,13 @@ def test_invalid_proxy_reference_is_rejected_without_filling(damage):
         proxy.iloc[10] = np.nan if damage == 'nan' else -1
     with pytest.raises(ValueError, match='health reference'):
         analyze(history([.01] * 120), '2000-01-01', POLICY, proxy)
+
+
+def test_proxy_does_not_remove_short_history_gate_when_total_reference_is_under_twenty_years():
+    early = pd.Series([-.05, .07] * 12, index=pd.date_range('1998-01-31', periods=24, freq='ME'))
+    frame = history([-.05, .07, .01] * 40)
+    result = analyze(frame, '2000-01-01', {**POLICY, 'minimum_years': 20}, early)
+    assert result['reference_start'] == '1998-01-31'
+    assert result['proxy_before'] == '2000-01-01'
+    assert result['status'] == 'short_history'
+    assert analyze(frame, '2000-01-01', {**POLICY, 'minimum_years': 10}, early)['status'] != 'short_history'

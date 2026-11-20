@@ -347,7 +347,10 @@ def test_bundled_reference_is_opt_in_for_bond_cm_and_respects_configured_start(m
     assert config['series'] == 'century_momentum'
     assert returns.index.min() == pd.Timestamp('1928-04-30')
     assert returns.index.max() == pd.Timestamp('2016-06-30')
-    assert health.reference_history('Century Momentum Move to Cash', before) == (None, None)
+    cash, cash_config = health.reference_history('Century Momentum Move to Cash', before)
+    assert cash.index.equals(returns.index)
+    assert cash_config['replacement']['actual_ticker'] == 'BIL'
+    assert not cash.equals(returns)
     monkeypatch.setitem(health.WORDS, 'referenceProxies', {'Another Strategy': {**config, 'start': '1980-01-31'}})
     selected, _ = health.reference_history('Another Strategy', before)
     assert selected.index.min() == pd.Timestamp('1980-01-31')
@@ -392,3 +395,18 @@ def test_composite_never_uses_just_one_sleeves_reference(histories, monkeypatch)
     assert result['reports'][2]['status'] == 'short_history'
     assert not result['reports'][2].get('proxy_before')
     assert result['weights'] == [s.model_dump() for s in selected()]
+
+
+def test_cash_health_reference_uses_cash_history_and_keeps_live_metrics():
+    dates = pd.date_range('2016-09-01', '2026-11-01', freq='MS')
+    monthly = pd.DataFrame({'pre_tax_monthly_return': np.resize([-.03, .05, .01], len(dates)),
+                            'benchmark_monthly_return': .005}, index=dates)
+    before = analyze(monthly, '2016-08-01', health.Thresholds().model_dump())
+    early, _ = health.reference_history('Century Momentum Move to Cash', '2016-08-01')
+    after = analyze(monthly, '2016-08-01', health.Thresholds().model_dump(), early)
+    assert before['status'] == 'short_history'
+    assert after['status'] in {'green', 'yellow', 'red'}
+    assert after['reference_start'] == '1928-04-30'
+    assert after['metrics']['relative'] == before['metrics']['relative']
+    for key in before['metrics']:
+        assert after['metrics'][key]['current'] == before['metrics'][key]['current']
