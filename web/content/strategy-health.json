@@ -41,7 +41,7 @@
   "weights": "Uses configured sleeve weights and the existing monthly portfolio rebalancing engine. Each CM or IC group is normalized within that group. Combined portfolio includes all configured sleeves.",
   "method": "Completed monthly backtest results are compared with earlier recovered falls. Depth and time underwater turn yellow at the configured share of their historical worst and red beyond that worst. Three-year return gaps use complete, non-overlapping windows anchored backward from the current window; yellow flags the configured worst tail and red exceeds its worst. The current fall and current 3-year window never set their own historical reference. Configured earlier proxies contribute completed fall depths and recovery times only. Current drawdown, current time underwater, 3-year SPY gaps and all trading returns keep using real fund history. Proxy and real segments are assessed separately at the boundary; NAV levels are never spliced.",
   "limits": "These are descriptive comparisons with a changing historical backtest, with no fixed reference saved. Historical limits do not establish whether a strategy will work in future.",
-  "sample": "The default minimum is 8 earlier recovered falls. At least one complete earlier 3-year window is also needed. Missing history shows grey. The overall light is the worst of the three measures. Without a usable earlier proxy, real histories shorter than the configured year minimum show Short history (default 20 years).",
+  "sample": "The default minimum is 8 earlier recovered falls. At least one complete earlier 3-year window is also needed. Missing history shows grey. The overall light is the worst of the three measures. Available health histories shorter than the configured year minimum show Short history (default 20 years), including any earlier proxy.",
   "monitor": "Continue monitoring the next completed month. All three indicators are within the configured historical review thresholds.",
   "missingAction": "Check the available dates and data sources. A complete historical comparison is needed before assigning a health rating.",
   "drawdownAction": "Review the depth of the loss against earlier drawdowns, then check the signals and holdings. A rare historical loss does not establish strategy failure.",
@@ -144,26 +144,40 @@
     "yellow": "Triggered by {measures} reaching the yellow warning level.",
     "red": "Triggered by {measures} exceeding historical limits.",
     "insufficient": "{measures} need more complete reference history.",
-    "short_history": "Real history is shorter than {years} years and no earlier health proxy is available."
+    "short_history": "Available health reference is shorter than {years} years."
   },
   "trafficRule": "Red means review the strategy and the data, not sell automatically.",
   "settingLabels": {
     "minimum_falls": "Minimum completed falls",
     "warning_fraction": "Yellow starts at (%) of historical worst",
     "gap_tail_percent": "Worst 3-year gaps to flag (%)",
-    "minimum_years": "Minimum years without a proxy"
+    "minimum_years": "Minimum health history (years)"
   },
   "settingHelp": {
     "minimum_falls": "Show grey until this many earlier falls have recovered.",
     "warning_fraction": "Yellow begins at this share of the deepest fall or longest recovery. The default is two thirds.",
     "gap_tail_percent": "Yellow flags this worst share of earlier, non-overlapping 3-year gaps versus SPY.",
-    "minimum_years": "Show grey Short history below this many years when no earlier proxy is available. Set 0 to disable."
+    "minimum_years": "Show grey Short history below this many years, including any earlier health proxy. The default is 20 years; set 0 to disable."
   },
   "referenceProxies": {
     "Century Momentum": {
       "series": "century_momentum",
       "start": "1928-04-30",
       "note": "Supplied Century Momentum pre-ETF strategy returns with IEF bond defense. Used only for earlier completed falls in the health reference. Its source reconstruction is a proxy, not an actual fund track record."
+    },
+    "Century Momentum Move to Cash": {
+      "series": "century_momentum",
+      "start": "1928-04-30",
+      "replacement": {
+        "risk_asset": "SPMO",
+        "defensive_asset": "IEF",
+        "proxy_file": "cm_cash_health_tbill_proxy.csv",
+        "actual_file": "cm_cash_health_bil.csv",
+        "actual_ticker": "BIL",
+        "actual_start": "2007-06-30",
+        "actual_through": "2016-07-31"
+      },
+      "note": "Health-only Move to Cash reconstruction uses exactly the supplied long-history signals and risk-on returns. Every IEF defensive month is replaced with BIL adjusted-close returns from June 2007, and the Kenneth French one-month Treasury-bill RF proxy before then. BIL began in May 2007; the earlier cash proxy is not BIL. Supplied pre-SPMO risk-on reconstruction remains unverified. No bond-defense returns are used for the cash reference. Trading backtests and signals use real fund history only."
     }
   },
   "extensionLine": "History extended with a proxy before {date}",

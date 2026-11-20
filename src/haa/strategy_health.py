@@ -123,7 +123,7 @@ def analyze(monthly, initial_date, policy, reference_returns=None):
     # Individual breaches remain visible, but an incomplete comparison cannot
     # support an overall rating.
     status = overall_status(statuses)
-    if not proxy_episodes and frame.index[-1] < initial_date + pd.DateOffset(years=policy.get("minimum_years", 20)):
+    if frame.index[-1] < reference_start + pd.DateOffset(years=policy.get("minimum_years", 20)):
         status = "short_history"
     return {"status": status, "reason": "shortSample" if "insufficient" in statuses else None,
             "as_of": frame.index[-1].date().isoformat(), "start": initial_date.date().isoformat(),

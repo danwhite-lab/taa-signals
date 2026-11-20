@@ -17,6 +17,7 @@ from haa.portfolio_backtest import run_portfolio_backtest
 from haa.portfolio_signals import monthly_strategy_input
 from haa.strategy_health import analyze
 from haa.deep_history import DEEP_HISTORY_SPECS, load_deep_history
+from haa.health_reference import replacement_returns, replace_defensive_returns
 from haa.tase_data import TASE_EXECUTION_ASSET_IDS
 from haa.constants import FRED_ASSETS, INFLATION_COMPASS_ISRAEL_EXECUTION_MAP
 from . import signals, usd_equivalents
@@ -75,7 +76,14 @@ def reference_history(label, before):
     spec = DEEP_HISTORY_SPECS[config['series']]
     if spec.currency != 'USD':
         raise ValueError('A USD health reference needs a USD proxy.')
-    _, returns = load_deep_history(spec)
+    decisions, returns = load_deep_history(spec)
+    if replacement := config.get('replacement'):
+        # Reconstruct only the earlier health segment. Trading results never
+        # read this stream, and no IEF defensive return survives reconstruction.
+        returns = returns.loc[returns.index < pd.Timestamp(before)]
+        returns = replace_defensive_returns(
+            decisions, returns, replacement_returns(replacement),
+            risk_asset=replacement['risk_asset'], defensive_asset=replacement['defensive_asset'])
     earlier = returns.loc[(returns.index >= pd.Timestamp(config['start'])) & (returns.index < pd.Timestamp(before))]
     if earlier.empty:
         raise ValueError('The configured health proxy has no earlier observations.')
