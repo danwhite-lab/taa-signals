@@ -72,3 +72,42 @@ it("shows insufficient data without fabricating a healthy rating", async () => {
   expect(screen.queryByText(text.normal)).toBeNull();
   expect(screen.getByText(text.shortSample)).toBeTruthy();
 });
+
+it("names the triggering measure and labels both directions of the annual gap", async () => {
+  mock.response.mockResolvedValue(reply({...payload, reports: [
+    {...payload.reports[0], triggered_by: ['drawdown'], metrics: {...payload.reports[0].metrics, relative: {...metric, current: -.0295}}},
+    {...payload.reports[0], key: 'ic', triggered_by: ['underwater'], metrics: {...payload.reports[0].metrics, relative: {...metric, current: .0184}}},
+  ]}));
+  render(<StrategyHealth automatic compact />);
+  await screen.findByText('Ahead of the S&P 500 by 2.95% a year');
+  expect(screen.getByText('Behind the S&P 500 by 1.84% a year')).toBeTruthy();
+  const cards = screen.getAllByRole('article');
+  expect(cards[0].textContent).toContain('Triggered by · drawdown');
+  expect(cards[1].textContent).toContain('Triggered by · time underwater');
+});
+
+it("keeps the rating with a visible named loader caveat", async () => {
+  mock.response.mockResolvedValue(reply({...payload, reports: [{...payload.reports[0], caveats: [{model: 'Inflation Compass Standard', warning: 'T5YIE source fallback notice'}]}]}));
+  render(<StrategyHealth automatic />);
+  await screen.findByText(/T5YIE source fallback notice/);
+  expect(screen.getByRole('article').textContent).toContain(text.review);
+  expect(screen.getByRole('article').textContent).toContain('Inflation Compass Standard');
+});
+
+it("names unavailable sleeves and makes the all-sleeve composition visible", async () => {
+  mock.response.mockResolvedValue(reply({...payload, weights: [{model:'Century Momentum', weight:90}, {model:'Gold Cross-Asset Israel', weight:10}], reports: [{key:'combined', status:'insufficient', composition:'all_sleeves', triggered_by:[], metrics:{}, findings:[], action:text.missingAction, failures:[{model:'Gold Cross-Asset Israel', message:'Gold Cross-Asset Israel has no configured USD mapping.'}]}]}));
+  render(<StrategyHealth automatic />);
+  await screen.findByText('Gold Cross-Asset Israel has no configured USD mapping.');
+  expect(screen.getByText('Combined uses all 2 configured sleeves at their saved weights.')).toBeTruthy();
+});
+
+it("uses a grey note for a one-day-old TASE quote and has one checks disclosure", async () => {
+  const finding={kind:'data', status:'normal', trading_days_old:1, message:'TASE:5141627 · Price is dated 2026-11-18, one trading day old. Signals are not affected (they use US index data).'};
+  mock.response.mockResolvedValue(reply({...payload, checks:{findings:[finding], proxies:[]}}));
+  render(<StrategyHealth automatic compact />);
+  const quote=await screen.findByText(finding.message, {exact:false});
+  expect(quote.closest('div')?.className).toContain('priceNote');
+  expect(quote.closest('.signal-warning')).toBeNull();
+  expect([...document.querySelectorAll('summary')].filter(element=>element.textContent===text.checks)).toHaveLength(1);
+  expect(screen.getByRole('link',{name:text.open}).parentElement?.textContent).toContain(text.title);
+});

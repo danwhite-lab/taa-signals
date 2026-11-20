@@ -11,9 +11,9 @@ type Status = "normal" | "review" | "structural" | "insufficient";
 type MetricKey = "drawdown" | "underwater" | "relative";
 type Thresholds = typeof text.thresholdDefaults;
 export type HealthInput = { sleeves?: { model: string; weight: number }[]; end?: string | null; checks_only?: boolean };
-type Finding = { kind: string; status: Status; message: string; action?: string | null; rows?: Record<string, unknown>[] };
-type Metric = { current: number | null; percentile: number | null; samples: number; status: Status; review_threshold: number; structural_threshold: number; review_value: number | null; structural_value: number | null; distribution: number[] };
-type Report = { key: "cm" | "ic" | "combined"; status: Status; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>> };
+type Finding = { kind: string; status: Status; message: string; action?: string | null; rows?: Record<string, unknown>[]; trading_days_old?: number };
+type Metric = { current: number | null; percentile: number | null; samples: number; minimum_samples?: number; status: Status; review_threshold: number; structural_threshold: number; review_value: number | null; structural_value: number | null; distribution: number[] };
+type Report = { key: "cm" | "ic" | "combined"; status: Status; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>>; triggered_by?: MetricKey[]; caveats?: {model: string; warning: string}[]; failures?: {model: string; message: string; detail?: string | null}[]; composition?: "all_sleeves" };
 type Proxy = { model: string; underlying: string; holding: string; security: string | null; published_identifier: string | null; last_price_date: string | null; reason: string };
 type Payload = { reports: Report[]; checks: { findings: Finding[]; proxies: Proxy[]; observations?: {model: string; asset: string; last_date: string | null; status: Status}[] }; reason?: keyof typeof text | null; weights?: { model: string; weight: number }[] };
 const metricKeys: MetricKey[] = ["drawdown", "underwater", "relative"];
@@ -25,7 +25,12 @@ const message = (key?: keyof typeof text | null) => key && typeof text[key] === 
 const numeric = (value: number | null | undefined) => value !== null && value !== undefined && Number.isFinite(value);
 function metricValue(key: MetricKey, value: number | null | undefined) {
   if (!numeric(value)) return text.insufficient;
-  return key === "underwater" ? fmt.number(value!) : fmt.percent(-value!);
+  if (key === "underwater") return fmt.number(value!);
+  if (key === "relative") {
+    if (value === 0) return text.level;
+    return (value! < 0 ? text.ahead : text.behind).replace("{value}", fmt.percent(Math.abs(value!)));
+  }
+  return fmt.percent(-value!);
 }
 function validThresholds(value: Thresholds) {
   return thresholdKeys.every(key => Number.isFinite(value[key]) && value[key] > 0 && value[key] < 100)
@@ -47,8 +52,8 @@ function Distribution({ metric, metricKey }: { metric: Metric; metricKey: Metric
       <line x1={position(metric.review_value!)} x2={position(metric.review_value!)} y1="12" y2="43" stroke="#a36a20"><title>{text.review}</title></line>
       <line x1={position(metric.structural_value!)} x2={position(metric.structural_value!)} y1="12" y2="43" stroke="#a33d37"><title>{text.structural}</title></line>
       <circle cx={position(metric.current!)} cy="28" r="5" fill="#17645f"><title>{text.current}</title></circle>
-      <text x="12" y="60" fontSize="11" fill="currentColor">{metricValue(metricKey, minimum)}</text>
-      <text x="388" y="60" textAnchor="end" fontSize="11" fill="currentColor">{metricValue(metricKey, maximum)}</text>
+      <text x="12" y="60" fontSize="11" fill="currentColor">{metricKey === "relative" ? fmt.percent(-minimum) : metricValue(metricKey, minimum)}</text>
+      <text x="388" y="60" textAnchor="end" fontSize="11" fill="currentColor">{metricKey === "relative" ? fmt.percent(-maximum) : metricValue(metricKey, maximum)}</text>
     </svg>
     <small>{text.current} ● · {text.review} {fmt.number(metric.review_threshold)} · {text.structural} {fmt.number(metric.structural_threshold)}</small>
   </figure>;
@@ -115,7 +120,9 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
   }, []);
   const technical = payload?.checks.findings.find(finding => finding.status === "review");
   return <section className={`${styles.health} ${compact ? styles.compact : styles.expanded}`} id="strategy-health" aria-label={input.checks_only ? text.checks : text.title}>
-    <h2>{input.checks_only ? text.checks : text.title}</h2>
+    <div className={styles.heading}><h2>{input.checks_only ? text.checks : text.title}</h2>
+      {compact && <Link href="/backtest/?health=default#strategy-health">{text.open}</Link>}
+    </div>
     {!input.sleeves && <p>{text.defaultContext}</p>}
     {!input.checks_only && <p className={styles.note}>{compact ? text.compactNote : text.simulation}</p>}
     <button className="btn btn-secondary" disabled={busy} onClick={() => void run()}>{error ? text.retry : text.run}</button>
@@ -123,20 +130,26 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
     {error && <p role="alert">{error}</p>}
     {payload?.reason && <p>{message(payload.reason)}</p>}
     {payload && <>
-      {technical && <div className="signal-warning"><strong>{text.checks}</strong><p>{technical.message}</p><p>{text.suggested} · {technical.action ?? text.technicalAction}</p></div>}
       {!input.checks_only && <div className={styles.cards}>{payload.reports.map(report => <article key={report.key}>
         <header><h3>{text[report.key]}</h3><strong className={styles[report.status]}>{text[report.status]}</strong></header>
+        <p>{text.summaries[report.status]}</p>
+        {report.composition === "all_sleeves" && <p>{text.allSleeves.replace("{count}", String(payload.weights?.length ?? input.sleeves?.length ?? 0))}</p>}
+        <p><strong>{text.triggered}</strong> · {report.triggered_by?.length ? report.triggered_by.map(key => text.triggerNames[key]).join(", ") : report.failures?.length ? text.historyUnavailable : text.noTrigger}</p>
         {report.as_of && <small>{text.asOf} {fmt.date(report.as_of ?? "")}</small>}
         <dl>{metricKeys.map(key => <div key={key}><dt title={text[key]}>{compact ? text.metricShorts[key] : text[key]}</dt><dd>{metricValue(key, report.metrics[key]?.current)}</dd></div>)}</dl>
         {report.reason && <p>{message(report.reason)}</p>}
+        {metricKeys.filter(key => report.metrics[key]?.status === "insufficient" && report.metrics[key]?.minimum_samples !== undefined).map(key => <p key={key}>{text.sampleShortfall.replace("{metric}", text.triggerNames[key]).replace("{available}", String(report.metrics[key]!.samples)).replace("{required}", String(report.metrics[key]!.minimum_samples))}</p>)}
+        {report.failures?.map((failure, index) => <p key={index}>{failure.message}{failure.detail && ` ${failure.detail}`}</p>)}
+        {report.caveats?.map((caveat, index) => <p className={styles.note} key={index}><strong>{text.caveat}</strong> · {caveat.model} · {caveat.warning}</p>)}
         {!compact && report.findings[0] && <p>{report.findings[0].message}</p>}
         <p><strong>{text.suggested}</strong> {compact
           ? compactActions[report.findings[0]?.kind ?? ""] ?? (report.status === "normal" ? text.shortMonitor : text.shortMissing)
           : report.action}</p>
         <details><summary>{text.details}</summary><Details report={report} /></details>
       </article>)}</div>}
-      <details open={input.checks_only}><summary>{text.checks}</summary><p>{text.checksNote}</p><p>{text.historicalCheck}</p>
-        {payload.checks.findings.map((finding, index) => <div key={index}><p><strong>{text[finding.status]}</strong> · {finding.message}</p>{finding.action && <p>{text.suggested} · {finding.action}</p>}
+      <details open={input.checks_only}><summary className={technical ? styles.review : undefined}>{text.checks}{technical && ` · ${text.review}`}</summary><p>{text.checksNote}</p><p>{text.historicalCheck}</p>
+        {technical && <div className="signal-warning"><p>{technical.message}</p><p>{text.suggested} · {technical.action ?? text.technicalAction}</p></div>}
+        {payload.checks.findings.filter(finding => finding !== technical).map((finding, index) => <div className={finding.trading_days_old !== undefined && finding.trading_days_old <= 1 ? styles.priceNote : undefined} key={index}><p><strong>{text[finding.status]}</strong> · {finding.message}</p>{finding.action && <p>{text.suggested} · {finding.action}</p>}
           {finding.rows && <div className="signal-table-scroll"><table aria-label={text.holdings}><thead><tr><th>{text.mapping}</th><th>{text.reference}</th><th>{text.current}</th></tr></thead><tbody>{finding.rows.map((row, i) => <tr key={i}><td>{String(row.Fund ?? row.id)}</td><td>{numeric(row["Target %"] as number) ? fmt.percent(row["Target %"] as number) : text.insufficient}</td><td>{numeric(row["Actual %"] as number) ? fmt.percent(row["Actual %"] as number) : text.insufficient}</td></tr>)}</tbody></table></div>}
         </div>)}
         {!!payload.checks.observations?.length && <><h3>{text.inputDates}</h3><p>{text.inputDateNote}</p><div className="signal-table-scroll"><table aria-label={text.inputDates}><thead><tr><th>{text.asset}</th><th>{text.date}</th><th>{text.title}</th></tr></thead><tbody>{payload.checks.observations.map((row, index) => <tr key={index}><td>{row.model} · {row.asset}</td><td>{row.last_date ? fmt.date(row.last_date) : text.insufficient}</td><td>{text[row.status]}</td></tr>)}</tbody></table></div></>}
@@ -157,6 +170,5 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
       <p>{text.method}</p><p>{text.sample}</p><p>{text.weights}</p>
       {payload?.weights && <ul>{payload.weights.map((sleeve, index) => <li key={index}>{sleeve.model} · {fmt.percent(sleeve.weight / 100)}</li>)}</ul>}
     </details>}
-    {compact && <Link href="/backtest/?health=default#strategy-health">{text.open}</Link>}
   </section>;
 }
