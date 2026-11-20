@@ -44,3 +44,5 @@
 .thresholds small { color: var(--muted, #586579); font-size: .8rem; }
 
 .settingsButton { font-size: .8rem; padding: .3rem .6rem; }
+
+.short_history { color: var(--muted, #586579); }

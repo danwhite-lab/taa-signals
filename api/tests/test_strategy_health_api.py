@@ -28,6 +28,7 @@ def histories(monkeypatch):
         result = run_backtest(decisions, prices, 1., benchmark_asset='SPY')
         return model, result, []
     monkeypatch.setattr(health, 'model_history', load)
+    monkeypatch.setattr(health, 'reference_history', lambda *args: (None, None))
     monkeypatch.setattr(health.signals, 'load_inputs', lambda definition: (prices, pd.DataFrame(), []))
     # The US-only fixtures do not access any local or remote data source.
     return load
@@ -68,7 +69,7 @@ def test_a_failed_sleeve_does_not_hide_the_other_strategy(histories, monkeypatch
 
 
 def test_traffic_light_settings_validate_fraction_tail_and_episode_minimum():
-    for values in ({'minimum_falls': 0}, {'minimum_falls': 2.5}, {'warning_fraction': 0}, {'warning_fraction': 1.1}, {'gap_tail_percent': 101}, {'gap_tail_percent': float('nan')}):
+    for values in ({'minimum_falls': 0}, {'minimum_falls': 2.5}, {'warning_fraction': 0}, {'warning_fraction': 1.1}, {'gap_tail_percent': 101}, {'gap_tail_percent': float('nan')}, {'minimum_years': -1}, {'minimum_years': 2.5}):
         with pytest.raises(ValidationError):
             health.Thresholds(**values)
 
@@ -186,7 +187,7 @@ def test_missing_comparison_prevents_overall_normal_even_when_other_metrics_exis
     assert report['metrics']['drawdown']['status'] == 'insufficient'
     assert report['metrics']['relative']['status'] == 'yellow'
     assert report['metrics']['underwater']['status'] == 'insufficient'
-    assert report['status'] == 'insufficient'
+    assert report['status'] == 'short_history'
 
 
 def test_loader_caveat_is_named_and_does_not_erase_a_valid_rating(histories, monkeypatch):
@@ -338,3 +339,56 @@ def test_data_warning_does_not_change_a_green_light(histories, monkeypatch):
     result = health.run(health.Inputs(end='2012-01-31'), selected(), clock='2012-02-20')
     assert all(report['status'] == 'green' for report in result['reports'])
     assert all('T5YIE' in report['caveats'][0]['warning'] for report in result['reports'])
+
+
+def test_bundled_reference_is_opt_in_for_bond_cm_and_respects_configured_start(monkeypatch):
+    before = pd.Timestamp('2016-07-01')
+    returns, config = health.reference_history('Century Momentum', before)
+    assert config['series'] == 'century_momentum'
+    assert returns.index.min() == pd.Timestamp('1928-04-30')
+    assert returns.index.max() == pd.Timestamp('2016-06-30')
+    assert health.reference_history('Century Momentum Move to Cash', before) == (None, None)
+    monkeypatch.setitem(health.WORDS, 'referenceProxies', {'Another Strategy': {**config, 'start': '1980-01-31'}})
+    selected, _ = health.reference_history('Another Strategy', before)
+    assert selected.index.min() == pd.Timestamp('1980-01-31')
+    assert health.reference_history('Century Momentum', before) == (None, None)
+
+
+def test_health_reference_leaves_backtest_outputs_unchanged(histories, monkeypatch):
+    definition = health.definition_for_label('Century Momentum')
+    model, trading, warnings = histories(definition, pd.Timestamp('2012-02-20'))
+    original_monthly = trading.monthly.copy(deep=True)
+    original_decisions = model.decisions.copy(deep=True)
+    sleeves = [health.Sleeve(model='Century Momentum', weight=100)]
+    body = health.Inputs(end='2012-01-31')
+    original = health.run(body, sleeves, clock='2012-02-20')['reports'][0]
+    early = pd.Series([-.2, .3] * 240, index=pd.date_range('1960-01-31', periods=480, freq='ME'))
+    monkeypatch.setattr(health, 'reference_history', lambda *args: (early, {'series': 'test-proxy', 'note': 'Reference only.'}))
+    monkeypatch.setattr(health, 'model_history', lambda *args: (model, trading, warnings))
+    extended = health.run(body, sleeves, clock='2012-02-20')['reports'][0]
+    assert extended['reference_proxy'] == 'test-proxy'
+    assert extended['proxy_before'] == '2000-01-31'
+    assert extended['metrics']['relative'] == original['metrics']['relative']
+    assert extended['metrics']['drawdown']['current'] == original['metrics']['drawdown']['current']
+    pd.testing.assert_frame_equal(trading.monthly, original_monthly)
+    pd.testing.assert_frame_equal(model.decisions, original_decisions)
+
+
+def test_unavailable_proxy_keeps_real_metrics_and_reports_short_history(histories, monkeypatch):
+    monkeypatch.setattr(health, 'reference_history', lambda *args: (_ for _ in ()).throw(ValueError('Unavailable proxy')))
+    result = health.run(health.Inputs(end='2012-01-31'), [health.Sleeve(model='Century Momentum', weight=100)], clock='2012-02-20')
+    report = result['reports'][0]
+    assert report['status'] == 'short_history'
+    assert report['metrics']['drawdown']['current'] is not None
+    assert not report.get('proxy_before')
+    assert any(c['warning'] == health.WORDS['proxyLoadFailed'] for c in report['caveats'])
+
+
+def test_composite_never_uses_just_one_sleeves_reference(histories, monkeypatch):
+    early = pd.Series([-.2, .3] * 240, index=pd.date_range('1960-01-31', periods=480, freq='ME'))
+    monkeypatch.setattr(health, 'reference_history', lambda label, before: (early, {'series': 'test-proxy', 'note': 'Reference only.'}) if label == 'Century Momentum' else (None, None))
+    result = health.run(health.Inputs(end='2012-01-31'), selected(), clock='2012-02-20')
+    assert result['reports'][0]['proxy_before']
+    assert result['reports'][2]['status'] == 'short_history'
+    assert not result['reports'][2].get('proxy_before')
+    assert result['weights'] == [s.model_dump() for s in selected()]

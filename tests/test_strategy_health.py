@@ -5,7 +5,7 @@ import pytest
 
 from haa.strategy_health import analyze, band_metric, overall_status
 
-POLICY = {'minimum_falls': 8, 'warning_fraction': 2 / 3, 'gap_tail_percent': 10}
+POLICY = {'minimum_falls': 8, 'warning_fraction': 2 / 3, 'gap_tail_percent': 10, 'minimum_years': 0}
 
 
 def history(returns):
@@ -118,3 +118,54 @@ def test_future_observations_never_enter_an_earlier_snapshot():
     before = history([.01, -.005, .02, .01] * 36)
     after = pd.concat([before, pd.DataFrame({'pre_tax_monthly_return': [-.9], 'benchmark_monthly_return': [.2]}, index=[pd.Timestamp('2012-02-01')])])
     assert analyze(before, '2000-01-01', POLICY) == analyze(after.loc[:before.index[-1]], '2000-01-01', POLICY)
+
+
+def test_short_real_history_is_grey_with_configurable_twenty_year_default():
+    frame = history([-.05, .07, .01] * 40)
+    report = analyze(frame, '2000-01-01', {**POLICY, 'minimum_years': 20})
+    assert report['status'] == 'short_history'
+    assert report['proxy_before'] is None
+    lower = analyze(frame, '2000-01-01', {**POLICY, 'minimum_years': 5})
+    assert lower['status'] in {'green', 'yellow', 'red'}
+
+
+def test_proxy_only_changes_past_fall_references_not_current_or_relative_results():
+    frame = history([-.03, .05, .01] * 40)
+    real_before = frame.copy(deep=True)
+    policy = {**POLICY, 'minimum_years': 20}
+    before = analyze(frame, '2000-01-01', policy)
+    proxy = pd.Series([-.2, .3] * 240, index=pd.date_range('1960-01-31', periods=480, freq='ME'))
+    proxy_before = proxy.copy(deep=True)
+    after = analyze(frame, '2000-01-01', policy, proxy)
+    assert before['status'] == 'short_history'
+    assert after['status'] in {'green', 'yellow', 'red'}
+    assert after['reference_start'] == '1960-01-31'
+    assert after['proxy_before'] == '2000-01-01'
+    assert after['metrics']['drawdown']['structural_value'] == pytest.approx(.2)
+    assert after['metrics']['relative'] == before['metrics']['relative']
+    assert after['peak'] == before['peak']
+    assert after['episodes'] == before['episodes']
+    for metric in before['metrics']:
+        assert before['metrics'][metric]['current'] == after['metrics'][metric]['current']
+    pd.testing.assert_frame_equal(frame, real_before)
+    pd.testing.assert_series_equal(proxy, proxy_before)
+
+
+def test_proxy_overlap_and_future_observations_never_enter_the_reference():
+    frame = history([-.03, .05, .01] * 40)
+    proxy = pd.Series([-.2, .3] * 240, index=pd.date_range('1960-01-31', periods=480, freq='ME'))
+    future = pd.concat([proxy, pd.Series([-.99], index=[pd.Timestamp('2000-01-31')])])
+    assert analyze(frame, '2000-01-01', POLICY, proxy) == analyze(frame, '2000-01-01', POLICY, future)
+
+
+@pytest.mark.parametrize('damage', ['gap', 'duplicate', 'nan', 'bankrupt'])
+def test_invalid_proxy_reference_is_rejected_without_filling(damage):
+    proxy = pd.Series([-.2, .3] * 12, index=pd.date_range('1998-01-31', periods=24, freq='ME'))
+    if damage == 'gap':
+        proxy = proxy.drop(proxy.index[10])
+    elif damage == 'duplicate':
+        proxy = pd.concat([proxy, proxy.iloc[[10]]])
+    else:
+        proxy.iloc[10] = np.nan if damage == 'nan' else -1
+    with pytest.raises(ValueError, match='health reference'):
+        analyze(history([.01] * 120), '2000-01-01', POLICY, proxy)
