@@ -18,7 +18,7 @@
   "icReviewPercentile": "IC review percentile",
   "icStructuralPercentile": "IC structural warning percentile",
   "apply": "Apply thresholds",
-  "invalidThresholds": "Enter percentiles between 0 and 100, with the structural warning percentile above the review percentile. IC thresholds must be at least as cautious as CM thresholds.",
+  "invalidThresholds": "Enter a whole-number minimum of at least 1, and percentages above 0 and at most 100.",
   "drawdown": "Drawdown from previous peak",
   "underwater": "Months since previous peak",
   "relative": "3-year annualized return minus S&P 500",
@@ -39,9 +39,9 @@
   "defaultContext": "Uses your saved default portfolio.",
   "simulation": "Historical simulation using original USD implementations, before fees, tax and deposits. SPY adjusted close is the S&P 500 total-return ETF proxy. These are completed monthly holding-period results, not your live account returns. Health uses all available history through the selected end date, regardless of the Backtest start date.",
   "weights": "Uses configured sleeve weights and the existing monthly portfolio rebalancing engine. Each CM or IC group is normalized within that group. Combined portfolio includes all configured sleeves.",
-  "method": "Drawdown measures the loss from the previous monthly peak, including starting capital. Each earlier recovered fall contributes its deepest loss and its full recovery time once. The ongoing fall is excluded from its own reference. Relative performance subtracts SPY’s annualized 36-month return from the strategy’s. Earlier comparison windows cannot overlap the current 3-year window. Historical rolling windows still overlap each other.",
-  "limits": "These editable tail percentiles are diagnostic choices, not validated failure probabilities. CM defaults use the worst 10% and 2.5% of history. IC defaults flag earlier, at the worst 20% and 5%, because model fitting may make its historical results look too reassuring. A portfolio containing IC uses the IC policy. Historical thresholds cannot prove that a strategy has stopped working.",
-  "sample": "The existing minimums remain 36 earlier drawdown observations (now whole recovered falls), 3 recovered underwater episodes and 36 earlier rolling windows. Fewer complete observations means Insufficient data. Structural Warning requires at least two measures in their structural warning zones and enough observations in each tail. One measure alone can produce Review. No verified independent live calibration is available.",
+  "method": "Completed monthly backtest results are compared with earlier recovered falls. Depth and time underwater turn yellow at the configured share of their historical worst and red beyond that worst. Three-year return gaps use complete, non-overlapping windows anchored backward from the current window; yellow flags the configured worst tail and red exceeds its worst. The current fall and current 3-year window never set their own historical reference.",
+  "limits": "These are descriptive comparisons with a changing historical backtest, with no fixed reference saved. Historical limits do not establish whether a strategy will work in future.",
+  "sample": "The default minimum is 8 earlier recovered falls. At least one complete earlier 3-year window is also needed. Missing history shows grey. The overall light is the worst of the three measures.",
   "monitor": "Continue monitoring the next completed month. All three indicators are within the configured historical review thresholds.",
   "missingAction": "Check the available dates and data sources. A complete historical comparison is needed before assigning a health rating.",
   "drawdownAction": "Review the depth of the loss against earlier drawdowns, then check the signals and holdings. A rare historical loss does not establish strategy failure.",
@@ -52,15 +52,9 @@
   "staleData": "The latest available holding period predates the latest completed monthly execution period. Review dated source data.",
   "historyUnavailable": "The existing engine could not produce a complete history for this selection.",
   "thresholdDefaults": {
-    "review": 90,
-    "structural": 97.5,
-    "ic_review": 80,
-    "ic_structural": 95
-  },
-  "minimumSamples": {
-    "drawdown": 36,
-    "underwater": 3,
-    "relative": 36
+    "minimum_falls": 8,
+    "warning_fraction": 0.6666666666666666,
+    "gap_tail_percent": 10
   },
   "holdings": "Holdings versus signals",
   "holdingsUnavailable": "Holdings or current signal valuations are unavailable. Open Today to check the saved portfolio and prices.",
@@ -81,7 +75,7 @@
   "allFindings": "Findings",
   "reasonTemplate": "{metric} is at historical stress percentile {percentile}, exceeding the {threshold} review threshold.",
   "structuralTemplate": "{metric} is in its structural warning zone above percentile {threshold}. Review the model assumptions and execution. One measure alone cannot create an overall Structural Warning.",
-  "shortSample": "The historical comparison sample is too small for all three indicators.",
+  "shortSample": "Not enough history for all three measures.",
   "prior": "Earlier observations only",
   "gap": "The history contains missing, invalid or nonconsecutive monthly holding periods.",
   "sourceWarning": "The loader reported degraded market data.",
@@ -133,5 +127,31 @@
     "insufficient": "More complete history is needed for a rating."
   },
   "sampleShortfall": "{metric} has {available} complete reference observations; {required} are required.",
-  "missingHealthBenchmark": "{sleeve} resolves to {underlying}, but its health data loader is missing the SPY benchmark series needed for comparison."
+  "missingHealthBenchmark": "{sleeve} resolves to {underlying}, but its health data loader is missing the SPY benchmark series needed for comparison.",
+  "lights": {
+    "green": "Green",
+    "yellow": "Yellow",
+    "red": "Red",
+    "insufficient": "Not enough history"
+  },
+  "settings": "Settings",
+  "reset": "Reset to defaults",
+  "history": "history",
+  "lightReasons": {
+    "green": "All three measures are within their green bands.",
+    "yellow": "Triggered by {measures} reaching the yellow warning level.",
+    "red": "Triggered by {measures} exceeding historical limits.",
+    "insufficient": "{measures} need more complete reference history."
+  },
+  "trafficRule": "Red means review the strategy and the data, not sell automatically.",
+  "settingLabels": {
+    "minimum_falls": "Minimum completed falls",
+    "warning_fraction": "Yellow starts at (%) of historical worst",
+    "gap_tail_percent": "Worst 3-year gaps to flag (%)"
+  },
+  "settingHelp": {
+    "minimum_falls": "Show grey until this many earlier falls have recovered.",
+    "warning_fraction": "Yellow begins at this share of the deepest fall or longest recovery. The default is two thirds.",
+    "gap_tail_percent": "Yellow flags this worst share of earlier, non-overlapping 3-year gaps versus SPY."
+  }
 }

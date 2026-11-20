@@ -10,38 +10,33 @@ from .metrics import rolling_annualized_returns
 
 
 def overall_status(statuses):
-    """Require two flagged measures for an overall structural label."""
-    if "insufficient" in statuses:
-        return "insufficient"
-    if statuses.count("structural") >= 2:
-        return "structural"
-    if any(value in {"review", "structural"} for value in statuses):
-        return "review"
-    return "normal"
+    """Use the worst available band, withholding a light for missing history."""
+    for status in ("insufficient", "red", "yellow"):
+        if status in statuses:
+            return status
+    return "green"
 
 
-def historical_metric(current, reference, minimum, review, structural):
-    """Rank stress using earlier observations, with ties receiving a mid-rank."""
+def band_metric(current, reference, minimum, *, warning_fraction=None, tail_percent=None):
+    """Compare stress with earlier complete falls or disjoint return windows."""
     sample = np.asarray(reference, dtype=float)
     sample = sample[np.isfinite(sample)]
     available = current is not None and math.isfinite(current) and len(sample) >= minimum
-    percentile = (100 * (np.sum(sample < current) + .5 * np.sum(sample == current)) / len(sample)
-                  if available else None)
-    severity = "normal" if available else "insufficient"
-    if available and percentile >= review:
-        severity = "review"
-        # Sparse tails cannot support a stronger label. This is a sample-size
-        # guard, not a confidence interval for correlated historical windows.
-        if len(sample) * (1 - structural / 100) >= 1 and percentile >= structural:
-            severity = "structural"
-    return {"current": current, "percentile": percentile, "samples": len(sample), "minimum_samples": minimum, "status": severity,
-            "review_threshold": review, "structural_threshold": structural,
-            "review_value": float(np.quantile(sample, review / 100)) if available else None,
-            "structural_value": float(np.quantile(sample, structural / 100)) if available else None,
+    worst = float(sample.max()) if len(sample) else None
+    yellow = None
+    status = "insufficient"
+    percentile = None
+    if available:
+        yellow = (float(np.quantile(sample, 1 - tail_percent / 100)) if tail_percent is not None
+                  else worst * warning_fraction)
+        percentile = 100 * (np.sum(sample < current) + .5 * np.sum(sample == current)) / len(sample)
+        status = "red" if current > worst else "yellow" if current >= yellow else "green"
+    return {"current": current, "percentile": percentile, "samples": len(sample), "minimum_samples": minimum,
+            "status": status, "review_value": yellow, "structural_value": worst,
             "distribution": sorted(sample.tolist()) if available else []}
 
 
-def analyze(monthly, initial_date, policy, minimums):
+def analyze(monthly, initial_date, policy):
     """Measure the latest completed period against strictly earlier history.
 
     Inputs are existing engine returns, never account NAV or interpolated prices.
@@ -94,14 +89,17 @@ def analyze(monthly, initial_date, policy, minimums):
     reference_loss = [episode["depth"] for episode in completed_episodes]
     completed_durations = [episode["months"] for episode in completed_episodes]
     relative = rolling_annualized_returns(frame.pre_tax_monthly_return, 3) - rolling_annualized_returns(frame.benchmark_monthly_return, 3)
-    # Earlier rolling windows cannot share any return with the current window.
-    reference_relative = -relative.iloc[:-36].dropna()
+    # Anchor backward from the current 36-month window. Every earlier window
+    # is complete and disjoint from both the current window and every other
+    # reference window. Residual months at inception are not a full window.
+    window_ends = list(reversed(range(len(frame) - 37, 34, -36)))
+    reference_relative = -relative.iloc[window_ends].dropna()
     latest_relative = float(relative.iloc[-1]) if pd.notna(relative.iloc[-1]) else None
     metrics = {
-        "drawdown": historical_metric(float(losses.iloc[-1]), reference_loss, minimums["drawdown"], **policy),
-        "underwater": historical_metric(float(duration), completed_durations, minimums["underwater"], **policy),
-        "relative": historical_metric(-latest_relative if latest_relative is not None else None, reference_relative,
-                                      minimums["relative"], **policy),
+        "drawdown": band_metric(float(losses.iloc[-1]), reference_loss, policy["minimum_falls"], warning_fraction=policy["warning_fraction"]),
+        "underwater": band_metric(float(duration), completed_durations, policy["minimum_falls"], warning_fraction=policy["warning_fraction"]),
+        "relative": band_metric(-latest_relative if latest_relative is not None else None, reference_relative,
+                                1, tail_percent=policy["gap_tail_percent"]),
     }
     statuses = [metric["status"] for metric in metrics.values()]
     # Individual breaches remain visible, but an incomplete comparison cannot
@@ -110,4 +108,7 @@ def analyze(monthly, initial_date, policy, minimums):
     return {"status": status, "reason": "shortSample" if "insufficient" in statuses else None,
             "as_of": frame.index[-1].date().isoformat(), "start": initial_date.date().isoformat(),
             "peak": peak_date.date().isoformat(), "metrics": metrics, "episodes": completed_episodes,
+            "reference_windows": [{"first_period": frame.index[end - 35].date().isoformat(),
+                                   "last_period": frame.index[end].date().isoformat(),
+                                   "gap": float(relative.iloc[end])} for end in window_ends],
             "rolling": [{"date": date.date().isoformat(), "relative": float(value)} for date, value in relative.dropna().items()]}
