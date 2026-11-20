@@ -6,6 +6,7 @@ import SearchPicker from "../../components/SearchPicker";
 
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import StrategyHealth, { type HealthInput } from "../../components/StrategyHealth";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import usdWords from "../../content/usd-equivalents.json";
@@ -206,6 +207,9 @@ export default function BacktestPage() {
   const [options, setOptions] = useState<Options | null>(null);
   const [models, setModels] = useState<Model[] | null>(modelsCache);
   const [result, setResult] = useState<Results | null>(null);
+  const [healthInput, setHealthInput] = useState<HealthInput | null>(null);
+  const [defaultHealth, setDefaultHealth] = useState(false);
+  useEffect(() => { setDefaultHealth(new URLSearchParams(window.location.search).get("health") === "default"); }, []);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingModels, setLoadingModels] = useState(!modelsCache);
@@ -272,6 +276,12 @@ export default function BacktestPage() {
       const value = await backtestRequest<Results>("/api/backtest", { method: "POST", signal: controller.signal,
         body: JSON.stringify(body) });
       setResult(value);
+      setDefaultHealth(false);
+      const selected = body.mode === "deep" ? [] : Array.isArray(body.sleeves)
+        ? (body.sleeves as {model: string; weight: number}[]).map(({model, weight}) => ({model, weight}))
+        : [{model: String(body.label), weight: 100}];
+      setHealthInput(selected.some(sleeve => /^(Century Momentum|Inflation Compass)/.test(sleeve.model))
+        ? { sleeves: selected, end: typeof body.end === "string" ? body.end : null } : null);
     } catch (failure) { setError(timedOut ? text.timeout : (failure as Error).message); }
     finally { clearTimeout(timeout); inFlight.current = false; setRunning(false); }
   }
@@ -306,5 +316,7 @@ export default function BacktestPage() {
     {changed && <p>{text.changed}</p>}
     {result ? <BacktestResults result={result} onDownloadError={() => setError(text.downloadError)} />
       : <footer>{text.disclaimer}</footer>}
+    {defaultHealth && <StrategyHealth automatic />}
+    {result && healthInput && <StrategyHealth key={JSON.stringify(healthInput)} input={healthInput} />}
   </main>;
 }

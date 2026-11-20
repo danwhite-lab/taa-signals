@@ -7,6 +7,7 @@ import text from "../../content/today.json";
 import { registryMessage, registryResponseMessage } from "../../lib/my-funds-errors";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
+import StrategyHealth from "../../components/StrategyHealth";
 import HistorySources, { type HistorySleeve } from "./history-sources";
 import { fundName, modelCaption } from "../../lib/picker-display";
 import styles from "./today.module.css";
@@ -111,6 +112,7 @@ export default function TodayPage() {
         {value.comparison && <details><summary>{text.fullComparison}</summary><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.fullComparison}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
           {value.comparison.map(row => <tr key={row.id}><td>{fundName(row.id, row.Fund)}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
         </tbody></table></div></details>}</>}</section>
+      {value.signals.some(row => /^(Century Momentum|Inflation Compass)/.test(row.label ?? "")) && <StrategyHealth automatic compact />}
       <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}
         <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.preview}><thead><tr><th>{text.sleeve}</th><th>{text.projectedAllocation}</th><th>{text.securityNumber}</th><th>{text.change}</th><th>{text.priceThrough}</th></tr></thead>
