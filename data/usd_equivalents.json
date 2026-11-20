@@ -84,6 +84,15 @@
       "ticker": "UPRO",
       "note": "Functional US daily-reset 3x S&P 500 ETF; local leverage, financing and tracking differ.",
       "prominent": true
+    },
+    "Gold Cross-Asset Israel": {
+      "model": "Gold Cross-Asset",
+      "note": "Original USD Gold Cross-Asset strategy. GLD and IEF adjusted closes drive its signal; holdings are GLD or the BIL cash proxy. TASE gold/cash fund prices and shekel hedging are excluded."
+    },
+    "Buy and Hold Russell 2000 Israel": {
+      "ticker": "IWM",
+      "note": "IWM proxy — adjusted-close history of the US-listed iShares Russell 2000 ETF, including dividend adjustments. This is an explicitly declared ETF proxy for the Russell 2000 net total-return index (RU20N30U), with ETF costs and dividend-tax treatment differences. No TASE fund prices, shekel returns or pre-ETF history are used.",
+      "prominent": true
     }
   }
 }

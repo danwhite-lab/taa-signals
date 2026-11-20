@@ -224,3 +224,23 @@ def test_saved_unsupported_usd_mapping_rejected_before_loading(market,monkeypatc
         result=client.post(endpoint,headers=HEADERS,json=body)
         assert result.status_code==400 and 'TA-125 Smart Momentum' in result.json()['detail']
         assert len(market)==prior
+
+
+def test_gold_cross_asset_maps_to_original_us_gold_and_cash():
+    from haa.strategies.gold_cross_asset import GoldCrossAsset
+    definition = usd.resolve('Gold Cross-Asset Israel')
+    assert definition.model_class is GoldCrossAsset
+    assert set(definition.model_class.data_assets) == {'GLD', 'IEF', 'BIL'}
+    assert definition.execution_currency == 'USD'
+    assert 'TASE' in usd.REGISTRY['mappings']['Gold Cross-Asset Israel']['note']
+
+
+def test_russell_uses_the_disclosed_us_iwm_proxy():
+    selected = usd.resolve('Buy and Hold Russell 2000 Israel')
+    assert selected.model_class.holding_asset == 'IWM'
+    assert selected.model_class.data_assets == ('IWM',)
+    assert selected.execution_currency == 'USD'
+    mapping = usd.REGISTRY['mappings']['Buy and Hold Russell 2000 Israel']
+    assert mapping['prominent'] is True
+    assert 'IWM proxy' in mapping['note']
+    assert 'RU20N30U' in mapping['note']

@@ -204,7 +204,13 @@ def test_loader_caveat_is_named_and_does_not_erase_a_valid_rating(histories, mon
     assert [r['status'] for r in result['reports']] == [r['status'] for r in clean['reports']]
 
 
-def test_combined_names_every_missing_mapping_and_keeps_all_saved_weights(histories):
+def test_combined_names_every_missing_mapping_and_keeps_all_saved_weights(histories, monkeypatch):
+    resolve = health.usd_equivalents.resolve
+    def missing_mapping(label):
+        if label in {'Buy and Hold Russell 2000 Israel', 'Gold Cross-Asset Israel'}:
+            raise ValueError('No configured USD mapping')
+        return resolve(label)
+    monkeypatch.setattr(health.usd_equivalents, 'resolve', missing_mapping)
     sleeves = [health.Sleeve(model='Century Momentum Move to Cash Israel', weight=45),
                health.Sleeve(model='Inflation Compass Standard Israel', weight=20),
                health.Sleeve(model='Buy and Hold Global Israel', weight=20),
@@ -248,3 +254,74 @@ def test_acwi_missing_health_benchmark_is_named_without_changing_the_mapping(his
     assert failure['model'] == 'Buy and Hold Global Israel'
     assert 'SPY benchmark series' in failure['message']
     assert result['weights'] == [s.model_dump() for s in sleeves]
+
+
+def test_acwi_health_loader_requests_spy_without_changing_the_strategy(monkeypatch):
+    from haa.market_sessions import us_equity_sessions
+    definition = health.definition_for_label('Buy and Hold ACWI')
+    dates = us_equity_sessions('2015-01-02', '2026-11-19')
+    prices = pd.DataFrame({'ACWI': 100 * np.exp(np.arange(len(dates)) * .0001),
+                           'SPY': 100 * np.exp(np.arange(len(dates)) * .0002)}, index=dates)
+    def load(selected):
+        strategy = selected.model_class()
+        assert strategy.data_assets == ('ACWI', 'SPY')
+        assert strategy.benchmark_asset == 'SPY'
+        assert set(strategy.require_adjusted_assets) == {'ACWI', 'SPY'}
+        return prices, pd.DataFrame(), []
+    monkeypatch.setattr(health.signals, 'load_inputs', load)
+    model, result, warnings = health.model_history(definition, pd.Timestamp('2026-11-20'))
+    assert model.benchmark_asset == 'SPY'
+    assert len(result.monthly) > 100
+    first = result.monthly.iloc[0]
+    expected = prices.loc[result.monthly.index[0], 'SPY'] / prices.loc[first.execution_date, 'SPY'] - 1
+    assert first.benchmark_monthly_return == pytest.approx(expected)
+    assert definition.model_class.benchmark_asset == 'ACWI'
+    assert definition.model_class.data_assets == ('ACWI',)
+    assert not warnings
+
+
+def test_full_five_sleeve_health_uses_us_history_and_discloses_iwm(monkeypatch):
+    from haa.constants import INFLATION_COMPASS_DATA_ASSETS
+    from haa.market_sessions import us_equity_sessions
+    dates = us_equity_sessions('2000-01-03', '2026-11-19')
+    t = np.arange(len(dates))
+    assets = tuple(dict.fromkeys((*INFLATION_COMPASS_DATA_ASSETS, 'SPMO', 'BIL', 'GLD', 'ACWI', 'IWM')))
+    source = pd.DataFrame({asset: (2 + .1 * np.sin(t / 60) if asset == 'T5YIE'
+                                  else 100 * np.exp(.00015 * t + .06 * np.sin(t / (25 + i))))
+                           for i, asset in enumerate(assets)}, index=dates)
+    calls = []
+    def load(definition):
+        strategy = definition.model_class()
+        required = tuple(dict.fromkeys((*strategy.data_assets, strategy.benchmark_asset)))
+        calls.append(required)
+        assert 'SPY' in required
+        assert not any(asset.endswith('_IL') for asset in required)
+        return source.loc[:, required].copy(), pd.DataFrame(), []
+    monkeypatch.setattr(health.signals, 'load_inputs', load)
+    monkeypatch.setattr(health, 'implementation_checks', lambda *a: {'findings': [], 'proxies': []})
+    sleeves = [health.Sleeve(model=label, weight=weight) for label, weight in [
+        ('Century Momentum Move to Cash Israel', 45), ('Inflation Compass Standard Israel', 20),
+        ('Buy and Hold Global Israel', 20), ('Buy and Hold Russell 2000 Israel', 5), ('Gold Cross-Asset Israel', 10)]]
+    result = health.run(health.Inputs(), sleeves, clock='2026-11-20T14:00:00')
+    combined = result['reports'][2]
+    assert set(combined['metrics']) == {'drawdown', 'underwater', 'relative'}
+    assert combined['as_of'] == '2026-11-02'
+    assert not combined.get('failures')
+    assert combined['composition'] == 'all_sleeves'
+    assert len(combined['models']) == 5
+    assert result['weights'] == [s.model_dump() for s in sleeves]
+    assert any('IWM proxy' in caveat['warning'] for caveat in combined['caveats'])
+    assert any('IWM' in assets for assets in calls)
+    assert any({'GLD', 'IEF', 'BIL'}.issubset(assets) for assets in calls)
+    # Independently invoke the existing portfolio engine on those same five
+    # inputs to guard against dropping a sleeve or changing saved weights.
+    models = {}
+    for index, sleeve in enumerate(sleeves):
+        original = health.usd_equivalents.resolve(sleeve.model)
+        model, _, _ = health.model_history(original, pd.Timestamp('2026-11-20T14:00:00'))
+        models[str(index)] = (sleeve.weight / 100, model)
+    portfolio = run_portfolio_backtest(models, 1.)
+    # The selected weighted monthly return stream must have the same compound
+    # drawdown as the public report, regardless of its health sample size.
+    values = pd.concat([pd.Series([1.]), (1 + portfolio.monthly.pre_tax_monthly_return).cumprod().reset_index(drop=True)], ignore_index=True)
+    assert combined['metrics']['drawdown']['current'] == pytest.approx(float(1 - values.iloc[-1] / values.max()))

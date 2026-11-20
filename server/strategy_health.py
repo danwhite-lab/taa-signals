@@ -106,7 +106,8 @@ def model_history(definition, clock):
     # Reuse the original loader's strict adjusted-close option. A raw Close
     # fallback would make a dividend-paying SPY comparison inconsistent.
     loader_class = type('HealthAdjusted' + definition.model_class.__name__, (definition.model_class,),
-                        {'require_adjusted_assets': tuple(asset for asset in assets if asset not in FRED_ASSETS)})
+                        {'data_assets': tuple(assets), 'benchmark_asset': 'SPY',
+                         'require_adjusted_assets': tuple(asset for asset in assets if asset not in FRED_ASSETS)})
     prices, metadata, warnings = signals.load_inputs(replace(definition, model_class=loader_class))
     prices = prices.loc[prices.index < clock.normalize()]
     prices = prices.reindex(columns=assets)
@@ -290,6 +291,12 @@ def run(body, sleeves, current=None, clock=None):
             report.update(key=key, policy='ic' if uses_ic else 'cm', models=[sleeves[i].model for i in indices])
             report['caveats'] = [{'model': sleeves[i].model, 'warning': signals.safe_error(warning)}
                                   for i in indices for warning in warnings[i]]
+            # Prominent proxy disclosures come from the shared mapping data,
+            # so every affected health card identifies its return proxy.
+            for i in indices:
+                mapping = usd_equivalents.REGISTRY['mappings'].get(sleeves[i].model, {})
+                if mapping.get('prominent'):
+                    report['caveats'].append({'model': sleeves[i].model, 'warning': mapping['note']})
             if key == 'combined':
                 report['composition'] = 'all_sleeves'
             # A requested historical date is explicitly historical. For Today,
