@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from haa.comparison import ModelInput
 from haa.engine import run_backtest
@@ -29,17 +29,9 @@ FAMILIES = {'Century Momentum': 'cm', 'Inflation Compass': 'ic'}
 
 class Thresholds(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
-    review: float = Field(default=WORDS['thresholdDefaults']['review'], gt=0, lt=100)
-    structural: float = Field(default=WORDS['thresholdDefaults']['structural'], gt=0, lt=100)
-    ic_review: float = Field(default=WORDS['thresholdDefaults']['ic_review'], gt=0, lt=100)
-    ic_structural: float = Field(default=WORDS['thresholdDefaults']['ic_structural'], gt=0, lt=100)
-
-    @model_validator(mode='after')
-    def ordered(self):
-        if (self.review >= self.structural or self.ic_review >= self.ic_structural
-                or self.ic_review > self.review or self.ic_structural > self.structural):
-            raise ValueError(WORDS['invalidThresholds'])
-        return self
+    minimum_falls: int = Field(default=WORDS['thresholdDefaults']['minimum_falls'], ge=1)
+    warning_fraction: float = Field(default=WORDS['thresholdDefaults']['warning_fraction'], gt=0, le=1)
+    gap_tail_percent: float = Field(default=WORDS['thresholdDefaults']['gap_tail_percent'], gt=0, le=100)
 
 
 class Sleeve(BaseModel):
@@ -62,23 +54,14 @@ def unavailable(key, reason, failures=None):
 
 
 def recommendations(report):
-    findings = []
-    for key, metric in report.get('metrics', {}).items():
-        if metric['status'] in {'review', 'structural'}:
-            template = 'structuralTemplate' if metric['status'] == 'structural' else 'reasonTemplate'
-            threshold = metric['structural_threshold'] if metric['status'] == 'structural' else metric['review_threshold']
-            findings.append({'kind': key, 'status': metric['status'],
-                             'message': WORDS[template].format(metric=WORDS[key], percentile=f"{metric['percentile']:.1f}", threshold=threshold),
-                             'action': WORDS[key + 'Action']})
-    findings.sort(key=lambda item: item['status'] != 'structural')
-    if report.get('reason'):
-        findings.append({'kind': 'data', 'status': 'insufficient', 'message': WORDS[report['reason']], 'action': WORDS['missingAction']})
-    report['findings'] = findings
-    report['action'] = findings[0]['action'] if findings else WORDS['monitor']
-    report['triggered_by'] = [key for key, metric in report.get('metrics', {}).items()
-                              if metric['status'] in {'review', 'structural'}]
-    if report['status'] == 'insufficient' and not report['triggered_by']:
-        report['triggered_by'] = [key for key, metric in report.get('metrics', {}).items() if metric['status'] == 'insufficient']
+    """Name only the measure(s) setting the light, separately from data notes."""
+    metrics = report.get('metrics', {})
+    triggers = [key for key, metric in metrics.items() if metric['status'] == report['status']]
+    names = ', '.join(WORDS['triggerNames'][key] for key in triggers)
+    report['triggered_by'] = triggers
+    report['summary'] = WORDS['lightReasons'][report['status']].format(measures=names or WORDS['history'])
+    report['findings'] = []
+    report['action'] = WORDS['monitor'] if report['status'] == 'green' else WORDS['missingAction'] if report['status'] == 'insufficient' else WORDS['trafficRule']
     return report
 
 
@@ -273,9 +256,7 @@ def run(body, sleeves, current=None, clock=None):
                 report['composition'] = 'all_sleeves'
             output['reports'].append(report)
             continue
-        uses_ic = any(definitions[i].strategy == 'Inflation Compass' for i in indices)
-        policy = {'review': body.thresholds.ic_review if uses_ic else body.thresholds.review,
-                  'structural': body.thresholds.ic_structural if uses_ic else body.thresholds.structural}
+        policy = body.thresholds.model_dump()
         try:
             total = sum(sleeves[i].weight for i in indices)
             if len(indices) == 1:
@@ -287,8 +268,8 @@ def run(body, sleeves, current=None, clock=None):
             first = monthly.iloc[0].get('execution_date')
             if first is None or pd.isna(first):
                 first = max(histories[i][1].monthly.loc[monthly.index[0], 'execution_date'] for i in indices)
-            report = analyze(monthly, first, policy, WORDS['minimumSamples'])
-            report.update(key=key, policy='ic' if uses_ic else 'cm', models=[sleeves[i].model for i in indices])
+            report = analyze(monthly, first, policy)
+            report.update(key=key, models=[sleeves[i].model for i in indices])
             report['caveats'] = [{'model': sleeves[i].model, 'warning': signals.safe_error(warning)}
                                   for i in indices for warning in warnings[i]]
             # Prominent proxy disclosures come from the shared mapping data,
@@ -303,7 +284,7 @@ def run(body, sleeves, current=None, clock=None):
             # a completed execution month that has not arrived cannot be stale.
             expected = scheduled_execution_dates(pd.DatetimeIndex([(clock.to_period('M') - 1).to_timestamp('M')]))[0]
             if body.end is None and expected < clock.normalize() and pd.Timestamp(report.get('as_of', '1900-01-01')).to_period('M') < expected.to_period('M'):
-                report.update(status='insufficient', reason='staleData')
+                report['caveats'].append({'model': ', '.join(report['models']), 'warning': WORDS['staleData']})
             output['reports'].append(recommendations(report))
         except Exception:
             failures = [{'model': sleeves[i].model, 'message': WORDS['combinedEngineFailure'].format(sleeve=sleeves[i].model)} for i in indices]

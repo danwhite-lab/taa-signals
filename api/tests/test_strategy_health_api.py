@@ -48,7 +48,7 @@ def test_combined_uses_saved_weights_and_the_existing_portfolio_engine(histories
         model, result, _ = histories(definition, pd.Timestamp('2012-02-20'))
         models[str(i)] = (sleeve.weight / 100, model)
     expected = run_portfolio_backtest(models, 1.)
-    expected_report = analyze(expected.monthly, pd.Timestamp('2000-01-31'), {'review': 80, 'structural': 95}, health.WORDS['minimumSamples'])
+    expected_report = analyze(expected.monthly, pd.Timestamp('2000-01-31'), health.Thresholds().model_dump())
     assert report['reports'][2]['metrics'] == expected_report['metrics']
     changed = health.run(body, selected(25, 75), clock='2012-02-20')
     assert report['reports'][2]['metrics']['relative']['current'] != changed['reports'][2]['metrics']['relative']['current']
@@ -67,8 +67,8 @@ def test_a_failed_sleeve_does_not_hide_the_other_strategy(histories, monkeypatch
     assert 'Private provider' not in str(result)
 
 
-def test_thresholds_enforce_cautious_ic_policy():
-    for values in ({'review': 99, 'structural': 95}, {'ic_review': 95}, {'review': float('nan')}):
+def test_traffic_light_settings_validate_fraction_tail_and_episode_minimum():
+    for values in ({'minimum_falls': 0}, {'minimum_falls': 2.5}, {'warning_fraction': 0}, {'warning_fraction': 1.1}, {'gap_tail_percent': 101}, {'gap_tail_percent': float('nan')}):
         with pytest.raises(ValidationError):
             health.Thresholds(**values)
 
@@ -182,9 +182,9 @@ def test_missing_comparison_prevents_overall_normal_even_when_other_metrics_exis
     from haa.strategy_health import analyze
     dates = pd.date_range('2000-02-01', periods=108, freq='MS')
     monthly = pd.DataFrame({'pre_tax_monthly_return': .01, 'benchmark_monthly_return': .005}, index=dates)
-    report = analyze(monthly, '2000-01-01', {'review': 90, 'structural': 97.5}, health.WORDS['minimumSamples'])
+    report = analyze(monthly, '2000-01-01', health.Thresholds().model_dump())
     assert report['metrics']['drawdown']['status'] == 'insufficient'
-    assert report['metrics']['relative']['status'] == 'normal'
+    assert report['metrics']['relative']['status'] == 'yellow'
     assert report['metrics']['underwater']['status'] == 'insufficient'
     assert report['status'] == 'insufficient'
 
@@ -325,3 +325,16 @@ def test_full_five_sleeve_health_uses_us_history_and_discloses_iwm(monkeypatch):
     # drawdown as the public report, regardless of its health sample size.
     values = pd.concat([pd.Series([1.]), (1 + portfolio.monthly.pre_tax_monthly_return).cumprod().reset_index(drop=True)], ignore_index=True)
     assert combined['metrics']['drawdown']['current'] == pytest.approx(float(1 - values.iloc[-1] / values.max()))
+
+
+def test_data_warning_does_not_change_a_green_light(histories, monkeypatch):
+    valid = {'status': 'green', 'reason': None, 'as_of': '2012-01-31',
+             'metrics': {key: {'status': 'green'} for key in ('drawdown', 'underwater', 'relative')}}
+    monkeypatch.setattr(health, 'analyze', lambda *args: deepcopy(valid))
+    def warned(definition, clock):
+        model, result, _ = histories(definition, clock)
+        return model, result, ['T5YIE source fallback notice']
+    monkeypatch.setattr(health, 'model_history', warned)
+    result = health.run(health.Inputs(end='2012-01-31'), selected(), clock='2012-02-20')
+    assert all(report['status'] == 'green' for report in result['reports'])
+    assert all('T5YIE' in report['caveats'][0]['warning'] for report in result['reports'])

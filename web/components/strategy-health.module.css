@@ -35,3 +35,12 @@
 .heading a { font-size: .85rem; }
 .priceNote { color: var(--muted, #586579); font-size: .8rem; }
 .priceNote strong { color: inherit; font-weight: 400; }
+
+.light { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; }
+.light::before { content: ""; width: .7rem; height: .7rem; flex: 0 0 .7rem; border-radius: 50%; background: currentColor; }
+.green { color: #17645f; }
+.yellow { color: #805710; }
+.red { color: #a33d37; }
+.thresholds small { color: var(--muted, #586579); font-size: .8rem; }
+
+.settingsButton { font-size: .8rem; padding: .3rem .6rem; }

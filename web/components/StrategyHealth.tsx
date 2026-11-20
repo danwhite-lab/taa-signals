@@ -8,19 +8,18 @@ import * as fmt from "../lib/format";
 import styles from "./strategy-health.module.css";
 
 type Status = "normal" | "review" | "structural" | "insufficient";
+type Light = "green" | "yellow" | "red" | "insufficient";
 type MetricKey = "drawdown" | "underwater" | "relative";
 type Thresholds = typeof text.thresholdDefaults;
 export type HealthInput = { sleeves?: { model: string; weight: number }[]; end?: string | null; checks_only?: boolean };
 type Finding = { kind: string; status: Status; message: string; action?: string | null; rows?: Record<string, unknown>[]; trading_days_old?: number };
-type Metric = { current: number | null; percentile: number | null; samples: number; minimum_samples?: number; status: Status; review_threshold: number; structural_threshold: number; review_value: number | null; structural_value: number | null; distribution: number[] };
-type Report = { key: "cm" | "ic" | "combined"; status: Status; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>>; triggered_by?: MetricKey[]; caveats?: {model: string; warning: string}[]; failures?: {model: string; message: string; detail?: string | null}[]; composition?: "all_sleeves" };
+type Metric = { current: number | null; percentile: number | null; samples: number; minimum_samples?: number; status: Light; review_value: number | null; structural_value: number | null; distribution: number[] };
+type Report = { key: "cm" | "ic" | "combined"; status: Light; summary?: string; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>>; triggered_by?: MetricKey[]; caveats?: {model: string; warning: string}[]; failures?: {model: string; message: string; detail?: string | null}[]; composition?: "all_sleeves" };
 type Proxy = { model: string; underlying: string; holding: string; security: string | null; published_identifier: string | null; last_price_date: string | null; reason: string };
 type Payload = { reports: Report[]; checks: { findings: Finding[]; proxies: Proxy[]; observations?: {model: string; asset: string; last_date: string | null; status: Status}[] }; reason?: keyof typeof text | null; weights?: { model: string; weight: number }[] };
 const metricKeys: MetricKey[] = ["drawdown", "underwater", "relative"];
-const thresholdKeys = ["review", "structural", "ic_review", "ic_structural"] as const;
-const thresholdLabels = ["reviewPercentile", "structuralPercentile", "icReviewPercentile", "icStructuralPercentile"] as const;
-const storageKey = "strategy-health-thresholds-v1";
-const compactActions: Record<string, string> = { drawdown: text.shortDrawdown, underwater: text.shortUnderwater, relative: text.shortRelative, data: text.shortMissing };
+const thresholdKeys = ["minimum_falls", "warning_fraction", "gap_tail_percent"] as const;
+const storageKey = "strategy-health-thresholds-v2";
 const message = (key?: keyof typeof text | null) => key && typeof text[key] === "string" ? text[key] as string : text.insufficient;
 const numeric = (value: number | null | undefined) => value !== null && value !== undefined && Number.isFinite(value);
 function metricValue(key: MetricKey, value: number | null | undefined) {
@@ -33,9 +32,9 @@ function metricValue(key: MetricKey, value: number | null | undefined) {
   return fmt.percent(-value!);
 }
 function validThresholds(value: Thresholds) {
-  return thresholdKeys.every(key => Number.isFinite(value[key]) && value[key] > 0 && value[key] < 100)
-    && value.review < value.structural && value.ic_review < value.ic_structural
-    && value.ic_review <= value.review && value.ic_structural <= value.structural;
+  return Number.isInteger(value.minimum_falls) && value.minimum_falls >= 1
+    && Number.isFinite(value.warning_fraction) && value.warning_fraction > 0 && value.warning_fraction <= 1
+    && Number.isFinite(value.gap_tail_percent) && value.gap_tail_percent > 0 && value.gap_tail_percent <= 100;
 }
 
 function Distribution({ metric, metricKey }: { metric: Metric; metricKey: MetricKey }) {
@@ -49,13 +48,13 @@ function Distribution({ metric, metricKey }: { metric: Metric; metricKey: Metric
     <svg viewBox="0 0 400 65" role="img" aria-label={`${text[metricKey]} · ${text.current} ${metricValue(metricKey, metric.current)} · ${text.percentile} ${fmt.number(metric.percentile!)}`}>
       <line x1="12" x2="388" y1="28" y2="28" stroke="currentColor" opacity="0.2" />
       {values.map((value, index) => <line key={index} x1={position(value)} x2={position(value)} y1="20" y2="36" stroke="currentColor" opacity="0.18" />)}
-      <line x1={position(metric.review_value!)} x2={position(metric.review_value!)} y1="12" y2="43" stroke="#a36a20"><title>{text.review}</title></line>
-      <line x1={position(metric.structural_value!)} x2={position(metric.structural_value!)} y1="12" y2="43" stroke="#a33d37"><title>{text.structural}</title></line>
+      <line x1={position(metric.review_value!)} x2={position(metric.review_value!)} y1="12" y2="43" stroke="#a36a20"><title>{text.lights.yellow}</title></line>
+      <line x1={position(metric.structural_value!)} x2={position(metric.structural_value!)} y1="12" y2="43" stroke="#a33d37"><title>{text.lights.red}</title></line>
       <circle cx={position(metric.current!)} cy="28" r="5" fill="#17645f"><title>{text.current}</title></circle>
       <text x="12" y="60" fontSize="11" fill="currentColor">{metricKey === "relative" ? fmt.percent(-minimum) : metricValue(metricKey, minimum)}</text>
       <text x="388" y="60" textAnchor="end" fontSize="11" fill="currentColor">{metricKey === "relative" ? fmt.percent(-maximum) : metricValue(metricKey, maximum)}</text>
     </svg>
-    <small>{text.current} ● · {text.review} {fmt.number(metric.review_threshold)} · {text.structural} {fmt.number(metric.structural_threshold)}</small>
+    <small>{text.current} ● · {text.lights.yellow} {metricValue(metricKey, metric.review_value)} · {text.lights.red} {metricValue(metricKey, metric.structural_value)}</small>
   </figure>;
 }
 
@@ -95,6 +94,7 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
   const [thresholds, setThresholds] = useState<Thresholds>(text.thresholdDefaults);
   const [draft, setDraft] = useState<Thresholds>(text.thresholdDefaults);
   const inFlight = useRef(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   async function run(policy = thresholds) {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError("");
@@ -118,38 +118,36 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
     // The parent keys this component by portfolio revision or backtest inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const technical = payload?.checks.findings.find(finding => finding.status === "review");
+  const notes = new Map<string, Set<string>>();
+  for (const report of payload?.reports ?? []) {
+    for (const caveat of report.caveats ?? []) {
+      if (!notes.has(caveat.warning)) notes.set(caveat.warning, new Set());
+      notes.get(caveat.warning)!.add(caveat.model);
+    }
+    for (const failure of report.failures ?? []) {
+      const message = failure.message + (failure.detail ? " " + failure.detail : "");
+      if (!notes.has(message)) notes.set(message, new Set());
+    }
+  }
   return <section className={`${styles.health} ${compact ? styles.compact : styles.expanded}`} id="strategy-health" aria-label={input.checks_only ? text.checks : text.title}>
     <div className={styles.heading}><h2>{input.checks_only ? text.checks : text.title}</h2>
       {compact && <Link href="/backtest/?health=default#strategy-health">{text.open}</Link>}
+      {!input.checks_only && <button className={`btn btn-secondary ${styles.settingsButton}`} aria-expanded={settingsOpen} aria-controls="health-settings" onClick={() => setSettingsOpen(value => !value)}>{text.settings}</button>}
     </div>
-    {!input.sleeves && <p>{text.defaultContext}</p>}
-    {!input.checks_only && <p className={styles.note}>{compact ? text.compactNote : text.simulation}</p>}
-    <button className="btn btn-secondary" disabled={busy} onClick={() => void run()}>{error ? text.retry : text.run}</button>
+    {!input.checks_only && <p className={styles.note}>{text.compactNote}</p>}
+    {(!automatic || error) && <button className="btn btn-secondary" disabled={busy} onClick={() => void run()}>{error ? text.retry : text.run}</button>}
     {busy && <p role="status">{text.loading}</p>}
     {error && <p role="alert">{error}</p>}
     {payload?.reason && <p>{message(payload.reason)}</p>}
     {payload && <>
       {!input.checks_only && <div className={styles.cards}>{payload.reports.map(report => <article key={report.key}>
-        <header><h3>{text[report.key]}</h3><strong className={styles[report.status]}>{text[report.status]}</strong></header>
-        <p>{text.summaries[report.status]}</p>
-        {report.composition === "all_sleeves" && <p>{text.allSleeves.replace("{count}", String(payload.weights?.length ?? input.sleeves?.length ?? 0))}</p>}
-        <p><strong>{text.triggered}</strong> · {report.triggered_by?.length ? report.triggered_by.map(key => text.triggerNames[key]).join(", ") : report.failures?.length ? text.historyUnavailable : text.noTrigger}</p>
-        {report.as_of && <small>{text.asOf} {fmt.date(report.as_of ?? "")}</small>}
-        <dl>{metricKeys.map(key => <div key={key}><dt title={text[key]}>{compact ? text.metricShorts[key] : text[key]}</dt><dd>{metricValue(key, report.metrics[key]?.current)}</dd></div>)}</dl>
-        {report.reason && <p>{message(report.reason)}</p>}
-        {metricKeys.filter(key => report.metrics[key]?.status === "insufficient" && report.metrics[key]?.minimum_samples !== undefined).map(key => <p key={key}>{text.sampleShortfall.replace("{metric}", text.triggerNames[key]).replace("{available}", String(report.metrics[key]!.samples)).replace("{required}", String(report.metrics[key]!.minimum_samples))}</p>)}
-        {report.failures?.map((failure, index) => <p key={index}>{failure.message}{failure.detail && ` ${failure.detail}`}</p>)}
-        {report.caveats?.map((caveat, index) => <p className={styles.note} key={index}><strong>{text.caveat}</strong> · {caveat.model} · {caveat.warning}</p>)}
-        {!compact && report.findings[0] && <p>{report.findings[0].message}</p>}
-        <p><strong>{text.suggested}</strong> {compact
-          ? compactActions[report.findings[0]?.kind ?? ""] ?? (report.status === "normal" ? text.shortMonitor : text.shortMissing)
-          : report.action}</p>
-        <details><summary>{text.details}</summary><Details report={report} /></details>
+        <header><h3>{text[report.key]}</h3><strong className={`${styles.light} ${styles[report.status]}`}>{text.lights[report.status]}</strong></header>
+        <p>{report.summary ?? (report.reason ? message(report.reason) : text.lightReasons[report.status].replace("{measures}", report.triggered_by?.map(key => text.triggerNames[key]).join(", ") || text.history))}</p>
       </article>)}</div>}
-      <details open={input.checks_only}><summary className={technical ? styles.review : undefined}>{text.checks}{technical && ` · ${text.review}`}</summary><p>{text.checksNote}</p><p>{text.historicalCheck}</p>
-        {technical && <div className="signal-warning"><p>{technical.message}</p><p>{text.suggested} · {technical.action ?? text.technicalAction}</p></div>}
-        {payload.checks.findings.filter(finding => finding !== technical).map((finding, index) => <div className={finding.trading_days_old !== undefined && finding.trading_days_old <= 1 ? styles.priceNote : undefined} key={index}><p><strong>{text[finding.status]}</strong> · {finding.message}</p>{finding.action && <p>{text.suggested} · {finding.action}</p>}
+      {[...notes.entries()].map(([note, models], index) => <p className={styles.note} key={index}>{models.size > 0 && `${[...models].join(" / ")} · `}{note}</p>)}
+      {!input.checks_only && <p className={styles.note}>{text.trafficRule}</p>}
+      <details open={input.checks_only}><summary className={styles.note}>{text.checks}</summary><p>{text.checksNote}</p><p>{text.historicalCheck}</p>
+        {payload.checks.findings.map((finding, index) => <div className={styles.priceNote} key={index}><p>{finding.message}</p>{finding.action && <p>{text.suggested} · {finding.action}</p>}
           {finding.rows && <div className="signal-table-scroll"><table aria-label={text.holdings}><thead><tr><th>{text.mapping}</th><th>{text.reference}</th><th>{text.current}</th></tr></thead><tbody>{finding.rows.map((row, i) => <tr key={i}><td>{String(row.Fund ?? row.id)}</td><td>{numeric(row["Target %"] as number) ? fmt.percent(row["Target %"] as number) : text.insufficient}</td><td>{numeric(row["Actual %"] as number) ? fmt.percent(row["Actual %"] as number) : text.insufficient}</td></tr>)}</tbody></table></div>}
         </div>)}
         {!!payload.checks.observations?.length && <><h3>{text.inputDates}</h3><p>{text.inputDateNote}</p><div className="signal-table-scroll"><table aria-label={text.inputDates}><thead><tr><th>{text.asset}</th><th>{text.date}</th><th>{text.title}</th></tr></thead><tbody>{payload.checks.observations.map((row, index) => <tr key={index}><td>{row.model} · {row.asset}</td><td>{row.last_date ? fmt.date(row.last_date) : text.insufficient}</td><td>{text[row.status]}</td></tr>)}</tbody></table></div></>}
@@ -158,16 +156,22 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
         {payload.checks.proxies.map((proxy, index) => <p key={index}>{proxy.model} · {proxy.underlying} → {proxy.holding} ({proxy.security}) · {proxy.last_price_date ? fmt.date(proxy.last_price_date) : text.insufficient}. {proxy.reason}</p>)}
       </details>
     </>}
-    {!input.checks_only && <details><summary>{text.configure}</summary><p>{text.limits}</p><p>{text.thresholdStored}</p>
+    {!input.checks_only && <details id="health-settings" hidden={!settingsOpen} open={settingsOpen} onToggle={event => setSettingsOpen(event.currentTarget.open)}><summary>{text.configure}</summary><p>{text.limits}</p><p>{text.thresholdStored}</p>
       <form onSubmit={event => {
         event.preventDefault();
         if (!validThresholds(draft)) { setError(text.invalidThresholds); return; }
         setThresholds(draft);
         try { localStorage.setItem(storageKey, JSON.stringify(draft)); } catch { /* This visit still uses the chosen thresholds. */ }
         void run(draft);
-      }}><div className={styles.thresholds}>{thresholdKeys.map((key, index) => <label key={key}>{text[thresholdLabels[index]]}<input type="number" step="0.1" min="0.1" max="99.9" required value={draft[key]} disabled={busy} onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.valueAsNumber }))} /></label>)}</div>
-      <button className="btn btn-secondary" disabled={busy} type="submit">{text.apply}</button></form>
-      <p>{text.method}</p><p>{text.sample}</p><p>{text.weights}</p>
+      }}><div className={styles.thresholds}>{thresholdKeys.map(key => <label key={key}>{text.settingLabels[key]}<small id={`health-setting-help-${key}`}>{text.settingHelp[key]}</small><input aria-label={text.settingLabels[key]} aria-describedby={`health-setting-help-${key}`} type="number" step={key === "minimum_falls" ? 1 : .01} min={key === "minimum_falls" ? 1 : .01} max={key === "minimum_falls" ? undefined : 100} required value={key === "warning_fraction" ? Number((draft[key] * 100).toFixed(2)) : draft[key]} disabled={busy} onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.valueAsNumber / (key === "warning_fraction" ? 100 : 1) }))} /></label>)}</div>
+      <button className="btn btn-secondary" disabled={busy} type="submit">{text.apply}</button>
+      <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => {
+        setDraft(text.thresholdDefaults); setThresholds(text.thresholdDefaults);
+        try { localStorage.removeItem(storageKey); } catch { /* Browser storage is optional. */ }
+        void run(text.thresholdDefaults);
+      }}>{text.reset}</button></form>
+      <p>{text.simulation}</p><p>{text.method}</p><p>{text.sample}</p><p>{text.weights}</p>
+      {payload?.reports.map(report => <details key={report.key}><summary>{text[report.key]} · {text.details}</summary><Details report={report} /></details>)}
       {payload?.weights && <ul>{payload.weights.map((sleeve, index) => <li key={index}>{sleeve.model} · {fmt.percent(sleeve.weight / 100)}</li>)}</ul>}
     </details>}
   </section>;
