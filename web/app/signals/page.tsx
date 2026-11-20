@@ -6,6 +6,7 @@ import SearchPicker from "../../components/SearchPicker";
 
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
+import StrategyHealth from "../../components/StrategyHealth";
 import DisplayTable from "../../components/DisplayTable";
 import * as fmt from "../../lib/format";
 import { api } from "../../lib/api";
@@ -38,7 +39,7 @@ export function downloadHistory(csv: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export function SignalsView({ value }: { value: SignalsPayload }) {
+export function SignalsView({ value, modelLabel }: { value: SignalsPayload; modelLabel?: string }) {
   const tabs = value.mode === "monthly" && value.current.available ? ["Overview", "Rationale", "History", "Data"] : ["History", "Data"];
   const [active, setActive] = useState(tabs[0]);
   const selected = tabs.includes(active) ? active : tabs[0];
@@ -102,6 +103,7 @@ export function SignalsView({ value }: { value: SignalsPayload }) {
         <SignalTableView value={value.history.table} label="Signal history" />
       </>}
       {selected === "Data" && value.data && <>
+        {modelLabel && /^(Century Momentum|Inflation Compass)/.test(modelLabel) && <StrategyHealth key={modelLabel} input={{ sleeves: [{ model: modelLabel, weight: 100 }], checks_only: true }} />}
         {value.data.captions.map((text, index) => <p key={index} className="signal-caption">{fmt.text(text)}</p>)}
         <SignalTableView value={value.data.sources} label="Data sources" />
         {value.mode !== "daily" && <SignalTableView value={value.data.ranges} label="Available date ranges" />}
@@ -141,7 +143,7 @@ export default function SignalsPage() {
     {error && <section role="alert"><h1>Signals could not be loaded</h1><p>{error}</p>
       <button className="btn btn-secondary" onClick={() => setAttempt(value => value + 1)}>Try again</button></section>}
     {!payload && !error && <p role="status">Loading signals from the existing Python engine…</p>}
-    {payload && <SignalsView key={label} value={payload} />}
+    {payload && <SignalsView key={label} value={payload} modelLabel={label} />}
     {!payload && <footer>Rules-based informational signal only; not investment advice. You are responsible for any trading decision and execution.</footer>}
   </main>;
 }

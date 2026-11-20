@@ -30,6 +30,7 @@ from server.usd_equivalents_options import OptionsRequest, availability as usd_a
 from server.fund_scope import account_scope, require_fund, require_holdings_funds
 from server import fund_registry
 from server import test_login  # noqa: E402
+from server import strategy_health
 
 
 app = FastAPI(
@@ -48,7 +49,7 @@ async def private_headers(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/test-login") and response.status_code >= 400:
         response = JSONResponse({"detail": test_login.WORDS["failure"]}, status_code=response.status_code)
-    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login", "/api/usd-equivalents", "/api/my-funds")):
+    if request.url.path.startswith(("/api/me", "/api/workspace", "/api/portfolios", "/api/cron", "/api/signals", "/api/backtest", "/api/rebalance", "/api/today", "/api/research", "/api/compare", "/api/test-login", "/api/usd-equivalents", "/api/my-funds", "/api/strategy-health")):
         response.headers["Cache-Control"] = "no-store, private"
     if request.url.path.startswith("/api/test-login"):
         response.headers["Pragma"] = "no-cache"
@@ -210,6 +211,40 @@ def today(request: Request, session=Depends(private_api.authenticated)):
         result = today_page.compose(portfolios, account, _engine_code_version(), include_preview=request.query_params.get("preview", "true")=="true")
     result["timing"]["request_seconds"] = round(perf_counter()-started, 6)
     return result
+
+
+@app.post("/api/strategy-health")
+@account_scope
+def health(body: strategy_health.Inputs, session=Depends(private_api.authenticated)):
+    current = None
+    sleeves = body.sleeves
+    if sleeves is None:
+        rows = private_api.portfolios(session)
+        defaults = [row for row in rows if row.get("is_default") is True]
+        if len(defaults) != 1:
+            return {"reports": [], "checks": {"findings": [], "proxies": []}, "reason": "noDefault"}
+        payload = defaults[0].get("payload", {})
+        if not isinstance(payload, dict):
+            raise HTTPException(400, strategy_health.WORDS["weights"])
+        try:
+            sleeves = [strategy_health.Sleeve(model=row["model"], weight=row["weight"]) for row in payload.get("sleeves", [])]
+        except (ValueError, TypeError, KeyError):
+            raise HTTPException(400, strategy_health.WORDS["weights"]) from None
+        if not sleeves:
+            raise HTTPException(400, strategy_health.WORDS["weights"])
+        account = None
+        try:
+            from haa.rebalance_holdings import validate_account
+            holdings = private_api.workspace(session)["payload"].get("holdings_account")
+            require_holdings_funds(holdings)
+            account = validate_account(holdings)
+        except Exception:
+            pass
+        try:
+            current = today_page.compose(rows, account, _engine_code_version(), include_preview=False)
+        except Exception:
+            current = None
+    return strategy_health.run(body, sleeves, current)
 
 
 @app.get("/api/signals")
