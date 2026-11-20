@@ -8,17 +8,17 @@ import * as fmt from "../lib/format";
 import styles from "./strategy-health.module.css";
 
 type Status = "normal" | "review" | "structural" | "insufficient";
-type Light = "green" | "yellow" | "red" | "insufficient";
+type Light = "green" | "yellow" | "red" | "insufficient" | "short_history";
 type MetricKey = "drawdown" | "underwater" | "relative";
 type Thresholds = typeof text.thresholdDefaults;
 export type HealthInput = { sleeves?: { model: string; weight: number }[]; end?: string | null; checks_only?: boolean };
 type Finding = { kind: string; status: Status; message: string; action?: string | null; rows?: Record<string, unknown>[]; trading_days_old?: number };
 type Metric = { current: number | null; percentile: number | null; samples: number; minimum_samples?: number; status: Light; review_value: number | null; structural_value: number | null; distribution: number[] };
-type Report = { key: "cm" | "ic" | "combined"; status: Light; summary?: string; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>>; triggered_by?: MetricKey[]; caveats?: {model: string; warning: string}[]; failures?: {model: string; message: string; detail?: string | null}[]; composition?: "all_sleeves" };
+type Report = { key: "cm" | "ic" | "combined"; status: Light; summary?: string; reason?: keyof typeof text | null; action: string; findings: Finding[]; as_of?: string; start?: string; peak?: string; models?: string[]; rolling?: { date: string; relative: number }[]; metrics: Partial<Record<MetricKey, Metric>>; triggered_by?: MetricKey[]; caveats?: {model: string; warning: string}[]; failures?: {model: string; message: string; detail?: string | null}[]; composition?: "all_sleeves"; reference_start?: string; proxy_before?: string | null };
 type Proxy = { model: string; underlying: string; holding: string; security: string | null; published_identifier: string | null; last_price_date: string | null; reason: string };
 type Payload = { reports: Report[]; checks: { findings: Finding[]; proxies: Proxy[]; observations?: {model: string; asset: string; last_date: string | null; status: Status}[] }; reason?: keyof typeof text | null; weights?: { model: string; weight: number }[] };
 const metricKeys: MetricKey[] = ["drawdown", "underwater", "relative"];
-const thresholdKeys = ["minimum_falls", "warning_fraction", "gap_tail_percent"] as const;
+const thresholdKeys = ["minimum_falls", "warning_fraction", "gap_tail_percent", "minimum_years"] as const;
 const storageKey = "strategy-health-thresholds-v2";
 const message = (key?: keyof typeof text | null) => key && typeof text[key] === "string" ? text[key] as string : text.insufficient;
 const numeric = (value: number | null | undefined) => value !== null && value !== undefined && Number.isFinite(value);
@@ -34,7 +34,8 @@ function metricValue(key: MetricKey, value: number | null | undefined) {
 function validThresholds(value: Thresholds) {
   return Number.isInteger(value.minimum_falls) && value.minimum_falls >= 1
     && Number.isFinite(value.warning_fraction) && value.warning_fraction > 0 && value.warning_fraction <= 1
-    && Number.isFinite(value.gap_tail_percent) && value.gap_tail_percent > 0 && value.gap_tail_percent <= 100;
+    && Number.isFinite(value.gap_tail_percent) && value.gap_tail_percent > 0 && value.gap_tail_percent <= 100
+    && Number.isInteger(value.minimum_years) && value.minimum_years >= 0;
 }
 
 function Distribution({ metric, metricKey }: { metric: Metric; metricKey: MetricKey }) {
@@ -111,7 +112,8 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
     let stored = text.thresholdDefaults;
     try {
       const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "null") as Thresholds | null;
-      if (parsed && validThresholds(parsed)) stored = parsed;
+      const migrated = { ...text.thresholdDefaults, ...parsed };
+      if (parsed && validThresholds(migrated)) stored = migrated;
     } catch { /* Browser storage is optional. */ }
     setThresholds(stored); setDraft(stored);
     if (automatic) void run(stored);
@@ -143,6 +145,8 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
       {!input.checks_only && <div className={styles.cards}>{payload.reports.map(report => <article key={report.key}>
         <header><h3>{text[report.key]}</h3><strong className={`${styles.light} ${styles[report.status]}`}>{text.lights[report.status]}</strong></header>
         <p>{report.summary ?? (report.reason ? message(report.reason) : text.lightReasons[report.status].replace("{measures}", report.triggered_by?.map(key => text.triggerNames[key]).join(", ") || text.history))}</p>
+        {report.proxy_before && <p className={styles.note}>{text.extensionLine.replace("{date}", fmt.date(report.proxy_before))}</p>}
+        {report.reference_start && <p className={styles.note}>{text.referenceLine.replace("{start}", fmt.date(report.reference_start)).replace("{fall}", numeric(report.metrics.drawdown?.structural_value) ? fmt.percent(report.metrics.drawdown!.structural_value!) : text.insufficient)}</p>}
       </article>)}</div>}
       {[...notes.entries()].map(([note, models], index) => <p className={styles.note} key={index}>{models.size > 0 && `${[...models].join(" / ")} · `}{note}</p>)}
       {!input.checks_only && <p className={styles.note}>{text.trafficRule}</p>}
@@ -163,7 +167,16 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
         setThresholds(draft);
         try { localStorage.setItem(storageKey, JSON.stringify(draft)); } catch { /* This visit still uses the chosen thresholds. */ }
         void run(draft);
-      }}><div className={styles.thresholds}>{thresholdKeys.map(key => <label key={key}>{text.settingLabels[key]}<small id={`health-setting-help-${key}`}>{text.settingHelp[key]}</small><input aria-label={text.settingLabels[key]} aria-describedby={`health-setting-help-${key}`} type="number" step={key === "minimum_falls" ? 1 : .01} min={key === "minimum_falls" ? 1 : .01} max={key === "minimum_falls" ? undefined : 100} required value={key === "warning_fraction" ? Number((draft[key] * 100).toFixed(2)) : draft[key]} disabled={busy} onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.valueAsNumber / (key === "warning_fraction" ? 100 : 1) }))} /></label>)}</div>
+      }}><div className={styles.thresholds}>{thresholdKeys.map(key => {
+        const wholeNumber = key === "minimum_falls" || key === "minimum_years";
+        return <label key={key}>{text.settingLabels[key]}
+          <small id={`health-setting-help-${key}`}>{text.settingHelp[key]}</small>
+          <input aria-label={text.settingLabels[key]} aria-describedby={`health-setting-help-${key}`} type="number"
+            step={wholeNumber ? 1 : .01} min={key === "minimum_falls" ? 1 : wholeNumber ? 0 : .01} max={wholeNumber ? undefined : 100}
+            required value={key === "warning_fraction" ? Number((draft[key] * 100).toFixed(2)) : draft[key]} disabled={busy}
+            onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.valueAsNumber / (key === "warning_fraction" ? 100 : 1) }))} />
+        </label>;
+      })}</div>
       <button className="btn btn-secondary" disabled={busy} type="submit">{text.apply}</button>
       <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => {
         setDraft(text.thresholdDefaults); setThresholds(text.thresholdDefaults);

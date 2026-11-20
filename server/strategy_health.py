@@ -16,6 +16,7 @@ from haa.model_catalog import definition_for_label
 from haa.portfolio_backtest import run_portfolio_backtest
 from haa.portfolio_signals import monthly_strategy_input
 from haa.strategy_health import analyze
+from haa.deep_history import DEEP_HISTORY_SPECS, load_deep_history
 from haa.tase_data import TASE_EXECUTION_ASSET_IDS
 from haa.constants import FRED_ASSETS, INFLATION_COMPASS_ISRAEL_EXECUTION_MAP
 from . import signals, usd_equivalents
@@ -32,6 +33,7 @@ class Thresholds(BaseModel):
     minimum_falls: int = Field(default=WORDS['thresholdDefaults']['minimum_falls'], ge=1)
     warning_fraction: float = Field(default=WORDS['thresholdDefaults']['warning_fraction'], gt=0, le=1)
     gap_tail_percent: float = Field(default=WORDS['thresholdDefaults']['gap_tail_percent'], gt=0, le=100)
+    minimum_years: int = Field(default=WORDS['thresholdDefaults']['minimum_years'], ge=0)
 
 
 class Sleeve(BaseModel):
@@ -59,10 +61,25 @@ def recommendations(report):
     triggers = [key for key, metric in metrics.items() if metric['status'] == report['status']]
     names = ', '.join(WORDS['triggerNames'][key] for key in triggers)
     report['triggered_by'] = triggers
-    report['summary'] = WORDS['lightReasons'][report['status']].format(measures=names or WORDS['history'])
+    report['summary'] = WORDS['lightReasons'][report['status']].format(measures=names or WORDS['history'], years=report.get('minimum_years', WORDS['thresholdDefaults']['minimum_years']))
     report['findings'] = []
-    report['action'] = WORDS['monitor'] if report['status'] == 'green' else WORDS['missingAction'] if report['status'] == 'insufficient' else WORDS['trafficRule']
+    report['action'] = WORDS['monitor'] if report['status'] == 'green' else WORDS['missingAction'] if report['status'] in {'insufficient', 'short_history'} else WORDS['trafficRule']
     return report
+
+
+def reference_history(label, before):
+    """Read an opt-in bundled proxy for earlier health falls only."""
+    config = WORDS.get('referenceProxies', {}).get(label)
+    if config is None:
+        return None, None
+    spec = DEEP_HISTORY_SPECS[config['series']]
+    if spec.currency != 'USD':
+        raise ValueError('A USD health reference needs a USD proxy.')
+    _, returns = load_deep_history(spec)
+    earlier = returns.loc[(returns.index >= pd.Timestamp(config['start'])) & (returns.index < pd.Timestamp(before))]
+    if earlier.empty:
+        raise ValueError('The configured health proxy has no earlier observations.')
+    return earlier, config
 
 
 def price_age_finding(identifier, stamp, clock):
@@ -268,10 +285,28 @@ def run(body, sleeves, current=None, clock=None):
             first = monthly.iloc[0].get('execution_date')
             if first is None or pd.isna(first):
                 first = max(histories[i][1].monthly.loc[monthly.index[0], 'execution_date'] for i in indices)
-            report = analyze(monthly, first, policy)
+            earlier, extension = None, None
+            proxy_warning = None
+            # A composite needs its own complete reference, not a subset of
+            # its sleeves. Only configured single-strategy references extend.
+            if len(indices) == 1:
+                try:
+                    earlier, extension = reference_history(histories[indices[0]][0].name, first)
+                except Exception:
+                    proxy_warning = WORDS['proxyLoadFailed']
+            try:
+                report = analyze(monthly, first, policy, earlier)
+            except ValueError:
+                report = analyze(monthly, first, policy)
+                proxy_warning = WORDS['proxyLoadFailed']
             report.update(key=key, models=[sleeves[i].model for i in indices])
             report['caveats'] = [{'model': sleeves[i].model, 'warning': signals.safe_error(warning)}
                                   for i in indices for warning in warnings[i]]
+            if report.get('proxy_before') and extension:
+                report['reference_proxy'] = extension['series']
+                report['caveats'].append({'model': report['models'][0], 'warning': extension.get('note', '')})
+            if proxy_warning:
+                report['caveats'].append({'model': report['models'][0], 'warning': proxy_warning})
             # Prominent proxy disclosures come from the shared mapping data,
             # so every affected health card identifies its return proxy.
             for i in indices:

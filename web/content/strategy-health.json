@@ -18,7 +18,7 @@
   "icReviewPercentile": "IC review percentile",
   "icStructuralPercentile": "IC structural warning percentile",
   "apply": "Apply thresholds",
-  "invalidThresholds": "Enter a whole-number minimum of at least 1, and percentages above 0 and at most 100.",
+  "invalidThresholds": "Enter whole-number history limits (at least 1 fall and 0 years), and percentages above 0 and at most 100.",
   "drawdown": "Drawdown from previous peak",
   "underwater": "Months since previous peak",
   "relative": "3-year annualized return minus S&P 500",
@@ -39,9 +39,9 @@
   "defaultContext": "Uses your saved default portfolio.",
   "simulation": "Historical simulation using original USD implementations, before fees, tax and deposits. SPY adjusted close is the S&P 500 total-return ETF proxy. These are completed monthly holding-period results, not your live account returns. Health uses all available history through the selected end date, regardless of the Backtest start date.",
   "weights": "Uses configured sleeve weights and the existing monthly portfolio rebalancing engine. Each CM or IC group is normalized within that group. Combined portfolio includes all configured sleeves.",
-  "method": "Completed monthly backtest results are compared with earlier recovered falls. Depth and time underwater turn yellow at the configured share of their historical worst and red beyond that worst. Three-year return gaps use complete, non-overlapping windows anchored backward from the current window; yellow flags the configured worst tail and red exceeds its worst. The current fall and current 3-year window never set their own historical reference.",
+  "method": "Completed monthly backtest results are compared with earlier recovered falls. Depth and time underwater turn yellow at the configured share of their historical worst and red beyond that worst. Three-year return gaps use complete, non-overlapping windows anchored backward from the current window; yellow flags the configured worst tail and red exceeds its worst. The current fall and current 3-year window never set their own historical reference. Configured earlier proxies contribute completed fall depths and recovery times only. Current drawdown, current time underwater, 3-year SPY gaps and all trading returns keep using real fund history. Proxy and real segments are assessed separately at the boundary; NAV levels are never spliced.",
   "limits": "These are descriptive comparisons with a changing historical backtest, with no fixed reference saved. Historical limits do not establish whether a strategy will work in future.",
-  "sample": "The default minimum is 8 earlier recovered falls. At least one complete earlier 3-year window is also needed. Missing history shows grey. The overall light is the worst of the three measures.",
+  "sample": "The default minimum is 8 earlier recovered falls. At least one complete earlier 3-year window is also needed. Missing history shows grey. The overall light is the worst of the three measures. Without a usable earlier proxy, real histories shorter than the configured year minimum show Short history (default 20 years).",
   "monitor": "Continue monitoring the next completed month. All three indicators are within the configured historical review thresholds.",
   "missingAction": "Check the available dates and data sources. A complete historical comparison is needed before assigning a health rating.",
   "drawdownAction": "Review the depth of the loss against earlier drawdowns, then check the signals and holdings. A rare historical loss does not establish strategy failure.",
@@ -54,7 +54,8 @@
   "thresholdDefaults": {
     "minimum_falls": 8,
     "warning_fraction": 0.6666666666666666,
-    "gap_tail_percent": 10
+    "gap_tail_percent": 10,
+    "minimum_years": 20
   },
   "holdings": "Holdings versus signals",
   "holdingsUnavailable": "Holdings or current signal valuations are unavailable. Open Today to check the saved portfolio and prices.",
@@ -132,7 +133,8 @@
     "green": "Green",
     "yellow": "Yellow",
     "red": "Red",
-    "insufficient": "Not enough history"
+    "insufficient": "Not enough history",
+    "short_history": "Short history"
   },
   "settings": "Settings",
   "reset": "Reset to defaults",
@@ -141,17 +143,30 @@
     "green": "All three measures are within their green bands.",
     "yellow": "Triggered by {measures} reaching the yellow warning level.",
     "red": "Triggered by {measures} exceeding historical limits.",
-    "insufficient": "{measures} need more complete reference history."
+    "insufficient": "{measures} need more complete reference history.",
+    "short_history": "Real history is shorter than {years} years and no earlier health proxy is available."
   },
   "trafficRule": "Red means review the strategy and the data, not sell automatically.",
   "settingLabels": {
     "minimum_falls": "Minimum completed falls",
     "warning_fraction": "Yellow starts at (%) of historical worst",
-    "gap_tail_percent": "Worst 3-year gaps to flag (%)"
+    "gap_tail_percent": "Worst 3-year gaps to flag (%)",
+    "minimum_years": "Minimum years without a proxy"
   },
   "settingHelp": {
     "minimum_falls": "Show grey until this many earlier falls have recovered.",
     "warning_fraction": "Yellow begins at this share of the deepest fall or longest recovery. The default is two thirds.",
-    "gap_tail_percent": "Yellow flags this worst share of earlier, non-overlapping 3-year gaps versus SPY."
-  }
+    "gap_tail_percent": "Yellow flags this worst share of earlier, non-overlapping 3-year gaps versus SPY.",
+    "minimum_years": "Show grey Short history below this many years when no earlier proxy is available. Set 0 to disable."
+  },
+  "referenceProxies": {
+    "Century Momentum": {
+      "series": "century_momentum",
+      "start": "1928-04-30",
+      "note": "Supplied Century Momentum pre-ETF strategy returns with IEF bond defense. Used only for earlier completed falls in the health reference. Its source reconstruction is a proxy, not an actual fund track record."
+    }
+  },
+  "extensionLine": "History extended with a proxy before {date}",
+  "referenceLine": "History starts {start} · Worst earlier fall {fall}",
+  "proxyLoadFailed": "The configured earlier health proxy could not be validated. The card uses real history only."
 }
