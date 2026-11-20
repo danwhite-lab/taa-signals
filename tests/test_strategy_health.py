@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from haa.strategy_health import analyze, historical_metric
+from haa.strategy_health import analyze, historical_metric, overall_status
 
 POLICY = {'review': 90, 'structural': 97.5}
 MINIMUM = {'drawdown': 36, 'underwater': 3, 'relative': 36}
@@ -26,7 +26,9 @@ def test_recovered_episode_excludes_ongoing_episode_from_references():
     result = analyze(history([-.1, .2, -.2, -.1]), '2000-01-01', POLICY, MINIMUM)
     assert result['metrics']['underwater']['samples'] == 1
     assert result['metrics']['underwater']['current'] == 2
-    assert result['metrics']['drawdown']['samples'] == 2
+    assert result['metrics']['drawdown']['samples'] == 1
+    assert result['episodes'][0]['depth'] == pytest.approx(.1)
+    assert result['episodes'][0]['months'] == 2
     assert result['peak'] == '2000-03-01'
 
 
@@ -69,3 +71,39 @@ def test_no_future_data_enters_earlier_snapshot():
     after = pd.concat([before, pd.DataFrame({'pre_tax_monthly_return': [-.9], 'benchmark_monthly_return': [.2]}, index=[pd.Timestamp('2012-02-01')])])
     cutoff = before.index[-1]
     assert analyze(before, '2000-01-01', POLICY, MINIMUM) == analyze(after.loc[:cutoff], '2000-01-01', POLICY, MINIMUM)
+
+
+@pytest.mark.parametrize('statuses,expected', [
+    (['normal', 'normal', 'normal'], 'normal'),
+    (['structural', 'normal', 'normal'], 'review'),
+    (['review', 'structural', 'normal'], 'review'),
+    (['structural', 'structural', 'normal'], 'structural'),
+    (['structural', 'structural', 'insufficient'], 'insufficient'),
+])
+def test_structural_rating_requires_two_measures_and_complete_history(statuses, expected):
+    assert overall_status(statuses) == expected
+
+
+def test_drawdown_reference_has_one_deepest_point_per_recovered_fall():
+    returns = []
+    depths = [.05 + (index % 25) * .01 for index in range(50)]
+    for depth in depths:
+        returns += [-depth, 1 / (1 - depth) - 1 + .001]
+    # An open 14.59% fall is compared with complete historical falls, including
+    # their troughs, rather than the much shallower months near old peaks.
+    returns += [-.1459, 0., 0., 0.]
+    result = analyze(history(returns), '2000-01-01', POLICY, MINIMUM)
+    drawdown = result['metrics']['drawdown']
+    assert drawdown['samples'] == 50
+    assert drawdown['distribution'] == pytest.approx(sorted(depths))
+    assert drawdown['status'] == 'normal'
+    assert result['metrics']['underwater']['current'] == 4
+    assert len(result['episodes']) == 50
+
+
+def test_minimum_sample_configuration_is_not_relaxed_for_episodes():
+    returns = [-.1, 1 / .9 - 1 + .001] * 35
+    result = analyze(history(returns), '2000-01-01', POLICY, MINIMUM)
+    assert result['metrics']['drawdown']['samples'] == 35
+    assert result['metrics']['drawdown']['status'] == 'insufficient'
+    assert result['status'] == 'insufficient'

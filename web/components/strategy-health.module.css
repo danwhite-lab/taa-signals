@@ -29,3 +29,9 @@
 .compact .metrics { display: block; }
 .compact .cards dt { font-size: .8rem; }
 .compact .cards p { margin-block: .5rem; }
+
+.heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.heading h2 { margin: 0; }
+.heading a { font-size: .85rem; }
+.priceNote { color: var(--muted, #586579); font-size: .8rem; }
+.priceNote strong { color: inherit; font-weight: 400; }

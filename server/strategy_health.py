@@ -56,9 +56,9 @@ class Inputs(BaseModel):
     checks_only: bool = False
 
 
-def unavailable(key, reason):
+def unavailable(key, reason, failures=None):
     return {'key': key, 'status': 'insufficient', 'reason': reason, 'metrics': {},
-            'action': WORDS['missingAction'], 'findings': []}
+            'action': WORDS['missingAction'], 'findings': [], 'failures': failures or [], 'caveats': []}
 
 
 def recommendations(report):
@@ -75,7 +75,28 @@ def recommendations(report):
         findings.append({'kind': 'data', 'status': 'insufficient', 'message': WORDS[report['reason']], 'action': WORDS['missingAction']})
     report['findings'] = findings
     report['action'] = findings[0]['action'] if findings else WORDS['monitor']
+    report['triggered_by'] = [key for key, metric in report.get('metrics', {}).items()
+                              if metric['status'] in {'review', 'structural'}]
+    if report['status'] == 'insufficient' and not report['triggered_by']:
+        report['triggered_by'] = [key for key, metric in report.get('metrics', {}).items() if metric['status'] == 'insufficient']
     return report
+
+
+def price_age_finding(identifier, stamp, clock):
+    """Date a local quote using completed TASE sessions, independently of signals."""
+    try:
+        observed = pd.Timestamp(stamp).normalize()
+        if observed.tzinfo is not None:
+            observed = observed.tz_localize(None)
+        last_completed_day = clock.normalize() - pd.Timedelta(days=1)
+        sessions = tase_equity_sessions(str(observed.date()), str(last_completed_day.date())) if observed <= last_completed_day else []
+        age = int(sum(session > observed for session in sessions))
+    except (ValueError, TypeError):
+        return {'kind': 'data', 'status': 'insufficient', 'message': WORDS['priceAgeUnknown'].format(identifier=identifier), 'action': WORDS['technicalAction']}
+    wording = WORDS['priceAgeOne'] if age == 1 else WORDS['priceAgeMany']
+    return {'kind': 'data', 'status': 'review' if age >= 2 else 'normal',
+            'message': wording.format(identifier=identifier, date=observed.date().isoformat(), days=age),
+            'action': WORDS['technicalAction'] if age >= 2 else None, 'trading_days_old': age}
 
 
 def model_history(definition, clock):
@@ -128,7 +149,7 @@ def implementation_checks(labels, current=None, clock=None):
             prices, metadata, warnings = signals.load_inputs(definition)
             prices = prices.loc[prices.index < clock.normalize()]
             for warning in warnings:
-                findings.append({'kind': 'data', 'status': 'review', 'message': WORDS['sourceWarning'], 'action': WORDS['technicalAction']})
+                findings.append({'kind': 'data', 'status': 'review', 'message': f"{label} · {signals.safe_error(warning)}", 'action': WORDS['technicalAction']})
             source_assets = getattr(strategy, 'signal_assets', strategy.data_assets)
             sessions = us_equity_sessions(str((clock - pd.Timedelta(days=14)).date()), str((clock.normalize() - pd.Timedelta(days=1)).date()))
             for asset in source_assets:
@@ -170,10 +191,7 @@ def implementation_checks(labels, current=None, clock=None):
                 if not len(valid) or (~np.isfinite(series.dropna()) | series.dropna().le(0)).any():
                     findings.append({'kind': 'data', 'status': 'review', 'message': f"{local} · " + WORDS['missingData'], 'action': WORDS['technicalAction']})
                 elif local in TASE_EXECUTION_ASSET_IDS:
-                    now = clock.normalize()
-                    sessions = tase_equity_sessions(str((now - pd.Timedelta(days=14)).date()), str((now - pd.Timedelta(days=1)).date()))
-                    if len(sessions) and valid.index[-1] < sessions[-1]:
-                        findings.append({'kind': 'data', 'status': 'review', 'message': f"{local} ({valid.index[-1]:%Y-%m-%d}) · " + WORDS['stalePrice'], 'action': WORDS['technicalAction']})
+                    findings.append(price_age_finding('TASE:' + str(security), valid.index[-1], clock))
             if definition.strategy == 'Inflation Compass' and definition.execution_currency == 'ILS':
                 findings.append({'kind': 'changes', 'status': 'normal', 'message': WORDS['icHedge'], 'action': None})
         except Exception:
@@ -194,7 +212,10 @@ def implementation_checks(labels, current=None, clock=None):
                 findings.insert(0, {'kind': 'data', 'status': 'review', 'message': WORDS['missingData'], 'action': WORDS['technicalAction']})
         for row in rows or []:
             if row.get('price_fresh') is False:
-                findings.insert(0, {'kind': 'data', 'status': 'review', 'message': f"{row.get('id', '')} ({row.get('price_as_of', '')}): " + WORDS['staleData'], 'action': WORDS['technicalAction']})
+                if str(row.get('id', '')).startswith('TASE:'):
+                    findings.insert(0, price_age_finding(row['id'], row.get('price_as_of'), clock))
+                else:
+                    findings.insert(0, {'kind': 'data', 'status': 'review', 'message': WORDS['datedPrice'].format(identifier=row.get('id', ''), date=row.get('price_as_of', '')), 'action': WORDS['technicalAction']})
     findings.append({'kind': 'changes', 'status': 'insufficient', 'message': WORDS['changesUnavailable'], 'action': None})
     findings.sort(key=lambda row: (row['status'] != 'review', row['kind'] != 'data'))
     return {'findings': findings, 'proxies': proxies, 'observations': observations}
@@ -218,23 +239,38 @@ def run(body, sleeves, current=None, clock=None):
     output['checks'] = implementation_checks([s.model for s in sleeves], current, clock)
     if body.checks_only:
         return clean(output)
-    histories, failed, warnings = {}, set(), {}
+    histories, failed, warnings = {}, {}, {}
     for index, (sleeve, definition) in enumerate(zip(sleeves, definitions)):
         try:
             original = usd_equivalents.resolve(sleeve.model)
             if original.execution_currency != 'USD':
                 raise ValueError(WORDS['historyUnavailable'])
+        except Exception:
+            failed[index] = {'model': sleeve.model, 'message': WORDS['missingUsdMapping'].format(sleeve=sleeve.model)}
+            continue
+        try:
             model, history, alerts = model_history(original, clock)
             histories[index] = (model, history)
             warnings[index] = alerts
-        except Exception:
-            failed.add(index)
+        except Exception as exc:
+            detail = str(exc)
+            # Only known calculation errors are safe to display. Provider and
+            # transport exceptions may contain private connection information.
+            known_error = isinstance(exc, ValueError) and (detail in WORDS.values() or detail.startswith(('Missing US equity trading sessions', 'No valid signals', 'No complete post-signal', 'Missing monthly signal')))
+            message_key = 'missingHealthBenchmark' if isinstance(exc, KeyError) and "'SPY'" in detail else 'missingSleeveHistory'
+            failed[index] = {'model': sleeve.model, 'message': WORDS[message_key].format(sleeve=sleeve.model, underlying=original.label),
+                             'detail': signals.safe_error(exc) if known_error else None}
     groups = {family: [i for i, d in enumerate(definitions) if d.strategy == strategy] for strategy, family in FAMILIES.items()}
+    # Combined always includes ALL configured sleeves at their saved weights.
+    # Missing USD mappings/history must never silently drop or renormalize one.
     groups['combined'] = list(range(len(sleeves)))
     cutoff = min(pd.Timestamp(body.end) if body.end else clock.normalize(), clock.normalize())
     for key, indices in groups.items():
         if not indices or any(i in failed for i in indices):
-            output['reports'].append(unavailable(key, 'historyUnavailable'))
+            report = unavailable(key, 'historyUnavailable', [failed[i] for i in indices if i in failed])
+            if key == 'combined':
+                report['composition'] = 'all_sleeves'
+            output['reports'].append(report)
             continue
         uses_ic = any(definitions[i].strategy == 'Inflation Compass' for i in indices)
         policy = {'review': body.thresholds.ic_review if uses_ic else body.thresholds.review,
@@ -252,8 +288,10 @@ def run(body, sleeves, current=None, clock=None):
                 first = max(histories[i][1].monthly.loc[monthly.index[0], 'execution_date'] for i in indices)
             report = analyze(monthly, first, policy, WORDS['minimumSamples'])
             report.update(key=key, policy='ic' if uses_ic else 'cm', models=[sleeves[i].model for i in indices])
-            if any(warnings[i] for i in indices):
-                report.update(status='insufficient', reason='sourceWarning')
+            report['caveats'] = [{'model': sleeves[i].model, 'warning': signals.safe_error(warning)}
+                                  for i in indices for warning in warnings[i]]
+            if key == 'combined':
+                report['composition'] = 'all_sleeves'
             # A requested historical date is explicitly historical. For Today,
             # a completed execution month that has not arrived cannot be stale.
             expected = scheduled_execution_dates(pd.DatetimeIndex([(clock.to_period('M') - 1).to_timestamp('M')]))[0]
@@ -261,5 +299,9 @@ def run(body, sleeves, current=None, clock=None):
                 report.update(status='insufficient', reason='staleData')
             output['reports'].append(recommendations(report))
         except Exception:
-            output['reports'].append(unavailable(key, 'historyUnavailable'))
+            failures = [{'model': sleeves[i].model, 'message': WORDS['combinedEngineFailure'].format(sleeve=sleeves[i].model)} for i in indices]
+            report = unavailable(key, 'historyUnavailable', failures)
+            if key == 'combined':
+                report['composition'] = 'all_sleeves'
+            output['reports'].append(report)
     return clean(output)

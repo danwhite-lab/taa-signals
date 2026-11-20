@@ -9,6 +9,17 @@ import pandas as pd
 from .metrics import rolling_annualized_returns
 
 
+def overall_status(statuses):
+    """Require two flagged measures for an overall structural label."""
+    if "insufficient" in statuses:
+        return "insufficient"
+    if statuses.count("structural") >= 2:
+        return "structural"
+    if any(value in {"review", "structural"} for value in statuses):
+        return "review"
+    return "normal"
+
+
 def historical_metric(current, reference, minimum, review, structural):
     """Rank stress using earlier observations, with ties receiving a mid-rank."""
     sample = np.asarray(reference, dtype=float)
@@ -23,7 +34,7 @@ def historical_metric(current, reference, minimum, review, structural):
         # guard, not a confidence interval for correlated historical windows.
         if len(sample) * (1 - structural / 100) >= 1 and percentile >= structural:
             severity = "structural"
-    return {"current": current, "percentile": percentile, "samples": len(sample), "status": severity,
+    return {"current": current, "percentile": percentile, "samples": len(sample), "minimum_samples": minimum, "status": severity,
             "review_threshold": review, "structural_threshold": structural,
             "review_value": float(np.quantile(sample, review / 100)) if available else None,
             "structural_value": float(np.quantile(sample, structural / 100)) if available else None,
@@ -52,20 +63,36 @@ def analyze(monthly, initial_date, policy, minimums):
     values = pd.concat([pd.Series([1.], index=[initial_date]), (1 + frame.pre_tax_monthly_return).cumprod()])
     losses = 1 - values / values.cummax()
     peak_index = 0
-    completed_durations = []
+    completed_episodes = []
     underwater_started = False
+    deepest_loss = 0.
+    trough_date = None
     for index in range(1, len(values)):
         if losses.iloc[index] <= 1e-12:
             if underwater_started:
-                completed_durations.append(values.index[index].to_period("M").ordinal - values.index[peak_index].to_period("M").ordinal)
+                completed_episodes.append({
+                    "peak": values.index[peak_index].date().isoformat(),
+                    "trough": trough_date.date().isoformat(),
+                    "recovery": values.index[index].date().isoformat(),
+                    "depth": float(deepest_loss),
+                    "months": values.index[index].to_period("M").ordinal - values.index[peak_index].to_period("M").ordinal,
+                })
             peak_index = index
             underwater_started = False
+            deepest_loss = 0.
+            trough_date = None
         else:
             underwater_started = True
+            if losses.iloc[index] > deepest_loss:
+                deepest_loss = losses.iloc[index]
+                trough_date = values.index[index]
     peak_date = values.index[peak_index]
     duration = values.index[-1].to_period("M").ordinal - peak_date.to_period("M").ordinal
-    # For an active episode, retain only history ending at its previous peak.
-    reference_loss = losses.iloc[1:peak_index + 1] if underwater_started else losses.iloc[1:-1]
+    # Each earlier recovered fall contributes exactly one deepest loss and one
+    # recovery duration. Monthly levels would overweight long episodes and the
+    # many observations near a peak. The current open fall is excluded.
+    reference_loss = [episode["depth"] for episode in completed_episodes]
+    completed_durations = [episode["months"] for episode in completed_episodes]
     relative = rolling_annualized_returns(frame.pre_tax_monthly_return, 3) - rolling_annualized_returns(frame.benchmark_monthly_return, 3)
     # Earlier rolling windows cannot share any return with the current window.
     reference_relative = -relative.iloc[:-36].dropna()
@@ -79,8 +106,8 @@ def analyze(monthly, initial_date, policy, minimums):
     statuses = [metric["status"] for metric in metrics.values()]
     # Individual breaches remain visible, but an incomplete comparison cannot
     # support an overall rating.
-    status = next((candidate for candidate in ("insufficient", "structural", "review") if candidate in statuses), "normal")
+    status = overall_status(statuses)
     return {"status": status, "reason": "shortSample" if "insufficient" in statuses else None,
             "as_of": frame.index[-1].date().isoformat(), "start": initial_date.date().isoformat(),
-            "peak": peak_date.date().isoformat(), "metrics": metrics,
+            "peak": peak_date.date().isoformat(), "metrics": metrics, "episodes": completed_episodes,
             "rolling": [{"date": date.date().isoformat(), "relative": float(value)} for date, value in relative.dropna().items()]}

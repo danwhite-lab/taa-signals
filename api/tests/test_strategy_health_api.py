@@ -183,7 +183,68 @@ def test_missing_comparison_prevents_overall_normal_even_when_other_metrics_exis
     dates = pd.date_range('2000-02-01', periods=108, freq='MS')
     monthly = pd.DataFrame({'pre_tax_monthly_return': .01, 'benchmark_monthly_return': .005}, index=dates)
     report = analyze(monthly, '2000-01-01', {'review': 90, 'structural': 97.5}, health.WORDS['minimumSamples'])
-    assert report['metrics']['drawdown']['status'] == 'normal'
+    assert report['metrics']['drawdown']['status'] == 'insufficient'
     assert report['metrics']['relative']['status'] == 'normal'
     assert report['metrics']['underwater']['status'] == 'insufficient'
     assert report['status'] == 'insufficient'
+
+
+def test_loader_caveat_is_named_and_does_not_erase_a_valid_rating(histories, monkeypatch):
+    def degraded(definition, clock):
+        model, result, _ = histories(definition, clock)
+        return model, result, ['T5YIE provider returned a dated warning']
+    monkeypatch.setattr(health, 'model_history', degraded)
+    result = health.run(health.Inputs(end='2012-01-31'), selected(), clock='2012-02-20')
+    for report in result['reports']:
+        assert report['reason'] != 'sourceWarning'
+        assert report['caveats'][0]['warning'] == 'T5YIE provider returned a dated warning'
+        assert report['caveats'][0]['model']
+    monkeypatch.setattr(health, 'model_history', histories)
+    clean = health.run(health.Inputs(end='2012-01-31'), selected(), clock='2012-02-20')
+    assert [r['status'] for r in result['reports']] == [r['status'] for r in clean['reports']]
+
+
+def test_combined_names_every_missing_mapping_and_keeps_all_saved_weights(histories):
+    sleeves = [health.Sleeve(model='Century Momentum Move to Cash Israel', weight=45),
+               health.Sleeve(model='Inflation Compass Standard Israel', weight=20),
+               health.Sleeve(model='Buy and Hold Global Israel', weight=20),
+               health.Sleeve(model='Buy and Hold Russell 2000 Israel', weight=5),
+               health.Sleeve(model='Gold Cross-Asset Israel', weight=10)]
+    result = health.run(health.Inputs(end='2012-01-31'), sleeves, clock='2012-02-20')
+    combined = result['reports'][2]
+    assert combined['composition'] == 'all_sleeves'
+    assert combined['status'] == 'insufficient'
+    assert {f['model'] for f in combined['failures']} == {'Buy and Hold Russell 2000 Israel', 'Gold Cross-Asset Israel'}
+    assert all('USD mapping' in f['message'] for f in combined['failures'])
+    assert result['weights'] == [s.model_dump() for s in sleeves]
+
+
+@pytest.mark.parametrize('stamp,age,status', [('2026-11-18', 1, 'normal'), ('2026-11-17', 2, 'review'), ('2026-11-13', 4, 'review')])
+def test_local_quote_age_uses_tase_sessions_and_does_not_change_signals(stamp, age, status):
+    finding = health.price_age_finding('TASE:5141627', stamp, pd.Timestamp('2026-11-20T11:00:00'))
+    assert finding['trading_days_old'] == age
+    assert finding['status'] == status
+    assert 'Signals are not affected' in finding['message']
+    assert 'holding period' not in finding['message']
+
+
+def test_account_quote_uses_same_one_day_age_rule_as_local_proxy_quote():
+    current = {'signals': [], 'comparison': [{'id': 'TASE:5141627', 'Actual %': .1, 'Target %': .1, 'Status': 'On target', 'price_fresh': False, 'price_as_of': '2026-11-18'}]}
+    checks = health.implementation_checks([], current, clock='2026-11-20T11:00:00')
+    quote = next(row for row in checks['findings'] if 'trading_days_old' in row)
+    assert quote['status'] == 'normal'
+    assert not any(row['status'] == 'review' for row in checks['findings'])
+
+
+def test_acwi_missing_health_benchmark_is_named_without_changing_the_mapping(histories, monkeypatch):
+    def history(definition, clock):
+        if definition.label == 'Buy and Hold ACWI':
+            raise KeyError("['SPY'] not in index")
+        return histories(definition, clock)
+    monkeypatch.setattr(health, 'model_history', history)
+    sleeves = [health.Sleeve(model='Century Momentum', weight=50), health.Sleeve(model='Buy and Hold Global Israel', weight=50)]
+    result = health.run(health.Inputs(end='2012-01-31'), sleeves, clock='2012-02-20')
+    failure = result['reports'][2]['failures'][0]
+    assert failure['model'] == 'Buy and Hold Global Israel'
+    assert 'SPY benchmark series' in failure['message']
+    assert result['weights'] == [s.model_dump() for s in sleeves]
