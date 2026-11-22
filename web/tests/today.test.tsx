@@ -11,7 +11,8 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
   onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
 } }) }));
 import Page from "../app/today/page";
-import AuthGate from "../components/AuthGate";
+import AuthGate, { SignedInUserContext } from "../components/AuthGate";
+import { todayStorageKey, loadedTodayTime } from "../lib/today-local-result";
 import { ApiError } from "../lib/api";
 import { historyTable, historyCsv } from "../app/today/history-sources";
 
@@ -68,7 +69,7 @@ it('renders five preview columns, structured names and fixed labels while preser
   expect(details.textContent).toContain('Provisional only');
   expect(details.textContent).toContain(payload.preview_caption);
 });
-afterEach(() => { cleanup(); mock.response.mockReset(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); window.localStorage.clear(); mock.response.mockReset(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 const plainSleeve = (asset: string, source: string, first: string, series: string) => ({
   model: `Fake plain ${asset}`,
@@ -291,7 +292,7 @@ it.each(["fake private details", "toString", { private: "fake" }])("does not ech
   expect(screen.queryByText("fake private details")).toBeNull();
 });
 
-it("uses content-file words with no browser financial/date math or user-data writes", () => {
+it("uses content-file words with no financial math or server data writes", () => {
   const source = readFileSync("./app/today/page.tsx", "utf8");
   expect(source).toContain('from "../../content/today.json"');
   expect(source).not.toMatch(/>[A-Za-z][A-Za-z ]{4,}</);
@@ -319,4 +320,118 @@ it("shows the Gold Cross-Asset signal inputs beside its local holding", async ()
   fireEvent.click(await screen.findByText(text.signalInputs));
   const panel = within(screen.getByText(text.signalInputs).closest("details")!);
   for (const value of Object.values(details)) expect(panel.getByText(value)).toBeTruthy();
+});
+
+const signedPage = (id = "user-a") => <SignedInUserContext.Provider value={id}><Page/></SignedInUserContext.Provider>;
+const stored = (result: unknown = payload, loadedAt = new Date().toISOString(), id = "user-a") => {
+  const snapshot = {version:1,loadedAt,result};
+  window.localStorage.setItem(todayStorageKey(id),JSON.stringify(snapshot));
+  return snapshot;
+};
+
+it("opens the full saved Today immediately without a Today request and shows the saved 24-hour load time", () => {
+  const time = new Date(2026,10,22,11,40);
+  vi.spyOn(Date,"now").mockReturnValue(time.getTime());
+  const snapshot=stored(payload,time.toISOString());
+  render(signedPage());
+  expect(screen.getByText(payload.caption)).toBeTruthy();
+  const line=screen.getByText(text.loaded.replace("{time}",loadedTodayTime(snapshot.loadedAt)),{exact:false});
+  expect(line.textContent).toContain("22 Nov 2026, 11:40");
+  expect(screen.getByText(/Latest completed signal:/).closest("p")?.nextElementSibling).toBe(line);
+  expect(mock.response).not.toHaveBeenCalled();
+  expect(screen.queryByText(text.loading)).toBeNull();
+});
+
+it("labels a saved result from the previous local day and does not refresh automatically", () => {
+  const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+  stored(payload,yesterday.toISOString());
+  render(signedPage());
+  expect(screen.getByText(text.refreshSaved,{exact:false})).toBeTruthy();
+  expect(mock.response).not.toHaveBeenCalled();
+});
+
+it("retains the normal cold load, saves its full response, then reopens it without a request", async () => {
+  mock.response.mockImplementation(async()=>json(payload));
+  const mounted=render(signedPage());
+  await screen.findByText(payload.caption);
+  expect(mock.response).toHaveBeenCalledWith("/api/today?preview=false");
+  const snapshot=JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!);
+  expect(snapshot.result).toEqual(payload);
+  expect(Number.isFinite(new Date(snapshot.loadedAt).getTime())).toBe(true);
+  mounted.unmount();mock.response.mockClear();
+  render(signedPage());
+  expect(screen.getByText(payload.caption)).toBeTruthy();
+  expect(mock.response).not.toHaveBeenCalled();
+});
+
+it("Refresh fetches live and replaces the saved result and original load time", async () => {
+  stored(payload,"2020-01-01T11:40:00.000Z");
+  const next={...payload,caption:"Refreshed complete portfolio"};
+  mock.response.mockImplementation(async()=>json(next));
+  render(signedPage());
+  fireEvent.click(screen.getByRole("button",{name:text.refresh}));
+  await screen.findByText(next.caption);
+  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false&live=true"]);
+  const snapshot=JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!);
+  expect(snapshot.result).toEqual(next);
+  expect(snapshot.loadedAt).not.toBe("2020-01-01T11:40:00.000Z");
+  expect(screen.queryByText(text.refreshSaved,{exact:false})).toBeNull();
+  expect(screen.getByText(text.loaded.replace("{time}",loadedTodayTime(snapshot.loadedAt)))).toBeTruthy();
+});
+
+it.each([
+  {monthly_action:"unavailable"},
+  {issues:["missing_name"]},
+  {signals:[{...payload.signals[0],status_code:"unavailable",error_code:"unknown_model"}]},
+  {signals:[{...payload.signals[0],status_code:"check_data"}]},
+  {has_holdings:true,action_notice:"cannot_price",comparison:[]},
+  {has_holdings:true,action_notice:"valuation_failed",comparison:null},
+])("never replaces the saved full result with a partial response: %j", async patch => {
+  const previous=stored();
+  mock.response.mockImplementation(async()=>json({...payload,...patch}));
+  render(signedPage());
+  fireEvent.click(screen.getByRole("button",{name:text.refresh}));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));
+  expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!)).toEqual(previous);
+});
+
+it("a failed Refresh never overwrites the last complete saved result", async () => {
+  const previous=stored();mock.response.mockResolvedValue(json({},502));
+  render(signedPage());fireEvent.click(screen.getByRole("button",{name:text.refresh}));
+  await screen.findByText(text.requestErrors["502"]);
+  expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!)).toEqual(previous);
+});
+
+it("does not show another signed-in account's saved Today", async () => {
+  stored();
+  mock.response.mockResolvedValue(json({...payload,caption:"User B portfolio"}));
+  const mounted=render(signedPage());
+  expect(screen.getByText(payload.caption)).toBeTruthy();
+  mounted.rerender(signedPage("user-b"));
+  expect(screen.queryByText(payload.caption)).toBeNull();
+  await screen.findByText("User B portfolio");
+  expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!).result).toEqual(payload);
+});
+
+it("corrupt storage and unavailable storage do not prevent the normal load", async () => {
+  window.localStorage.setItem(todayStorageKey("user-a"),"not JSON");
+  mock.response.mockImplementation(async()=>json(payload));
+  const mounted=render(signedPage());await screen.findByText(payload.caption);
+  mounted.unmount();
+  vi.spyOn(Storage.prototype,"getItem").mockImplementation(()=>{throw Error("Storage blocked");});
+  vi.spyOn(Storage.prototype,"setItem").mockImplementation(()=>{throw Error("Quota exceeded");});
+  render(signedPage());await screen.findByText(payload.caption);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("loads Strategy Health after displaying the saved result without reloading Today", async () => {
+  stored({...payload,signals:[{...payload.signals[0],label:"Century Momentum Move to Cash"}]});
+  mock.response.mockImplementation(async(path:string)=>{
+    expect(screen.getByText(payload.caption)).toBeTruthy();
+    expect(path).toBe("/api/strategy-health");
+    return json({reports:[],checks:{findings:[],proxies:[]}});
+  });
+  render(signedPage());
+  await waitFor(()=>expect(mock.response).toHaveBeenCalledTimes(1));
+  expect(mock.response.mock.calls[0][0]).toBe("/api/strategy-health");
 });

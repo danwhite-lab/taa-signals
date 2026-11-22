@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { supabaseBrowser } from "../lib/supabaseBrowser";
+
+export const SignedInUserContext = createContext<string | null>(null);
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -36,5 +38,5 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (!ready) return <main><p role="status">Checking sign-in…</p></main>;
   if (!userId) return <main className="login-page"><a className="button-link" href="/login/">Sign in with Google</a></main>;
   // Remount all private state if another account signs in on the same browser.
-  return <div key={userId}>{children}</div>;
+  return <SignedInUserContext.Provider value={userId}><div key={userId}>{children}</div></SignedInUserContext.Provider>;
 }

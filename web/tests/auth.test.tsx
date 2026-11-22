@@ -11,7 +11,8 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
     mock.callback = callback; return { data: { subscription: { unsubscribe: mock.unsubscribe } } };
   }, signInWithOAuth: mock.oauth, signOut: mock.signout,
 } }) }));
-import AuthGate from "../components/AuthGate";
+import AuthGate, { SignedInUserContext } from "../components/AuthGate";
+import { useContext } from "react";
 import Login from "../app/login/page";
 import { api } from "../lib/api";
 
@@ -46,4 +47,14 @@ describe("browser authentication", () => {
     await expect(api("/api/workspace")).rejects.toThrow("Sign in");
     expect(fetcher).not.toHaveBeenCalled();
   });
+});
+
+it("provides the signed-in account scope and changes it when the account changes", async () => {
+  function AccountScope() { return <p>{useContext(SignedInUserContext)}</p>; }
+  mock.session = {user:{id:"user-a"}};
+  render(<AuthGate><AccountScope/></AuthGate>);
+  await screen.findByText("user-a");
+  await act(async()=>mock.callback?.("SIGNED_IN",{user:{id:"user-b"}}));
+  expect(screen.queryByText("user-a")).toBeNull();
+  expect(screen.getByText("user-b")).toBeTruthy();
 });
