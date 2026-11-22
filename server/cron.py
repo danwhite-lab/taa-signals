@@ -12,12 +12,37 @@ from fastapi import APIRouter, Header, HTTPException
 from haa import data, tase_data
 from haa.model_catalog import MODEL_CATALOG
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
-from .cache import cache_client, write_prices
+from .cache import cache_client, write_prices, digest
 
 router = APIRouter()
 YAHOO_SOURCE = "yfinance:adjusted-close-and-open:v1"
 TASE_SOURCE = "tasekit:existing-adapter:v1"
 FRED_SOURCE = "fred:existing-daily-loader:v1"
+
+
+def tase_snapshot_source(years=None):
+    if years is None or years == tase_data.PUBLIC_HISTORY_YEARS:
+        return TASE_SOURCE
+    return f"{TASE_SOURCE}:history-years={years}"
+
+
+def extended_tase_windows():
+    """Only catalogue-requested nondefault windows, separate from default rows."""
+    windows = set()
+    for item in MODEL_CATALOG:
+        strategy = item.model_class()
+        years = getattr(strategy, "tase_history_years", None)
+        if years and years > tase_data.PUBLIC_HISTORY_YEARS:
+            assets = (*strategy.data_assets, getattr(strategy, "benchmark_asset", "SPY"))
+            windows.update((asset, years) for asset in assets if asset in tase_data.TASE_ISRAEL_ASSET_IDS)
+    return sorted(windows)
+
+
+def tase_rows_digest(rows):
+    # Fingerprint the complete original adapter output, excluding batch headers.
+    keys = ("date", "price", "field", "source", "security_id", "units")
+    return digest({"index_name": rows[0]["index_name"], "index_unit": rows[0]["index_unit"],
+                   "rows": [{key: row[key] for key in keys} for row in rows]})
 
 
 def catalog_assets():
@@ -89,15 +114,19 @@ def refresh_prices(authorization: str | None = Header(default=None)):
         write_prices(client, symbol, YAHOO_SOURCE, rows)
         return rows[-1]["date"]
 
-    def tase(asset):
-        item = tase_data.TasePriceSource().fetch_asset(asset)
+    def tase(asset, years=None):
+        source = tase_data.TasePriceSource(history_years=years) if years else tase_data.TasePriceSource()
+        item = source.fetch_asset(asset)
         rows = [{"date": date.isoformat(), "price": float(value), "field": item.field,
                  "source": item.source, "security_id": item.security_id,
                  "units": "Unmodified provider history units; not broker execution quotes"}
                 for date, value in item.prices.dropna().sort_index().items()]
         if rows:
             rows[0].update(refresh_id=refresh_id, index_name=item.prices.index.name, index_unit=item.prices.index.unit)
-        write_prices(client, asset, TASE_SOURCE, rows)
+            if years:
+                rows[0]["tase_window"] = {"history_years": years, "start": rows[0]["date"],
+                    "end": rows[-1]["date"], "count": len(rows), "digest": tase_rows_digest(rows)}
+        write_prices(client, asset, tase_snapshot_source(years), rows)
         return rows[-1]["date"]
 
     def fred(symbol):
@@ -111,6 +140,7 @@ def refresh_prices(authorization: str | None = Header(default=None)):
 
     jobs = [(symbol, lambda s=symbol: yahoo(s)) for symbol in yahoo_universe()]
     jobs += [(asset, lambda a=asset: tase(a)) for asset in sorted(tase_data.TASE_ISRAEL_ASSET_IDS)]
+    jobs += [(f"{asset}:{years}y", lambda a=asset, y=years: tase(a, y)) for asset, years in extended_tase_windows()]
     jobs += [(symbol, lambda s=symbol: fred(s)) for symbol in fred_universe()]
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda job: attempt(*job), jobs))

@@ -9,7 +9,7 @@ import pandas as pd
 from haa import data, tase_data
 from haa.constants import ASSETS, FRED_ASSETS, OECD_CLI_DIFFUSION_ASSET
 from .cache import cache_client
-from .cron import YAHOO_SOURCE, TASE_SOURCE, FRED_SOURCE
+from .cron import YAHOO_SOURCE, TASE_SOURCE, FRED_SOURCE, tase_snapshot_source, tase_rows_digest
 
 FALLBACK_WARNING = "Daily price snapshot missing, invalid, mixed-refresh or older than 36 hours; used the complete existing live loader. No cached/live splice or gap fill."
 
@@ -64,7 +64,8 @@ def model_inputs(definition, live_loader, *, daily_bars=False):
         fred = tuple(a for a in runtime if a in FRED_ASSETS)
         yahoo = tuple(a for a in runtime if a not in (*tase, *fred))
         mapping = data.default_ticker_map(yahoo)
-        requests = {a: (TASE_SOURCE, a) if a in tase else (FRED_SOURCE, a) if a in fred
+        years = getattr(strategy, "tase_history_years", None)
+        requests = {a: (tase_snapshot_source(years), a) if a in tase else (FRED_SOURCE, a) if a in fred
                     else (YAHOO_SOURCE, mapping[a]) for a in runtime}
         records, origin = read_snapshot(tuple(dict.fromkeys(requests.values())))
         closes, opens = {}, {}
@@ -72,6 +73,18 @@ def model_inputs(definition, live_loader, *, daily_bars=False):
         for asset, key in requests.items():
             row = records[key]
             frame = snapshot_frame(row)
+            if asset in tase and years and years > tase_data.PUBLIC_HISTORY_YEARS:
+                first = row["rows"][0]
+                expected = {"history_years": years, "start": row["rows"][0]["date"],
+                            "end": row["rows"][-1]["date"], "count": len(row["rows"]),
+                            "digest": tase_rows_digest(row["rows"])}
+                if first.get("tase_window") != expected:
+                    raise ValueError("TASE snapshot does not prove the requested window")
+                # Mirror the published-close adapter's rolling cutoff. A young
+                # fund may naturally start later; never require invented years.
+                if asset in tase_data.TASE_ETF_ASSETS:
+                    cutoff = pd.Timestamp.now(tz="Asia/Jerusalem").tz_localize(None).normalize() - pd.DateOffset(years=years)
+                    frame = frame.loc[cutoff:]
             closes[asset] = frame["close" if asset in yahoo else "price"].astype(float)
             if closes[asset].dropna().empty or not closes[asset].dropna().map(math.isfinite).all():
                 raise ValueError("Missing price history")
@@ -88,7 +101,11 @@ def model_inputs(definition, live_loader, *, daily_bars=False):
                 first = row["rows"][0]
                 if str(first["security_id"]) != str(tase_data.TASE_ISRAEL_ASSET_IDS[asset]):
                     raise ValueError("TASE security mismatch")
-                metadata.loc[asset] = [first["source"], first["security_id"], first["field"]]
+                source = first["source"]
+                if years and years > tase_data.PUBLIC_HISTORY_YEARS:
+                    start = closes[asset].dropna().index.min()
+                    source = source.rsplit("; requested ", 1)[0] + f"; requested {years} years; actual available history starts {start:%Y-%m-%d}; no pre-fund extension"
+                metadata.loc[asset] = [source, first["security_id"], first["field"]]
         metadata = pd.DataFrame({column: metadata[column].tolist() for column in metadata}, index=metadata.index)
         strict = data.adjusted_assets(strategy)
         if strict and not daily_bars:

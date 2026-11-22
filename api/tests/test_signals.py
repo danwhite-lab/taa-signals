@@ -213,7 +213,7 @@ def test_us_tase_requires_original_adjusted_us_and_tase_adapter(monkeypatch):
     assert set(calls[1]) == set(definition.model_class.execution_assets)
 
 
-def test_compass_israel_requests_extended_local_history_only_and_avoids_short_snapshot(monkeypatch):
+def test_compass_israel_missing_extended_snapshot_uses_original_eight_year_loader(monkeypatch):
     from server import market_cache
     definition = definition_for_label("Inflation Compass Standard Israel")
     prices, metadata, _ = fixtures(definition.label)
@@ -224,8 +224,13 @@ def test_compass_israel_requests_extended_local_history_only_and_avoids_short_sn
         calls.append((tuple(assets), kwargs))
         return prices.reindex(columns=assets), metadata.reindex(assets)
     monkeypatch.setattr(page.tase_data, "download_tase_israel_prices", tase)
-    monkeypatch.setattr(market_cache, "model_inputs", lambda *a, **kw: pytest.fail("Do not silently use a five-year snapshot"))
+    read = MagicMock(side_effect=ValueError("Missing extended-window snapshot"))
+    monkeypatch.setattr(market_cache, "read_snapshot", read)
     page.load_inputs(definition)
+    from server.cron import tase_snapshot_source
+    requested = read.call_args.args[0]
+    assert all(source == tase_snapshot_source(8) for source, symbol in requested
+               if symbol in {"XLE_IL", "XLK_IL", "XLU_IL", "XLP_IL", "IEF_IL"})
     assert calls[0][1] == {"history_years": 8}
     assert set(calls[0][0]) == {"XLE_IL", "XLK_IL", "XLU_IL", "XLP_IL", "IEF_IL"}
     page.live_inputs(definition_for_label("HAA-Simple Israel"))
