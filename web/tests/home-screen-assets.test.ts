@@ -10,8 +10,8 @@ const pngSize = (path: string) => {
   return `${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`;
 };
 
-it("provides a standalone root-scoped TAA Signals manifest with a theme colour", () => {
-  expect(manifest).toMatchObject({ id:"/", name:"TAA Signals", short_name:"TAA Signals", start_url:"/", scope:"/", display:"standalone" });
+it("provides a standalone root-scoped Signalboard manifest with a theme colour", () => {
+  expect(manifest).toMatchObject({ id:"/", name:"Signalboard", short_name:"Signalboard", start_url:"/", scope:"/", display:"standalone" });
   expect(manifest.theme_color).toBe("#0f2747");
   expect(manifest.background_color).toMatch(/^#[0-9a-f]{6}$/i);
 });
@@ -46,6 +46,7 @@ it("links the manifest and Apple touch icon through the root metadata", () => {
   expect(layout).toContain('url: "/favicon.ico"');
   expect(layout).toContain('manifest: "/manifest.webmanifest"');
   expect(layout).toContain('apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]');
+  expect(layout).toContain('title: "Signalboard"');
   expect(layout).toContain('appleWebApp: { capable: true, title: "Signalboard"');
   expect(layout).toContain("<TopNavigation />");
   expect(layout).toContain("<AuthGate>{children}</AuthGate>");

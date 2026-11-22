@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "TAA Signals",
-  "short_name": "TAA Signals",
+  "name": "Signalboard",
+  "short_name": "Signalboard",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
