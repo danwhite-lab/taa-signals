@@ -410,3 +410,67 @@ def test_cash_health_reference_uses_cash_history_and_keeps_live_metrics():
     assert after['metrics']['relative'] == before['metrics']['relative']
     for key in before['metrics']:
         assert after['metrics'][key]['current'] == before['metrics'][key]['current']
+
+
+def test_combined_cash_reference_aligns_holding_months_and_preserves_all_weights(monkeypatch):
+    from types import SimpleNamespace
+
+    # Exit dates are in the following month: align by execution_date instead.
+    early_months = pd.date_range('1990-01-31', '2016-07-31', freq='ME')
+    cash = pd.Series(np.resize([-.02, .03], len(early_months)), index=early_months)
+    dates = pd.date_range('2003-06-01', '2016-08-01', freq='MS')
+    ic_returns = pd.Series(np.resize([.01, -.04, .05], len(dates)), index=dates)
+    cash_frame = pd.DataFrame({'execution_date': [pd.Timestamp('2016-08-01')],
+                              'pre_tax_monthly_return': [.8]}, index=[pd.Timestamp('2016-09-01')])
+    ic_frame = pd.DataFrame({'execution_date': dates, 'pre_tax_monthly_return': ic_returns.to_numpy()},
+                            index=dates + pd.offsets.MonthBegin(1))
+    calls = []
+    def reference(label, before):
+        calls.append(label)
+        return (cash, {'note': 'Cash-only reconstruction'}) if label == 'Century Momentum Move to Cash' else (None, None)
+    monkeypatch.setattr(health, 'reference_history', reference)
+    components = [(SimpleNamespace(name='Century Momentum Move to Cash'), SimpleNamespace(monthly=cash_frame)),
+                  (SimpleNamespace(name='Inflation Compass Standard'), SimpleNamespace(monthly=ic_frame))]
+    earlier, config = health.combined_reference(components, [.75, .25], '2016-08-01')
+    assert earlier.index[0] == pd.Timestamp('2003-06-30')
+    assert earlier.index[-1] == pd.Timestamp('2016-07-31')
+    assert len(earlier) == 158
+    assert earlier.iloc[0] == pytest.approx(.75 * cash.loc['2003-06-30'] + .25 * ic_returns.iloc[0])
+    assert config['series'] == 'combined_health_reference'
+    assert calls == ['Century Momentum Move to Cash', 'Inflation Compass Standard']
+    # A gap cannot become a portfolio made from just its available sleeves.
+    broken = ic_frame.drop(ic_frame.index[20])
+    with pytest.raises(ValueError, match='every configured sleeve'):
+        health.combined_reference([components[0], (components[1][0], SimpleNamespace(monthly=broken))], [.75,.25], '2016-08-01')
+    # A third, younger sleeve limits the common reference, never gets dropped.
+    younger = pd.DataFrame({'execution_date': [pd.Timestamp('2016-08-01')], 'pre_tax_monthly_return': [.01]})
+    assert health.combined_reference([*components,(SimpleNamespace(name='Another sleeve'), SimpleNamespace(monthly=younger))], [.6,.2,.2], '2016-08-01') == (None,None)
+    # Bond-defense CM must not be used as a cash reference.
+    assert health.combined_reference([(SimpleNamespace(name='Century Momentum'), components[0][1]), components[1]], [.75,.25], '2016-08-01') == (None,None)
+
+
+def test_combined_cash_card_loses_short_history_without_changing_current_metrics(monkeypatch):
+    dates = pd.date_range('1985-01-31', '2012-01-31', freq='ME')
+    prices = pd.DataFrame({'SPY': 100 * 1.004 ** np.arange(len(dates)),
+                           'BIL': 100 * np.cumprod(1 + np.resize([-.02,.03,.01],len(dates)))},index=dates)
+    def history(definition, clock):
+        frame = prices.loc['2000':] if definition.label == 'Century Momentum Move to Cash' else prices
+        decisions = pd.DataFrame({'selected_asset':'BIL','trade':False},index=frame.index[:-1])
+        return ModelInput(definition.label,decisions,frame,benchmark_asset='SPY'), run_backtest(decisions,frame,1.,benchmark_asset='SPY'), []
+    earlier = pd.Series(np.resize([-.02,.03,.01],240),index=pd.date_range('1980-01-31',periods=240,freq='ME'))
+    monkeypatch.setattr(health,'model_history',history)
+    monkeypatch.setattr(health,'implementation_checks',lambda *a: {'findings':[],'proxies':[]})
+    monkeypatch.setattr(health,'reference_history',lambda label,before:(earlier,{'series':'cash-only','note':'Cash only'}) if label=='Century Momentum Move to Cash' else (None,None))
+    sleeves=[health.Sleeve(model='Century Momentum Move to Cash',weight=75),health.Sleeve(model='Inflation Compass Standard',weight=25)]
+    extended=health.run(health.Inputs(end='2012-01-31'),sleeves,clock='2012-02-20')
+    monkeypatch.setattr(health,'combined_reference',lambda *args:(None,None))
+    original=health.run(health.Inputs(end='2012-01-31'),sleeves,clock='2012-02-20')
+    assert original['reports'][2]['status']=='short_history'
+    assert extended['reports'][2]['status'] in {'green','yellow','red'}
+    assert extended['reports'][2]['reference_start']=='1985-01-31'
+    assert extended['reports'][2]['reference_proxy']=='combined_health_reference'
+    assert extended['reports'][:2]==original['reports'][:2]
+    for metric in original['reports'][2]['metrics']:
+        assert extended['reports'][2]['metrics'][metric]['current']==original['reports'][2]['metrics'][metric]['current']
+    assert extended['reports'][2]['metrics']['relative']==original['reports'][2]['metrics']['relative']
+    assert extended['weights']==original['weights']

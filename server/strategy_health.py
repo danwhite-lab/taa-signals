@@ -90,6 +90,50 @@ def reference_history(label, before):
     return earlier, config
 
 
+def combined_reference(histories, weights, before):
+    """All-sleeve health-only reference on complete common holding months.
+
+    Live engine returns are labelled by their holding-start month, not their
+    following exit date. Supplied cash reconstruction is already month-ended.
+    No missing sleeve/month is dropped, filled, or replaced with bond returns.
+    """
+    before = pd.Timestamp(before)
+    streams, notes = [], []
+    if not weights or abs(sum(weights) - 1.) > 1e-9:
+        raise ValueError('Combined health weights must sum to one.')
+    for model, history in histories:
+        # This extension is for cash CM only, never its bond-defense variant.
+        if model.name == 'Century Momentum':
+            return None, None
+        frame = history.monthly
+        if 'execution_date' not in frame:
+            raise ValueError('Combined health needs actual holding-start dates.')
+        months = pd.DatetimeIndex(frame.execution_date).to_period('M').to_timestamp('M')
+        live = pd.Series(frame.pre_tax_monthly_return.to_numpy(), index=months)
+        early, config = reference_history(model.name, frame.execution_date.iloc[0])
+        stream = pd.concat([early, live]) if early is not None else live
+        stream = stream.loc[stream.index.to_period('M') < before.to_period('M')]
+        if stream.empty:
+            return None, None
+        if (stream.index.has_duplicates or not stream.index.is_monotonic_increasing
+                or not np.isfinite(stream.to_numpy()).all() or stream.le(-1).any()):
+            raise ValueError('Invalid combined health component history.')
+        streams.append(stream)
+        if config:
+            notes.append(config.get('note', ''))
+    start = max(stream.index[0] for stream in streams)
+    end = (before.to_period('M') - 1).to_timestamp('M')
+    if start > end:
+        return None, None
+    expected = pd.date_range(start, end, freq='ME')
+    aligned = [stream.reindex(expected) for stream in streams]
+    if any(not np.isfinite(stream.to_numpy()).all() for stream in aligned):
+        raise ValueError('Every combined health month needs every configured sleeve.')
+    combined = sum(stream * weight for stream, weight in zip(aligned, weights))
+    return combined, {'series': 'combined_health_reference',
+                      'note': ' '.join([WORDS['combinedReferenceNote'], *dict.fromkeys(notes)])}
+
+
 def price_age_finding(identifier, stamp, clock):
     """Date a local quote using completed TASE sessions, independently of signals."""
     try:
@@ -295,11 +339,17 @@ def run(body, sleeves, current=None, clock=None):
                 first = max(histories[i][1].monthly.loc[monthly.index[0], 'execution_date'] for i in indices)
             earlier, extension = None, None
             proxy_warning = None
-            # A composite needs its own complete reference, not a subset of
-            # its sleeves. Only configured single-strategy references extend.
+            # A composite must include every configured sleeve at its saved
+            # weight; single-sleeve proxies are never a composite substitute.
             if len(indices) == 1:
                 try:
                     earlier, extension = reference_history(histories[indices[0]][0].name, first)
+                except Exception:
+                    proxy_warning = WORDS['proxyLoadFailed']
+            elif key == 'combined':
+                try:
+                    earlier, extension = combined_reference(
+                        [histories[i] for i in indices], [sleeves[i].weight / total for i in indices], first)
                 except Exception:
                     proxy_warning = WORDS['proxyLoadFailed']
             try:

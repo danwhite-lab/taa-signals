@@ -180,6 +180,7 @@
       "note": "Health-only Move to Cash reconstruction uses exactly the supplied long-history signals and risk-on returns. Every IEF defensive month is replaced with BIL adjusted-close returns from June 2007, and the Kenneth French one-month Treasury-bill RF proxy before then. BIL began in May 2007; the earlier cash proxy is not BIL. Supplied pre-SPMO risk-on reconstruction remains unverified. No bond-defense returns are used for the cash reference. Trading backtests and signals use real fund history only."
     }
   },
+  "combinedReferenceNote": "Health-only combined reference uses every configured sleeve at its saved weight over complete common holding months. Earlier cash-CM returns use its disclosed cash reconstruction, never bond defense; other sleeves use their own available histories. Calendar-month proxy returns and engine holding periods aligned by holding-start month are an approximation, not an executable portfolio track record. Current metrics and trading backtests are unchanged.",
   "extensionLine": "History extended with a proxy before {date}",
   "referenceLine": "History starts {start} · Worst earlier fall {fall}",
   "proxyLoadFailed": "The configured earlier health proxy could not be validated. The card uses real history only."
