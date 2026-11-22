@@ -2,6 +2,7 @@
 
 import { createContext, useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { activateDeviceUser } from "../lib/device-results";
 import { supabaseBrowser } from "../lib/supabaseBrowser";
 
 export const SignedInUserContext = createContext<string | null>(null);
@@ -21,13 +22,14 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       const client = supabaseBrowser();
       const subscription = client.auth.onAuthStateChange((_event, session) => {
         authRevision += 1;
-        if (active) { setUserId(session?.user.id ?? null); setReady(true); }
+        if (active) { activateDeviceUser(session?.user.id ?? null); setUserId(session?.user.id ?? null); setReady(true); }
       });
       unsubscribe = () => subscription.data.subscription.unsubscribe();
       const loadedAt = authRevision;
       void client.auth.getSession().then(({ data, error: problem }) => {
         if (!active || loadedAt !== authRevision) return;
         if (problem) setError("Could not restore your sign-in. Please sign in again.");
+        activateDeviceUser(data.session?.user.id ?? null);
         setUserId(data.session?.user.id ?? null); setReady(true);
       }).catch(() => { if (active) setError("Could not restore sign-in."); });
     } catch (problem) { setError((problem as Error).message); }

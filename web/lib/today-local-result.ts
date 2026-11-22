@@ -1,6 +1,7 @@
-// Device-only, account-scoped display snapshots. Never used by calculations or APIs.
+import { activePortfolio, resultKey, readDeviceResult, saveDeviceResult } from "./device-results";
+// Device-only, account/portfolio-scoped display snapshots. Never used by calculations or APIs.
 export type SavedToday<T> = { version: 1; loadedAt: string; result: T };
-export const todayStorageKey = (userId: string) => `signalboard.today.v1:${encodeURIComponent(userId)}`;
+export const todayStorageKey = (userId: string) => resultKey({userId, portfolio:activePortfolio(userId) ?? "unverified"}, "today");
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const array = (value: unknown): value is unknown[] => Array.isArray(value);
 
@@ -23,23 +24,21 @@ export function completeToday(value: unknown): boolean {
 }
 
 export function readSavedToday<T>(userId: string | null): SavedToday<T> | null {
-  if (!userId || typeof window === "undefined") return null;
-  try {
-    const saved: unknown = JSON.parse(window.localStorage.getItem(todayStorageKey(userId)) ?? "null");
-    if (!object(saved) || saved.version !== 1 || typeof saved.loadedAt !== "string"
-        || !Number.isFinite(new Date(saved.loadedAt).getTime()) || !completeToday(saved.result)) return null;
-    return saved as SavedToday<T>;
-  } catch { return null; } // Storage may be disabled or contain an older/corrupt record.
+  const portfolio = userId ? activePortfolio(userId) : null;
+  return readDeviceResult<T>(userId && portfolio ? {userId,portfolio} : undefined, "today", completeToday);
 }
 
 export function saveToday<T>(userId: string | null, result: T): string | null {
-  if (!completeToday(result)) return null;
-  const loadedAt = new Date().toISOString();
-  if (userId) {
-    try { window.localStorage.setItem(todayStorageKey(userId), JSON.stringify({ version: 1, loadedAt, result })); }
-    catch { /* A storage failure must not turn a successful load into an error. */ }
-  }
-  return loadedAt;
+  const portfolio = userId ? activePortfolio(userId) : null;
+  return saveDeviceResult(userId && portfolio ? {userId,portfolio} : undefined, "today", result, completeToday);
+}
+
+export function completePreview(value: unknown): boolean {
+  if (!completeToday(value) || !object(value) || !array(value.previews) || !array(value.signals)
+      || value.previews.length !== value.signals.length) return false;
+  return value.previews.every(row => object(row) && !row.error_code &&
+    (["always_held", "daily_signals"].includes(String(row.kind)) ||
+     (array(row.allocation_display) && row.allocation_display.length > 0 && typeof row.price_as_of === "string")));
 }
 
 export function loadedTodayTime(stamp: string): string {

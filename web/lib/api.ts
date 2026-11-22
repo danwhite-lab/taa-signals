@@ -1,3 +1,4 @@
+import { invalidatePortfolioResults } from "./device-results";
 import { registryResponseMessage } from "./my-funds-errors";
 import { supabaseBrowser } from "./supabaseBrowser";
 
@@ -27,6 +28,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       response.status === 422 ? "Check the entered fields, name and portfolio JSON." :
       "The service could not confirm the request. Reload before retrying."));
   }
+  if (path.startsWith("/api/portfolios") && init.method && init.method !== "GET") invalidatePortfolioResults();
   return response.json() as Promise<T>;
 }
 

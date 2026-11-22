@@ -60,6 +60,8 @@
   "no": "No",
   "dash": "—",
   "footer": "Edit this portfolio or choose a different default on the Portfolio page.",
+  "refreshPreview": "Refresh next month portfolio preview",
+  "refreshFailed": "Refresh failed",
   "refresh": "Refresh",
   "loaded": "Loaded {time}",
   "refreshSaved": "Press Refresh for the latest.",

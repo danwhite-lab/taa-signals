@@ -8,7 +8,8 @@ import { registryMessage, registryResponseMessage } from "../../lib/my-funds-err
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
 import { SignedInUserContext } from "../../components/AuthGate";
-import { readSavedToday, saveToday, loadedTodayTime, loadedBeforeToday } from "../../lib/today-local-result";
+import { readSavedToday, completeToday, completePreview, loadedTodayTime, loadedBeforeToday } from "../../lib/today-local-result";
+import { activePortfolio, activateDeviceUser, syncPortfolio, scopeEvent, readDeviceResult, saveDeviceResult, type ResultScope } from "../../lib/device-results";
 import StrategyHealth from "../../components/StrategyHealth";
 import HistorySources, { type HistorySleeve } from "./history-sources";
 import { fundName, modelCaption } from "../../lib/picker-display";
@@ -30,32 +31,46 @@ const sleeveName = (label: string | null) => label ? modelCaption(label) : text.
 const names = (parts: Allocation[] | undefined) => parts?.map((part, i) => <div key={i}>{part.security_number ? fundName(`TASE:${part.security_number}`, part.name) : part.name}{part.weight_text && ` ${part.weight_text}`}</div>);
 const numbers = (parts: Allocation[] | undefined) => parts?.length ? parts.map((part, i) => <div key={i}>{part.security_number ?? text.noSecurityNumber}</div>) : text.noSecurityNumber;
 
-function TodayView({ userId }: { userId: string | null }) {
+function TodayView({ userId, portfolio, scopeReady, metadataBusy, refreshVersion, mainRefresh, scopeError, beforeRefresh }: {
+  userId: string | null; portfolio: string | null; scopeReady: boolean; metadataBusy: boolean;
+  refreshVersion: number; mainRefresh: () => void; scopeError: string; beforeRefresh: () => Promise<boolean>;
+}) {
+  const savedScope: ResultScope | undefined = userId && portfolio ? {userId,portfolio} : undefined;
   const [saved] = useState(() => readSavedToday<Today>(userId));
   const [value, setValue] = useState<Today | null>(saved?.result ?? null);
   const [loadedAt, setLoadedAt] = useState<string | null>(saved?.loadedAt ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
-  const [previewBusy,setPreviewBusy] = useState(false), [previewLoaded,setPreviewLoaded] = useState(false);
+  const [savedPreview] = useState(() => readDeviceResult<Today>(savedScope,"preview",completePreview));
+  const [previewValue,setPreviewValue] = useState<Today | null>(savedPreview?.result ?? null);
+  const [previewTime,setPreviewTime] = useState<string | null>(savedPreview?.loadedAt ?? null);
+  const [previewError,setPreviewError] = useState("");
+  const [previewBusy,setPreviewBusy] = useState(false), [previewLoaded,setPreviewLoaded] = useState(!!savedPreview);
+  const previewQueued=useRef(false), mounted=useRef(true);
+  const previewFlight = useRef(false), previewPanel = useRef<HTMLDetailsElement>(null);
+  const refreshSeen = useRef(0), initialLoad = useRef(false);
   const generation = useRef(0);
   const live = useRef(false);
-  async function preview() {
-    if(previewBusy || previewLoaded) return;
-    const current=generation.current; setPreviewBusy(true);
+  async function preview(force = false) {
+    if(!mounted.current || !scopeReady || (!force && previewLoaded)) return;
+    if(previewFlight.current){if(force)previewQueued.current=true;return;}
+    const current=generation.current; previewFlight.current=true; setPreviewBusy(true); setPreviewError("");
     try {
-      const response=await authorizedResponse(`/api/today?preview=true${live.current ? "&live=true" : ""}`);
-      if(!response.ok) throw new Error(await registryResponseMessage(response) ?? requestError(response.status));
+      const response=await authorizedResponse(`/api/today?preview=true${force || live.current ? "&live=true" : ""}`);
+      if(!response.ok) throw new Error(text.refreshFailed);
       const next=await response.json() as Today;
-      if(current===generation.current){setValue(previous=>previous && {...previous,previews:next.previews,preview_caption:next.preview_caption});setPreviewLoaded(true);}
-    } catch (failure) {if(current===generation.current)setError(registryMessage((failure as Error)?.message) ?? text.requestError);}
-    finally {if(current===generation.current)setPreviewBusy(false);}
+      if(!completePreview(next)) throw new Error(text.refreshFailed);
+      if(mounted.current && current===generation.current){
+        setPreviewValue(next); setPreviewTime(saveDeviceResult(savedScope,"preview",next,completePreview)); setPreviewLoaded(true);
+      }
+    } catch { if(current===generation.current)setPreviewError(text.refreshFailed); }
+    finally {previewFlight.current=false;if(mounted.current && current===generation.current){setPreviewBusy(false);if(previewQueued.current){previewQueued.current=false;void preview(true);}}}
   }
   async function load(forceLive = false) {
     if (inFlight.current) return;
     live.current = forceLive;
-    generation.current++;setPreviewLoaded(false);setPreviewBusy(false);
-    inFlight.current = true; setBusy(true); setError(""); setValue(null); setLoadedAt(null);
+    inFlight.current = true; setBusy(true); setError("");
     try {
       const response = await authorizedResponse(`/api/today?preview=false${forceLive ? "&live=true" : ""}`);
       if (!response.ok) {
@@ -68,24 +83,35 @@ function TodayView({ userId }: { userId: string | null }) {
           else if (response.status === 503)
             message = registryMessage(body.detail) ?? message;
         } catch { /* A platform error can be HTML, not JSON. Keep the HTTP reason. */ }
-        setError(message); return;
+        setError(value ? text.refreshFailed : message); return;
       }
       try {
         const next = await response.json() as Today;
-        setValue(next); setLoadedAt(saveToday(userId, next));
+        if(!mounted.current)return;
+        if (!completeToday(next) && value) throw new Error(text.refreshFailed);
+        setValue(next); setLoadedAt(saveDeviceResult(savedScope,"today",next,completeToday));
       }
       catch { throw new ApiError(-1, text.invalidResponse); }
     } catch (failure) {
-      setError(failure instanceof ApiError
+      setError(value ? text.refreshFailed : failure instanceof ApiError
         ? requestError(failure.status)
         : text.requestError);
     }
     finally { inFlight.current = false; setBusy(false); }
   }
-  useEffect(() => { if (!saved) void load(); }, []);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useEffect(() => {
+    if (!scopeReady) return;
+    if (refreshVersion > refreshSeen.current) {
+      refreshSeen.current=refreshVersion; initialLoad.current=true;
+      void load(true); void preview(true);
+    } else if (!saved && !initialLoad.current) { initialLoad.current=true; void load(); }
+  }, [scopeReady,refreshVersion]);
+  useEffect(() => { if (scopeReady && previewPanel.current?.open && !previewLoaded) void preview(); }, [scopeReady]);
+  const shownPreview=previewValue ?? value;
   return <main className="today-page"><h1>{text.title}</h1>
-    <button className="btn btn-primary" disabled={busy} onClick={() => void load(true)}>{text.refresh}</button>
-    {busy && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
+    <button className="btn btn-primary" disabled={busy || metadataBusy} onClick={mainRefresh}>{text.refresh}</button>
+    {(busy || (!value && metadataBusy)) && <p role="status">{text.loading}</p>}{scopeError && <p role="alert">{scopeError}</p>}{error && <p role="alert">{error}</p>}
     {value && (!value.has_default ? <div className="signal-info"><Markdown>{text.setup}</Markdown></div> : <>
       {value.caption && <p className="signal-caption">{value.caption}</p>}
       {value.issues.map((key, i) => <p role="alert" key={i}>{issue(key)}</p>)}
@@ -120,14 +146,17 @@ function TodayView({ userId }: { userId: string | null }) {
         {value.comparison && <details><summary>{text.fullComparison}</summary><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.fullComparison}><thead><tr><th>{text.fund}</th><th>{text.securityNumber}</th><th>{text.target}</th><th>{text.now}</th><th>{text.gap}</th><th>{text.priceDate}</th></tr></thead><tbody>
           {value.comparison.map(row => <tr key={row.id}><td>{fundName(row.id, row.Fund)}</td><td>{row.id.split(":")[1] ?? text.noSecurityNumber}</td><td>{row["Target %"] === null ? text.dash : fmt.percent(row["Target %"])}</td><td>{row["Actual %"] === null ? text.dash : fmt.percent(row["Actual %"])}</td><td>{row["Gap (₪)"] === null ? text.cannotPrice : fmt.number(row["Gap (₪)"], true)}</td><td>{row.price_as_of && !row.price_fresh ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}
         </tbody></table></div></details>}</>}</section>
-      {value.signals.some(row => /^(Century Momentum|Inflation Compass)/.test(row.label ?? "")) && <StrategyHealth automatic compact />}
-      <details onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary><div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
+      {value.signals.some(row => /^(Century Momentum|Inflation Compass)/.test(row.label ?? "")) && <StrategyHealth automatic compact savedScope={savedScope} deviceResults deferLoad={!scopeReady} refreshVersion={refreshVersion} beforeRefresh={beforeRefresh} />}
+      <details ref={previewPanel} onToggle={event=>{if(event.currentTarget.open)void preview();}}><summary>{text.preview}</summary>
+        <button className="btn btn-secondary" aria-label={text.refreshPreview} disabled={previewBusy || !scopeReady} onClick={() => void beforeRefresh().then(ok=>{if(ok)void preview(true);}).catch(()=>setPreviewError(text.refreshFailed))}>{text.refresh}</button>
+        {previewTime && <p>{text.loaded.replace("{time}",loadedTodayTime(previewTime))}</p>}
+        {previewError && <p role="alert">{previewError}</p>}<div className="signal-warning"><Markdown>{text.previewWarning}</Markdown></div>
         {previewBusy && <p role="status">{text.previewLoading}</p>}
         <div className="signal-table-scroll today-sleeve-table"><table aria-label={text.preview}><thead><tr><th>{text.sleeve}</th><th>{text.projectedAllocation}</th><th>{text.securityNumber}</th><th>{text.change}</th><th>{text.priceThrough}</th></tr></thead>
-          <tbody>{value.previews.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{sleeveName(row.label)}</td><td>{row.allocation_display?.length ? names(row.allocation_display) : issue(row.error_code) ?? (row.kind ? text.previewKinds[row.kind] : row.reason) ?? text.unavailable}</td>
+          <tbody>{shownPreview?.previews.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{sleeveName(row.label)}</td><td>{row.allocation_display?.length ? names(row.allocation_display) : issue(row.error_code) ?? (row.kind ? text.previewKinds[row.kind] : row.reason) ?? text.unavailable}</td>
             <td>{numbers(row.allocation_display)}</td>
             <td>{row.change === null ? text.dash : text[row.change]}</td><td>{row.price_as_of ? fmt.date(row.price_as_of) : text.dash}</td></tr>)}</tbody></table></div>
-        {value.preview_caption && <p>{fmt.text(value.preview_caption)}</p>}</details>
+        {shownPreview?.preview_caption && <p>{fmt.text(shownPreview.preview_caption)}</p>}</details>
       <HistorySources sleeves={value.public_sleeves} />
       {value.warnings.map((warning, i) => <p key={i} className="signal-source-note">{warning}</p>)}
       <footer>{text.footer}</footer>
@@ -135,7 +164,41 @@ function TodayView({ userId }: { userId: string | null }) {
   </main>;
 }
 
+function ScopedToday({userId}:{userId:string|null}) {
+  const [portfolio,setPortfolio]=useState(()=>userId ? activePortfolio(userId) : null);
+  const [ready,setReady]=useState(!userId), [checking,setChecking]=useState(!!userId);
+  const [refreshVersion,setRefreshVersion]=useState(0), [scopeError,setScopeError]=useState("");
+  const alive=useRef(true), scopeRef=useRef(portfolio);
+  function applyScope(next:string|null){
+    if(scopeRef.current!==next){scopeRef.current=next;setRefreshVersion(0);}
+    setPortfolio(next);
+  }
+  async function checkPortfolio() {
+    if (!userId) return null;
+    const response=await authorizedResponse("/api/portfolios");
+    if(!response.ok) throw new Error(text.refreshFailed);
+    const list=await response.json();
+    if(!alive.current) return null;
+    const next=syncPortfolio(userId,list);applyScope(next);return next;
+  }
+  useEffect(()=>{
+    alive.current=true;
+    const update=()=>{if(userId)applyScope(activePortfolio(userId));};
+    if(userId){activateDeviceUser(userId);void checkPortfolio().catch(()=>{if(alive.current)setScopeError(text.refreshFailed);}).finally(()=>{if(alive.current){setReady(true);setChecking(false);}});}
+    window.addEventListener(scopeEvent,update); window.addEventListener("storage",update);
+    return ()=>{alive.current=false;window.removeEventListener(scopeEvent,update);window.removeEventListener("storage",update);};
+  },[]);
+  async function refreshAll() {
+    setChecking(true);setScopeError("");
+    try { await checkPortfolio();if(alive.current){setReady(true);setRefreshVersion(v=>v+1);} }
+    catch {if(alive.current)setScopeError(text.refreshFailed);}
+    finally {if(alive.current)setChecking(false);}
+  }
+  return <TodayView key={portfolio ?? "unverified"} userId={userId} portfolio={portfolio} scopeReady={ready}
+    metadataBusy={checking} refreshVersion={refreshVersion} mainRefresh={()=>void refreshAll()} scopeError={scopeError} beforeRefresh={async()=>{const next=await checkPortfolio();return alive.current && next===portfolio;}}/>;
+}
+
 export default function TodayPage() {
-  const userId = useContext(SignedInUserContext);
-  return <TodayView key={userId ?? "signed-out"} userId={userId} />;
+  const userId=useContext(SignedInUserContext);
+  return <ScopedToday key={userId ?? "signed-out"} userId={userId}/>;
 }
