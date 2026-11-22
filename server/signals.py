@@ -69,12 +69,11 @@ def load_inputs(definition, *, daily_bars=False, force_live=False):
         result = live_inputs(definition, daily_bars=daily_bars)
         result[0].attrs["input_source"] = {"source": "live", "loaded_at": datetime.now(timezone.utc).isoformat(), "snapshot_fallback": False}
         return result
-    # Daily snapshots currently contain the default TASE window only. A model
-    # requesting longer actual history must load its whole original bundle;
-    # keep the five-minute complete-input cache, never splice a short snapshot.
+    # The snapshot reader requires the model's exact TASE window contract;
+    # a default-window record cannot stand in for an extended loader bundle.
     def compute():
         live = lambda: live_inputs(definition, daily_bars=daily_bars)
-        return live() if getattr(definition.model_class, "tase_history_years", None) else model_inputs(definition, live, daily_bars=daily_bars)
+        return model_inputs(definition, live, daily_bars=daily_bars)
     result = inputs(definition.model_class(), daily_bars, compute)
     origin = result[0].attrs.get("input_source", {})
     # A five-minute hit must not stretch the 36-hour snapshot age limit.
