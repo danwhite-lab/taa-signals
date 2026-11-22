@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const manifest = JSON.parse(readFileSync("./public/manifest.webmanifest", "utf8"));
 const pngSize = (path: string) => {
@@ -25,14 +26,24 @@ it("publishes real 192 and 512 PNGs, including a maskable icon, without old Stre
   }
 });
 
-it("preserves the original 512 and Apple images byte for byte", () => {
+it("backs up the old icons byte for byte and publishes the replacement Apple icon", () => {
   for (const name of ["taa-signals-icon-512.png", "apple-touch-icon.png"])
-    expect(readFileSync(`./public/${name}`)).toEqual(readFileSync(`../static/${name}`));
+    expect(readFileSync(`./public/icon-backups/2026-11-22/${name}`)).toEqual(readFileSync(`../static/${name}`));
+  expect(createHash("sha256").update(readFileSync("./public/icon-backups/2026-11-22/taa-signals-icon-192.png")).digest("hex"))
+    .toBe("e2efeeda2cce6b31690b62c13f487f25e0119cd54654ca4d4b45092907a4493c");
+  for (const name of ["taa-signals-icon-192.png", "taa-signals-icon-512.png", "apple-touch-icon.png"])
+    expect(readFileSync(`./public/${name}`)).not.toEqual(readFileSync(`./public/icon-backups/2026-11-22/${name}`));
   expect(pngSize("./public/apple-touch-icon.png")).toBe("180x180");
 });
 
 it("links the manifest and Apple touch icon through the root metadata", () => {
   const layout = readFileSync("./app/layout.tsx", "utf8");
+  const favicon = readFileSync("./public/favicon.ico");
+  expect(favicon.readUInt16LE(0)).toBe(0);
+  expect(favicon.readUInt16LE(2)).toBe(1);
+  expect(favicon.readUInt16LE(4)).toBe(4);
+  expect(Array.from({length:4}, (_, index) => favicon[6 + index * 16]).sort((a,b)=>a-b)).toEqual([16,32,48,64]);
+  expect(layout).toContain('url: "/favicon.ico"');
   expect(layout).toContain('manifest: "/manifest.webmanifest"');
   expect(layout).toContain('apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]');
   expect(layout).toContain('appleWebApp: { capable: true, title: "Signalboard"');
