@@ -29,7 +29,7 @@ const payload = { has_default: true, has_holdings: false, actions: [], action_no
   preview_caption: "Mock latest common eligible price caption", warnings: [], public_sleeves: [], timing: {} };
 const json = (value: unknown, status=200) => new Response(JSON.stringify(value), { status });
 
-it('renders the six clear signal columns, short names, separate security numbers, regime and statuses',async()=>{
+it('renders the five clear signal columns, short names, separate security numbers, regime and statuses',async()=>{
   mock.response.mockResolvedValue(json({...payload,signals:[
     {...payload.signals[0],label:'A-RVol Shifter V3 Cash-Only',regime:'risk-on',holding_display:[{name:'Mock MTF fund',security_number:'5140850',weight_text:null}]},
     {...payload.signals[0],label:'Buy and Hold Gold GLD',status_code:'check_data'},
@@ -38,16 +38,16 @@ it('renders the six clear signal columns, short names, separate security numbers
   ]}));
   render(<Page/>);await screen.findByText(payload.caption);
   const table=within(screen.getByRole('table',{name:text.sleeveSignals}));
-  expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Weight','Holding','Security No.','Amount','Status']);
-  for(const label of ['A-RVol V3','Gold GLD','Inflation Compass','Unmapped full strategy name','Mock MTF fund','5140850','risk-on','Check data','Unavailable','Mock missing prices','SPMO 60%','IEF 40%'])
+  expect(table.getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Sleeve','Weight','Holding','Security No.','Status']);
+  for(const label of ['A-RVol Shifter · V3 Cash-Only · Documented interpretation · Daily timing','Gold · Buy and hold · GLD (USD)','Inflation Compass · Standard · Original','Unmapped full strategy name','Mock MTF fund','5140850','risk-on','Check data','Unavailable','Mock missing prices','SPMO 60%','IEF 40%'])
     expect(table.getAllByText(label).length).toBeGreaterThan(0);
   expect(table.getByText('risk-on').tagName).toBe('SMALL');
   const cells=within(table.getAllByRole('row')[1]).getAllByRole('cell');
   expect(cells[2].textContent).toBe('Mock MTF fund');
   expect(cells[3].textContent).toBe('5140850');
-  expect(cells[5].textContent).toBe('risk-on');
+  expect(cells[4].textContent).toBe('risk-on');
   expect(table.queryByText('OK')).toBeNull();
-  expect(within(table.getAllByRole('row')[3]).getAllByRole('cell')[5].textContent).toBe('UnavailableMock missing prices');
+  expect(within(table.getAllByRole('row')[3]).getAllByRole('cell')[4].textContent).toBe('UnavailableMock missing prices');
   expect(table.queryByText(/100%/)).toBeNull();
   expect(table.queryByText(/Fake holding:/)).toBeNull();
   expect(table.getAllByText('-').length).toBeGreaterThan(0);
@@ -98,7 +98,9 @@ it('shows the unchanged history component below Sleeve signals, only for default
     expect(table.textContent).toContain(value);
   expect(mock.response).toHaveBeenCalledTimes(1); // Opening history never requests a preview or changes signals.
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
-  expect(screen.getByText('2,500.00 USD')).toBeTruthy();
+  expect(screen.getByRole('link',{name:text.noHoldings})).toHaveProperty('href',expect.stringContaining('/rebalance-holdings'));
+  expect(within(screen.getByRole('table',{name:text.sleeveSignals})).getByText('Fake holding')).toBeTruthy();
+  expect(screen.queryByText('2,500.00 USD')).toBeNull();
 });
 
 it('hides history without plain holdings or without a default',async()=>{
@@ -226,17 +228,17 @@ it("fetches only on load and explicit Refresh and prevents concurrent refreshes"
   mock.response.mockImplementation(async () => json(payload)); render(<Page />); await screen.findByText(payload.caption);
   const resolves:((value:Response)=>void)[]=[];
   mock.response.mockImplementation(() => new Promise<Response>(done => { resolves.push(done); }));
-  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true}));
+  fireEvent.click(screen.getByRole("button",{name:text.refresh})); fireEvent.click(screen.getByRole("button",{name:text.refresh}));
   await waitFor(()=>expect(mock.response).toHaveBeenCalledTimes(3));
   expect(screen.getByText(payload.caption)).toBeTruthy();
   for(const resolve of resolves)resolve(json(payload));
-  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh,exact:true})).toHaveProperty("disabled",false));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));
   expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false","/api/today?preview=false&live=true","/api/today?preview=true&live=true"]);
 });
 
 it('keeps a live Refresh live when its preview is subsequently opened',async()=>{
   mock.response.mockImplementation(async()=>json(payload));render(<Page/>);await screen.findByText(payload.caption);
-  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true}));await screen.findByText(payload.caption);
+  fireEvent.click(screen.getByRole("button",{name:text.refresh}));await screen.findByText(payload.caption);
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
   await waitFor(()=>expect(mock.response).toHaveBeenCalledWith('/api/today?preview=true&live=true'));
 });
@@ -265,7 +267,7 @@ it("renders unavailable reasons, stale warning and provisional rows without gues
 it("keeps an old report after failed refresh without exposing raw request errors", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />); await screen.findByText(payload.caption);
   mock.response.mockResolvedValue(new Response("fake private error body", { status: 502 }));
-  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); await screen.findAllByText(text.refreshFailed);
+  fireEvent.click(screen.getByRole("button",{name:text.refresh})); await screen.findAllByText(text.refreshFailed);
   expect(screen.getByText(payload.caption)).toBeTruthy(); expect(screen.queryByText("fake private error body")).toBeNull();
 });
 
@@ -279,7 +281,7 @@ it("distinguishes connection failure from an unreadable successful response", as
   mock.response.mockRejectedValue(new ApiError(0, "fake private details")); render(<Page />);
   await screen.findByText(text.requestErrors["0"]);
   mock.response.mockResolvedValue(new Response("not JSON", { status: 200 }));
-  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); await screen.findByText(text.invalidResponse);
+  fireEvent.click(screen.getByRole("button",{name:text.refresh})); await screen.findByText(text.invalidResponse);
   expect(screen.queryByText("not JSON")).toBeNull();
 });
 
@@ -465,14 +467,14 @@ it("reopens all three complete results with their own times and no calculation r
   expect(screen.getByText(completePortfolio.caption)).toBeTruthy();
   expect(screen.getByText('Complete saved health')).toBeTruthy();
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
-  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh})).toHaveProperty('disabled',false));
   expect(screen.getAllByText(/Loaded 01 Jan 2020, 11:40/)).toHaveLength(3);
   expect(mock.response).not.toHaveBeenCalled();
 });
 
 it("refreshes Health and preview separately, then the main Refresh replaces all three",async()=>{
   await seedAllResults();render(signedPage());
-  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh})).toHaveProperty('disabled',false));
   const original=new Map(resultRecords().map(k=>[k,localStorage.getItem(k)]));
   mock.response.mockImplementation(async(path:string)=>json(path==='/api/strategy-health' ? healthResult('Health refreshed alone') : {...completePortfolio,preview_caption:'Preview refreshed alone'}));
   fireEvent.click(screen.getByRole('button',{name:'Refresh Strategy Health'}));
@@ -486,7 +488,7 @@ it("refreshes Health and preview separately, then the main Refresh replaces all 
   expect(mock.response.mock.calls[1][0]).toBe('/api/today?preview=true&live=true');
   mock.response.mockClear();
   mock.response.mockImplementation(async(path:string)=>json(path==='/api/strategy-health' ? healthResult('Main refreshed health') : {...completePortfolio,caption:'Main refreshed Today',preview_caption:'Main refreshed preview'}));
-  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh}));
   await screen.findByText('Main refreshed Today');await screen.findByText('Main refreshed health');await screen.findByText('Main refreshed preview');
   expect(mock.response.mock.calls.map(args=>args[0]).sort()).toEqual(['/api/strategy-health','/api/today?preview=false&live=true','/api/today?preview=true&live=true'].sort());
   expect(screen.queryAllByText(/Loaded 01 Jan 2020/)).toHaveLength(0);
@@ -494,9 +496,9 @@ it("refreshes Health and preview separately, then the main Refresh replaces all 
 
 it.each(['http','partial'])('failed %s refreshes keep all three saved results and original times',async kind=>{
   await seedAllResults();const original=new Map(resultRecords().map(k=>[k,localStorage.getItem(k)]));
-  render(signedPage());await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  render(signedPage());await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh})).toHaveProperty('disabled',false));
   mock.response.mockImplementation(async(path:string)=>kind==='http' ? json({},502) : json(path==='/api/strategy-health' ? {reports:[],checks:{findings:[],proxies:[]}} : {...completePortfolio,monthly_action:'unavailable',previews:[]}));
-  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh}));
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
   await waitFor(()=>expect(screen.getAllByText(text.refreshFailed)).toHaveLength(3));
   for(const [key,value] of original)expect(localStorage.getItem(key)).toBe(value);
@@ -515,7 +517,7 @@ it('clears all old sections when the saved default portfolio changes elsewhere',
 
 it.each(['health','preview'])('main Refresh queues an update when the %s section is already refreshing',async section=>{
   await seedAllResults();render(signedPage());
-  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh})).toHaveProperty('disabled',false));
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
   let finish!:(value:Response)=>void;let focusedCalls=0;
   mock.response.mockImplementation(async(path:string)=>{
@@ -525,7 +527,7 @@ it.each(['health','preview'])('main Refresh queues an update when the %s section
   });
   fireEvent.click(screen.getByRole('button',{name:section==='health'?'Refresh Strategy Health':text.refreshPreview}));
   await waitFor(()=>expect(focusedCalls).toBe(1));
-  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh}));
   await waitFor(()=>expect(mock.response.mock.calls.some(([path])=>path==='/api/today?preview=false&live=true')).toBe(true));
   finish(json(section==='health' ? healthResult('Interim health') : {...completePortfolio,preview_caption:'Interim preview'}));
   await screen.findByText(section==='health'?'Final queued health':'Final queued preview');
