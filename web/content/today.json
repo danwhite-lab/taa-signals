@@ -61,6 +61,8 @@
   "dash": "—",
   "footer": "Edit this portfolio or choose a different default on the Portfolio page.",
   "refresh": "Refresh",
+  "loaded": "Loaded {time}",
+  "refreshSaved": "Press Refresh for the latest.",
   "loading": "Loading completed sleeve signals…",
   "historySources": "Plain buy-and-hold history sources",
   "historyCsv": "Download buy-and-hold history sources CSV",

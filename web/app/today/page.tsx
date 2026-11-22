@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import text from "../../content/today.json";
 import { registryMessage, registryResponseMessage } from "../../lib/my-funds-errors";
 import { authorizedResponse, ApiError } from "../../lib/api";
 import * as fmt from "../../lib/format";
+import { SignedInUserContext } from "../../components/AuthGate";
+import { readSavedToday, saveToday, loadedTodayTime, loadedBeforeToday } from "../../lib/today-local-result";
 import StrategyHealth from "../../components/StrategyHealth";
 import HistorySources, { type HistorySleeve } from "./history-sources";
 import { fundName, modelCaption } from "../../lib/picker-display";
@@ -28,8 +30,10 @@ const sleeveName = (label: string | null) => label ? modelCaption(label) : text.
 const names = (parts: Allocation[] | undefined) => parts?.map((part, i) => <div key={i}>{part.security_number ? fundName(`TASE:${part.security_number}`, part.name) : part.name}{part.weight_text && ` ${part.weight_text}`}</div>);
 const numbers = (parts: Allocation[] | undefined) => parts?.length ? parts.map((part, i) => <div key={i}>{part.security_number ?? text.noSecurityNumber}</div>) : text.noSecurityNumber;
 
-export default function TodayPage() {
-  const [value, setValue] = useState<Today | null>(null);
+function TodayView({ userId }: { userId: string | null }) {
+  const [saved] = useState(() => readSavedToday<Today>(userId));
+  const [value, setValue] = useState<Today | null>(saved?.result ?? null);
+  const [loadedAt, setLoadedAt] = useState<string | null>(saved?.loadedAt ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
@@ -51,7 +55,7 @@ export default function TodayPage() {
     if (inFlight.current) return;
     live.current = forceLive;
     generation.current++;setPreviewLoaded(false);setPreviewBusy(false);
-    inFlight.current = true; setBusy(true); setError(""); setValue(null);
+    inFlight.current = true; setBusy(true); setError(""); setValue(null); setLoadedAt(null);
     try {
       const response = await authorizedResponse(`/api/today?preview=false${forceLive ? "&live=true" : ""}`);
       if (!response.ok) {
@@ -66,7 +70,10 @@ export default function TodayPage() {
         } catch { /* A platform error can be HTML, not JSON. Keep the HTTP reason. */ }
         setError(message); return;
       }
-      try { setValue(await response.json() as Today); }
+      try {
+        const next = await response.json() as Today;
+        setValue(next); setLoadedAt(saveToday(userId, next));
+      }
       catch { throw new ApiError(-1, text.invalidResponse); }
     } catch (failure) {
       setError(failure instanceof ApiError
@@ -75,7 +82,7 @@ export default function TodayPage() {
     }
     finally { inFlight.current = false; setBusy(false); }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { if (!saved) void load(); }, []);
   return <main className="today-page"><h1>{text.title}</h1>
     <button className="btn btn-primary" disabled={busy} onClick={() => void load(true)}>{text.refresh}</button>
     {busy && <p role="status">{text.loading}</p>}{error && <p role="alert">{error}</p>}
@@ -83,7 +90,8 @@ export default function TodayPage() {
       {value.caption && <p className="signal-caption">{value.caption}</p>}
       {value.issues.map((key, i) => <p role="alert" key={i}>{issue(key)}</p>)}
       <section><h2>{text.monthlyAction}</h2><p className={`today-action today-action-${value.monthly_action}`}>{text.actions[value.monthly_action]}</p>
-        {value.latest_caption && <p>{fmt.text(value.latest_caption)}</p>}{value.stale && <p className="signal-warning">{text.staleWarning}</p>}</section>
+        {value.latest_caption && <p>{fmt.text(value.latest_caption)}</p>}
+        {loadedAt && <p>{text.loaded.replace("{time}", loadedTodayTime(loadedAt))}{loadedBeforeToday(loadedAt) && ` ${text.refreshSaved}`}</p>}{value.stale && <p className="signal-warning">{text.staleWarning}</p>}</section>
       <section><h2>{text.sleeveSignals}</h2><div className="signal-table-scroll today-sleeve-table"><table aria-label={text.sleeveSignals}>
         <thead><tr><th>{text.sleeve}</th><th>{text.weight}</th><th>{text.holding}</th><th>{text.securityNumber}</th><th>{text.status}</th></tr></thead>
         <tbody>{value.signals.map((row, i) => <tr key={i}><td title={row.label ?? undefined}>{row.display_name ?? sleeveName(row.label)}</td><td>{row.weight_text ?? text.dash}</td>
@@ -125,4 +133,9 @@ export default function TodayPage() {
       <footer>{text.footer}</footer>
     </>)}
   </main>;
+}
+
+export default function TodayPage() {
+  const userId = useContext(SignedInUserContext);
+  return <TodayView key={userId ?? "signed-out"} userId={userId} />;
 }
