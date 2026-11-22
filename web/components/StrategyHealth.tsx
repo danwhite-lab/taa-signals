@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { authorizedResponse } from "../lib/api";
+import { readDeviceResult, saveDeviceResult, type ResultScope } from "../lib/device-results";
+import { loadedTodayTime } from "../lib/today-local-result";
 import text from "../content/strategy-health.json";
 import * as fmt from "../lib/format";
 import styles from "./strategy-health.module.css";
@@ -89,37 +91,71 @@ function Details({ report }: { report: Report }) {
   </div>;
 }
 
-export default function StrategyHealth({ input = {}, automatic = false, compact = false }: { input?: HealthInput; automatic?: boolean; compact?: boolean }) {
-  const [payload, setPayload] = useState<Payload | null>(null);
+export function completeHealth(value: unknown): boolean {
+  const next=value as Payload | null;
+  if(!next || next.reason || !Array.isArray(next.reports) || !next.reports.length
+      || !next.checks || !Array.isArray(next.checks.findings) || !Array.isArray(next.checks.proxies)) return false;
+  let measured=false;
+  for(const report of next.reports) {
+    if(report.failures?.length) return false;
+    const complete=metricKeys.every(key=>report.metrics?.[key] && numeric(report.metrics[key]!.current));
+    if(complete) measured=true;
+    else if(report.key==='combined' || report.models?.length || !report.reason) return false;
+  }
+  return measured && !(next.checks.observations ?? []).some(row=>!row.last_date)
+    && !next.checks.proxies.some(row=>!row.last_price_date);
+}
+function savedPolicy() {
+  try {
+    const parsed=JSON.parse(localStorage.getItem(storageKey) ?? "null");
+    const migrated={...text.thresholdDefaults,...parsed};
+    if(parsed && validThresholds(migrated)) return migrated;
+  } catch { /* Optional storage. */ }
+  return text.thresholdDefaults;
+}
+export default function StrategyHealth({ input = {}, automatic = false, compact = false, savedScope, deferLoad=false, refreshVersion=0, deviceResults=false, beforeRefresh }: {
+  input?: HealthInput; automatic?: boolean; compact?: boolean; savedScope?: ResultScope; deferLoad?: boolean; refreshVersion?: number; deviceResults?: boolean; beforeRefresh?: () => Promise<boolean>;
+}) {
+  const deviceMode=deviceResults || !!savedScope;
+  const section=(policy:Thresholds)=>`health:${JSON.stringify(input)}:${JSON.stringify(policy)}`;
+  const [initialPolicy]=useState(savedPolicy);
+  const [saved]=useState(()=>readDeviceResult<Payload>(savedScope,section(initialPolicy),completeHealth));
+  const [payload, setPayload] = useState<Payload | null>(saved?.result ?? null);
+  const [loadedAt,setLoadedAt]=useState<string|null>(saved?.loadedAt ?? null);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
-  const [thresholds, setThresholds] = useState<Thresholds>(text.thresholdDefaults);
-  const [draft, setDraft] = useState<Thresholds>(text.thresholdDefaults);
-  const inFlight = useRef(false);
+  const [thresholds, setThresholds] = useState<Thresholds>(initialPolicy);
+  const [draft, setDraft] = useState<Thresholds>(initialPolicy);
+  const inFlight = useRef(false), queued=useRef(false), alive=useRef(true);
+  const refreshSeen=useRef(0), initialLoad=useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   async function run(policy = thresholds) {
-    if (inFlight.current) return;
+    if (inFlight.current || !alive.current) return;
     inFlight.current = true; setBusy(true); setError("");
     try {
       const response = await authorizedResponse("/api/strategy-health", { method: "POST", body: JSON.stringify({ ...input, thresholds: policy }) });
       if (!response.ok) throw new Error(text.error);
       const next = await response.json() as Payload;
       if (!Array.isArray(next.reports) || !next.checks || !Array.isArray(next.checks.findings)) throw new Error(text.error);
-      setPayload(next);
-    } catch { setError(text.error); }
-    finally { inFlight.current = false; setBusy(false); }
+      if(deviceMode && !completeHealth(next)) throw new Error(text.refreshFailed);
+      if(alive.current){setPayload(next);setLoadedAt(deviceMode ? saveDeviceResult(savedScope,section(policy),next,completeHealth) : null);}
+    } catch { if(alive.current)setError(deviceMode ? text.refreshFailed : text.error); }
+    finally {
+      inFlight.current = false;
+      if(alive.current){setBusy(false);if(queued.current){queued.current=false;void run();}}
+    }
   }
+  async function refreshHealth(policy=thresholds){
+    try {if(beforeRefresh && !await beforeRefresh())return;await run(policy);}
+    catch {if(alive.current)setError(text.refreshFailed);}
+  }
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useEffect(() => {
-    let stored = text.thresholdDefaults;
-    try {
-      const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "null") as Thresholds | null;
-      const migrated = { ...text.thresholdDefaults, ...parsed };
-      if (parsed && validThresholds(migrated)) stored = migrated;
-    } catch { /* Browser storage is optional. */ }
-    setThresholds(stored); setDraft(stored);
-    if (automatic) void run(stored);
-    // The parent keys this component by portfolio revision or backtest inputs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if(deferLoad) return;
+    if(refreshVersion>refreshSeen.current){
+      refreshSeen.current=refreshVersion;initialLoad.current=true;
+      if(inFlight.current)queued.current=true;else void run();
+    } else if(automatic && !saved && !initialLoad.current){initialLoad.current=true;void run(initialPolicy);}
+  }, [automatic,deferLoad,refreshVersion]);
   const notes = new Map<string, Set<string>>();
   for (const report of payload?.reports ?? []) {
     for (const caveat of report.caveats ?? []) {
@@ -137,7 +173,9 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
       {!input.checks_only && <button className={`btn btn-secondary ${styles.settingsButton}`} aria-expanded={settingsOpen} aria-controls="health-settings" onClick={() => setSettingsOpen(value => !value)}>{text.settings}</button>}
     </div>
     {!input.checks_only && <p className={styles.note}>{text.compactNote}</p>}
-    {(!automatic || error) && <button className="btn btn-secondary" disabled={busy} onClick={() => void run()}>{error ? text.retry : text.run}</button>}
+    {deviceMode && <><button className={`btn btn-secondary ${styles.settingsButton}`} aria-label={text.refreshLabel} disabled={busy || deferLoad} onClick={()=>void refreshHealth()}>{text.refresh}</button>
+      {loadedAt && <p>{text.loaded.replace("{time}",loadedTodayTime(loadedAt))}</p>}</>}
+    {!deviceMode && (!automatic || error) && <button className="btn btn-secondary" disabled={busy} onClick={() => void run()}>{error ? text.retry : text.run}</button>}
     {busy && <p role="status">{text.loading}</p>}
     {error && <p role="alert">{error}</p>}
     {payload?.reason && <p>{message(payload.reason)}</p>}
@@ -169,7 +207,7 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
         if (!validThresholds(draft)) { setError(text.invalidThresholds); return; }
         setThresholds(draft);
         try { localStorage.setItem(storageKey, JSON.stringify(draft)); } catch { /* This visit still uses the chosen thresholds. */ }
-        void run(draft);
+        void refreshHealth(draft);
       }}><div className={styles.thresholds}>{thresholdKeys.map(key => {
         const wholeNumber = key === "minimum_falls" || key === "minimum_years";
         return <label key={key}>{text.settingLabels[key]}
@@ -184,7 +222,7 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
       <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => {
         setDraft(text.thresholdDefaults); setThresholds(text.thresholdDefaults);
         try { localStorage.removeItem(storageKey); } catch { /* Browser storage is optional. */ }
-        void run(text.thresholdDefaults);
+        void refreshHealth(text.thresholdDefaults);
       }}>{text.reset}</button></form>
       <p>{text.simulation}</p><p>{text.method}</p><p>{text.sample}</p><p>{text.weights}</p>
       {payload?.reports.map(report => <details key={report.key}><summary>{text[report.key]} · {text.details}</summary><Details report={report} /></details>)}

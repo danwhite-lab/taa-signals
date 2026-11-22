@@ -1,4 +1,8 @@
 {
+  "loaded": "Loaded {time}",
+  "refresh": "Refresh",
+  "refreshLabel": "Refresh Strategy Health",
+  "refreshFailed": "Refresh failed",
   "title": "Strategy Health",
   "details": "Detailed health analysis",
   "checks": "Implementation checks",

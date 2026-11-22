@@ -12,11 +12,12 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
   }, signInWithOAuth: mock.oauth, signOut: mock.signout,
 } }) }));
 import AuthGate, { SignedInUserContext } from "../components/AuthGate";
+import {activateDeviceUser,syncPortfolio,saveDeviceResult,resultKey} from "../lib/device-results";
 import { useContext } from "react";
 import Login from "../app/login/page";
 import { api } from "../lib/api";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); mock.session = null; mock.pathname = "/portfolio/"; });
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); mock.session = null; mock.pathname = "/portfolio/"; });
 
 describe("browser authentication", () => {
   it("never mounts private data until a session exists", async () => {
@@ -57,4 +58,21 @@ it("provides the signed-in account scope and changes it when the account changes
   await act(async()=>mock.callback?.("SIGNED_IN",{user:{id:"user-b"}}));
   expect(screen.queryByText("user-a")).toBeNull();
   expect(screen.getByText("user-b")).toBeTruthy();
+});
+
+it("clears all saved result sections on the auth sign-out event", async()=>{
+  mock.session={user:{id:"a"}};activateDeviceUser("a");
+  const scope={userId:"a",portfolio:syncPortfolio("a",[{id:"p",is_default:true,updated_at:"one",payload:{}}])!};
+  for(const key of ["today","health","preview"])saveDeviceResult(scope,key,{},()=>true);
+  render(<AuthGate><p>Signed in</p></AuthGate>);await screen.findByText("Signed in");
+  await act(async()=>mock.callback?.("SIGNED_OUT",null));
+  for(const key of ["today","health","preview"])expect(localStorage.getItem(resultKey(scope,key))).toBeNull();
+});
+it("invalidates saved results only after a successful portfolio mutation",async()=>{
+  mock.session={user:{id:"a"}};activateDeviceUser("a");
+  const scope={userId:"a",portfolio:syncPortfolio("a",[{id:"p",is_default:true,updated_at:"one",payload:{}}])!};
+  saveDeviceResult(scope,"health",{},()=>true);
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({id:"p"}))));
+  await api("/api/portfolios",{method:"POST",body:"{}"});
+  expect(localStorage.getItem(resultKey(scope,"health"))).toBeNull();
 });

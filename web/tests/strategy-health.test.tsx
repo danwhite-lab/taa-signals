@@ -4,7 +4,7 @@ import text from "../content/strategy-health.json";
 
 const mock = vi.hoisted(() => ({ response: vi.fn() }));
 vi.mock("../lib/api", () => ({ authorizedResponse: mock.response }));
-import StrategyHealth from "../components/StrategyHealth";
+import StrategyHealth, { completeHealth } from "../components/StrategyHealth";
 
 const metric = { current: .1, percentile: 95, samples: 19, minimum_samples: 8, status: "yellow", review_value: .08, structural_value: .12, distribution: [.02, .04, .06, .08, .12] };
 const report = { key: "cm", status: "yellow", summary: "Drawdown reached the yellow warning level.", triggered_by: ["drawdown"], as_of: "2026-11-02", start: "2015-12-01", peak: "2026-03-02", findings: [], metrics: {drawdown: metric, underwater: {...metric, current: 8}, relative: {...metric, current: .03}}, rolling: [{date: "2026-10-01", relative: -.02}, {date: "2026-11-02", relative: -.03}] };
@@ -160,4 +160,10 @@ it("adds the 20-year setting while preserving existing browser threshold prefere
   fireEvent.click(screen.getByRole('button',{name:text.apply}));
   await waitFor(()=>expect(mock.response).toHaveBeenCalledTimes(2));
   expect(JSON.parse(mock.response.mock.calls[1][1].body).thresholds.minimum_years).toBe(10);
+});
+
+it("accepts a complete short-history calculation but rejects missing or failed reports for device storage",()=>{
+  expect(completeHealth({...payload,reports:[{...report,status:"short_history"}]})).toBe(true);
+  expect(completeHealth({...payload,reports:[{...report,failures:[{model:"CM",message:"History unavailable"}]}]})).toBe(false);
+  expect(completeHealth({...payload,reports:[{...report,metrics:{}}]})).toBe(false);
 });

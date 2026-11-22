@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { readFileSync } from "node:fs";
 import text from "../content/today.json";
 
-const mock = vi.hoisted(() => ({ response: vi.fn() }));
-vi.mock("../lib/api", () => ({ authorizedResponse: mock.response, ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
+const mock = vi.hoisted(() => ({ response: vi.fn(), portfolios: [{id:"fixture",is_default:true,updated_at:"revision-1",payload:{name:"Fake portfolio"}}] }));
+vi.mock("../lib/api", () => ({ authorizedResponse: (path:string, init?:RequestInit) => path === "/api/portfolios" ? Promise.resolve(new Response(JSON.stringify(mock.portfolios))) : init === undefined ? mock.response(path) : mock.response(path,init), ApiError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/today/" }));
 vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
   getSession: async () => ({ data: { session: null }, error: null }),
@@ -12,6 +12,7 @@ vi.mock("../lib/supabaseBrowser", () => ({ supabaseBrowser: () => ({ auth: {
 } }) }));
 import Page from "../app/today/page";
 import AuthGate, { SignedInUserContext } from "../components/AuthGate";
+import { activateDeviceUser, syncPortfolio } from "../lib/device-results";
 import { todayStorageKey, loadedTodayTime } from "../lib/today-local-result";
 import { ApiError } from "../lib/api";
 import { historyTable, historyCsv } from "../app/today/history-sources";
@@ -69,7 +70,7 @@ it('renders five preview columns, structured names and fixed labels while preser
   expect(details.textContent).toContain('Provisional only');
   expect(details.textContent).toContain(payload.preview_caption);
 });
-afterEach(() => { cleanup(); window.localStorage.clear(); mock.response.mockReset(); vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); window.localStorage.clear(); mock.portfolios=[{id:"fixture",is_default:true,updated_at:"revision-1",payload:{name:"Fake portfolio"}}]; mock.response.mockReset(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 const plainSleeve = (asset: string, source: string, first: string, series: string) => ({
   model: `Fake plain ${asset}`,
@@ -191,7 +192,7 @@ it("renders server-formatted actions and keeps the complete comparison and previ
   expect(within(fullTable).getByText("Below threshold")).toBeTruthy();
   expect(screen.getByText(text.preview).closest("details")).toHaveProperty("open", false);
   expect(screen.getByText(text.actions.unchanged)).toBeTruthy();
-  expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([text.refresh]);
+  expect(screen.getAllByRole("button").map(button => button.textContent)).toEqual([text.refresh,text.refresh]);
   expect(mock.response).toHaveBeenCalledWith("/api/today?preview=false");
 });
 
@@ -223,18 +224,19 @@ it("loads provisional preview only on opening and keeps action before the merged
 
 it("fetches only on load and explicit Refresh and prevents concurrent refreshes", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />); await screen.findByText(payload.caption);
-  let resolve!: (value: Response) => void;
-  mock.response.mockImplementation(() => new Promise(done => { resolve=done; }));
-  fireEvent.click(screen.getByText(text.refresh)); fireEvent.click(screen.getByText(text.refresh));
-  expect(mock.response).toHaveBeenCalledTimes(2); expect(screen.getByText(text.loading)).toBeTruthy();
-  expect(screen.queryByText(payload.caption)).toBeNull();
-  resolve(json(payload)); await screen.findByText(payload.caption);
-  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false","/api/today?preview=false&live=true"]);
+  const resolves:((value:Response)=>void)[]=[];
+  mock.response.mockImplementation(() => new Promise<Response>(done => { resolves.push(done); }));
+  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true}));
+  await waitFor(()=>expect(mock.response).toHaveBeenCalledTimes(3));
+  expect(screen.getByText(payload.caption)).toBeTruthy();
+  for(const resolve of resolves)resolve(json(payload));
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh,exact:true})).toHaveProperty("disabled",false));
+  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false","/api/today?preview=false&live=true","/api/today?preview=true&live=true"]);
 });
 
 it('keeps a live Refresh live when its preview is subsequently opened',async()=>{
   mock.response.mockImplementation(async()=>json(payload));render(<Page/>);await screen.findByText(payload.caption);
-  fireEvent.click(screen.getByText(text.refresh));await screen.findByText(payload.caption);
+  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true}));await screen.findByText(payload.caption);
   const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
   await waitFor(()=>expect(mock.response).toHaveBeenCalledWith('/api/today?preview=true&live=true'));
 });
@@ -260,11 +262,11 @@ it("renders unavailable reasons, stale warning and provisional rows without gues
   expect(screen.getByText(text.previewKinds.always_held)).toBeTruthy();
 });
 
-it("does not expose raw request errors or keep an old report after failed refresh", async () => {
+it("keeps an old report after failed refresh without exposing raw request errors", async () => {
   mock.response.mockImplementation(async () => json(payload)); render(<Page />); await screen.findByText(payload.caption);
   mock.response.mockResolvedValue(new Response("fake private error body", { status: 502 }));
-  fireEvent.click(screen.getByText(text.refresh)); await screen.findByText(text.requestErrors["502"]);
-  expect(screen.queryByText(payload.caption)).toBeNull(); expect(screen.queryByText("fake private error body")).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); await screen.findAllByText(text.refreshFailed);
+  expect(screen.getByText(payload.caption)).toBeTruthy(); expect(screen.queryByText("fake private error body")).toBeNull();
 });
 
 it.each([400, 401, 403, 404, 429, 500, 502, 503, 504])("shows a safe specific reason for HTTP %s", async status => {
@@ -277,7 +279,7 @@ it("distinguishes connection failure from an unreadable successful response", as
   mock.response.mockRejectedValue(new ApiError(0, "fake private details")); render(<Page />);
   await screen.findByText(text.requestErrors["0"]);
   mock.response.mockResolvedValue(new Response("not JSON", { status: 200 }));
-  fireEvent.click(screen.getByText(text.refresh)); await screen.findByText(text.invalidResponse);
+  fireEvent.click(screen.getByRole("button",{name:text.refresh,exact:true})); await screen.findByText(text.invalidResponse);
   expect(screen.queryByText("not JSON")).toBeNull();
 });
 
@@ -324,6 +326,7 @@ it("shows the Gold Cross-Asset signal inputs beside its local holding", async ()
 
 const signedPage = (id = "user-a") => <SignedInUserContext.Provider value={id}><Page/></SignedInUserContext.Provider>;
 const stored = (result: unknown = payload, loadedAt = new Date().toISOString(), id = "user-a") => {
+  activateDeviceUser(id);syncPortfolio(id,mock.portfolios);
   const snapshot = {version:1,loadedAt,result};
   window.localStorage.setItem(todayStorageKey(id),JSON.stringify(snapshot));
   return snapshot;
@@ -369,14 +372,15 @@ it("Refresh fetches live and replaces the saved result and original load time", 
   const next={...payload,caption:"Refreshed complete portfolio"};
   mock.response.mockImplementation(async()=>json(next));
   render(signedPage());
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));
   fireEvent.click(screen.getByRole("button",{name:text.refresh}));
   await screen.findByText(next.caption);
-  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false&live=true"]);
+  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(["/api/today?preview=false&live=true","/api/today?preview=true&live=true"]);
   const snapshot=JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!);
   expect(snapshot.result).toEqual(next);
   expect(snapshot.loadedAt).not.toBe("2020-01-01T11:40:00.000Z");
   expect(screen.queryByText(text.refreshSaved,{exact:false})).toBeNull();
-  expect(screen.getByText(text.loaded.replace("{time}",loadedTodayTime(snapshot.loadedAt)))).toBeTruthy();
+  expect(within(screen.getByText(text.monthlyAction).closest("section")!).getByText(text.loaded.replace("{time}",loadedTodayTime(snapshot.loadedAt)))).toBeTruthy();
 });
 
 it.each([
@@ -390,6 +394,7 @@ it.each([
   const previous=stored();
   mock.response.mockImplementation(async()=>json({...payload,...patch}));
   render(signedPage());
+  await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));
   fireEvent.click(screen.getByRole("button",{name:text.refresh}));
   await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));
   expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!)).toEqual(previous);
@@ -397,8 +402,8 @@ it.each([
 
 it("a failed Refresh never overwrites the last complete saved result", async () => {
   const previous=stored();mock.response.mockResolvedValue(json({},502));
-  render(signedPage());fireEvent.click(screen.getByRole("button",{name:text.refresh}));
-  await screen.findByText(text.requestErrors["502"]);
+  render(signedPage());await waitFor(()=>expect(screen.getByRole("button",{name:text.refresh})).toHaveProperty("disabled",false));fireEvent.click(screen.getByRole("button",{name:text.refresh}));
+  await screen.findAllByText(text.refreshFailed);
   expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!)).toEqual(previous);
 });
 
@@ -410,7 +415,7 @@ it("does not show another signed-in account's saved Today", async () => {
   mounted.rerender(signedPage("user-b"));
   expect(screen.queryByText(payload.caption)).toBeNull();
   await screen.findByText("User B portfolio");
-  expect(JSON.parse(window.localStorage.getItem(todayStorageKey("user-a"))!).result).toEqual(payload);
+  expect(window.localStorage.getItem(todayStorageKey("user-a"))).toBeNull();
 });
 
 it("corrupt storage and unavailable storage do not prevent the normal load", async () => {
@@ -434,4 +439,95 @@ it("loads Strategy Health after displaying the saved result without reloading To
   render(signedPage());
   await waitFor(()=>expect(mock.response).toHaveBeenCalledTimes(1));
   expect(mock.response.mock.calls[0][0]).toBe("/api/strategy-health");
+});
+
+const healthResult = (summary="Complete saved health") => {
+  const metric={current:.1,percentile:50,samples:10,status:"green",review_value:.2,structural_value:.3,distribution:[.1,.2]};
+  return {reports:[{key:"combined",status:"green",summary,models:["Century Momentum Move to Cash"],findings:[],metrics:{drawdown:metric,underwater:metric,relative:metric}}],checks:{findings:[],proxies:[]}};
+};
+const completePortfolio = {...payload,signals:[{...payload.signals[0],label:"Century Momentum Move to Cash"}],
+  previews:[{...payload.previews[0],label:"Century Momentum Move to Cash"}]};
+const resultRecords = () => Object.keys(localStorage).filter(k=>k.endsWith(":today") || k.endsWith(":preview") || k.includes(":health:"));
+async function seedAllResults() {
+  mock.response.mockImplementation(async(path:string)=>json(path==="/api/strategy-health" ? healthResult() : completePortfolio));
+  const mounted=render(signedPage());await screen.findByText(completePortfolio.caption);
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  await waitFor(()=>expect(resultRecords()).toHaveLength(3));
+  mounted.unmount();mock.response.mockClear();
+  for(const key of resultRecords()) {
+    const value=JSON.parse(localStorage.getItem(key)!);value.loadedAt="2020-01-01T11:40:00.000Z";localStorage.setItem(key,JSON.stringify(value));
+  }
+}
+
+it("reopens all three complete results with their own times and no calculation request", async()=>{
+  await seedAllResults();
+  render(signedPage());
+  expect(screen.getByText(completePortfolio.caption)).toBeTruthy();
+  expect(screen.getByText('Complete saved health')).toBeTruthy();
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  expect(screen.getAllByText(/Loaded 01 Jan 2020, 11:40/)).toHaveLength(3);
+  expect(mock.response).not.toHaveBeenCalled();
+});
+
+it("refreshes Health and preview separately, then the main Refresh replaces all three",async()=>{
+  await seedAllResults();render(signedPage());
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  const original=new Map(resultRecords().map(k=>[k,localStorage.getItem(k)]));
+  mock.response.mockImplementation(async(path:string)=>json(path==='/api/strategy-health' ? healthResult('Health refreshed alone') : {...completePortfolio,preview_caption:'Preview refreshed alone'}));
+  fireEvent.click(screen.getByRole('button',{name:'Refresh Strategy Health'}));
+  await screen.findByText('Health refreshed alone');
+  expect(mock.response.mock.calls.map(args=>args[0])).toEqual(['/api/strategy-health']);
+  for(const [key,value] of original)if(!key.includes(':health:'))expect(localStorage.getItem(key)).toBe(value);
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  fireEvent.click(screen.getByRole('button',{name:text.refreshPreview}));
+  await screen.findByText('Preview refreshed alone');
+  expect(screen.getByText(completePortfolio.caption)).toBeTruthy();
+  expect(mock.response.mock.calls[1][0]).toBe('/api/today?preview=true&live=true');
+  mock.response.mockClear();
+  mock.response.mockImplementation(async(path:string)=>json(path==='/api/strategy-health' ? healthResult('Main refreshed health') : {...completePortfolio,caption:'Main refreshed Today',preview_caption:'Main refreshed preview'}));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  await screen.findByText('Main refreshed Today');await screen.findByText('Main refreshed health');await screen.findByText('Main refreshed preview');
+  expect(mock.response.mock.calls.map(args=>args[0]).sort()).toEqual(['/api/strategy-health','/api/today?preview=false&live=true','/api/today?preview=true&live=true'].sort());
+  expect(screen.queryAllByText(/Loaded 01 Jan 2020/)).toHaveLength(0);
+});
+
+it.each(['http','partial'])('failed %s refreshes keep all three saved results and original times',async kind=>{
+  await seedAllResults();const original=new Map(resultRecords().map(k=>[k,localStorage.getItem(k)]));
+  render(signedPage());await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  mock.response.mockImplementation(async(path:string)=>kind==='http' ? json({},502) : json(path==='/api/strategy-health' ? {reports:[],checks:{findings:[],proxies:[]}} : {...completePortfolio,monthly_action:'unavailable',previews:[]}));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  await waitFor(()=>expect(screen.getAllByText(text.refreshFailed)).toHaveLength(3));
+  for(const [key,value] of original)expect(localStorage.getItem(key)).toBe(value);
+  expect(screen.getByText(completePortfolio.caption)).toBeTruthy();expect(screen.getByText('Complete saved health')).toBeTruthy();
+  expect(screen.getAllByText(/Loaded 01 Jan 2020, 11:40/)).toHaveLength(3);
+});
+
+it('clears all old sections when the saved default portfolio changes elsewhere',async()=>{
+  await seedAllResults();const oldKeys=resultRecords();
+  mock.portfolios=[{id:'new-default',is_default:true,updated_at:'revision-2',payload:{name:'New default'}}];
+  mock.response.mockImplementation(async(path:string)=>json(path==='/api/strategy-health' ? healthResult('New health') : {...completePortfolio,caption:'New portfolio Today',preview_caption:'New portfolio preview'}));
+  render(signedPage());await screen.findByText('New portfolio Today');
+  for(const key of oldKeys)expect(localStorage.getItem(key)).toBeNull();
+  expect(screen.queryByText('Complete saved health')).toBeNull();
+});
+
+it.each(['health','preview'])('main Refresh queues an update when the %s section is already refreshing',async section=>{
+  await seedAllResults();render(signedPage());
+  await waitFor(()=>expect(screen.getByRole('button',{name:text.refresh,exact:true})).toHaveProperty('disabled',false));
+  const details=screen.getByText(text.preview).closest('details')!;details.open=true;fireEvent(details,new Event('toggle'));
+  let finish!:(value:Response)=>void;let focusedCalls=0;
+  mock.response.mockImplementation(async(path:string)=>{
+    const focused=section==='health' ? path==='/api/strategy-health' : path.includes('preview=true');
+    if(focused && ++focusedCalls===1)return new Promise<Response>(resolve=>{finish=resolve;});
+    return json(path==='/api/strategy-health' ? healthResult('Final queued health') : {...completePortfolio,preview_caption:'Final queued preview'});
+  });
+  fireEvent.click(screen.getByRole('button',{name:section==='health'?'Refresh Strategy Health':text.refreshPreview}));
+  await waitFor(()=>expect(focusedCalls).toBe(1));
+  fireEvent.click(screen.getByRole('button',{name:text.refresh,exact:true}));
+  await waitFor(()=>expect(mock.response.mock.calls.some(([path])=>path==='/api/today?preview=false&live=true')).toBe(true));
+  finish(json(section==='health' ? healthResult('Interim health') : {...completePortfolio,preview_caption:'Interim preview'}));
+  await screen.findByText(section==='health'?'Final queued health':'Final queued preview');
+  expect(focusedCalls).toBe(2);
 });
