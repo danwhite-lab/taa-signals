@@ -117,7 +117,9 @@ export default function StrategyHealth({ input = {}, automatic = false, compact 
   input?: HealthInput; automatic?: boolean; compact?: boolean; savedScope?: ResultScope; deferLoad?: boolean; refreshVersion?: number; deviceResults?: boolean; beforeRefresh?: () => Promise<boolean>;
 }) {
   const deviceMode=deviceResults || !!savedScope;
-  const section=(policy:Thresholds)=>`health:${JSON.stringify(input)}:${JSON.stringify(policy)}`;
+  // An unchanged account/portfolio can still have a new calculator after deploy.
+  // Legacy or differently versioned results are misses and take the normal load.
+  const section=(policy:Thresholds)=>`health:${process.env.NEXT_PUBLIC_STRATEGY_HEALTH_REVISION ?? 'development'}:${JSON.stringify(input)}:${JSON.stringify(policy)}`;
   const [initialPolicy]=useState(savedPolicy);
   const [saved]=useState(()=>readDeviceResult<Payload>(savedScope,section(initialPolicy),completeHealth));
   const [payload, setPayload] = useState<Payload | null>(saved?.result ?? null);

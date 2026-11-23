@@ -5,12 +5,54 @@ import text from "../content/strategy-health.json";
 const mock = vi.hoisted(() => ({ response: vi.fn() }));
 vi.mock("../lib/api", () => ({ authorizedResponse: mock.response }));
 import StrategyHealth, { completeHealth } from "../components/StrategyHealth";
+import { activateDeviceUser, resultKey, saveDeviceResult, syncPortfolio } from "../lib/device-results";
 
 const metric = { current: .1, percentile: 95, samples: 19, minimum_samples: 8, status: "yellow", review_value: .08, structural_value: .12, distribution: [.02, .04, .06, .08, .12] };
 const report = { key: "cm", status: "yellow", summary: "Drawdown reached the yellow warning level.", triggered_by: ["drawdown"], as_of: "2026-11-02", start: "2015-12-01", peak: "2026-03-02", findings: [], metrics: {drawdown: metric, underwater: {...metric, current: 8}, relative: {...metric, current: .03}}, rolling: [{date: "2026-10-01", relative: -.02}, {date: "2026-11-02", relative: -.03}] };
 const payload = { reports: [report], checks: { findings: [], proxies: [] } };
 const reply = (data: unknown) => new Response(JSON.stringify(data));
-afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllEnvs(); localStorage.clear(); });
+
+it.each(['legacy', 'previous-calculation'])('recalculates a %s saved grey Combined result once, then reuses the current calculation', async version => {
+  vi.stubEnv('NEXT_PUBLIC_STRATEGY_HEALTH_REVISION', 'cash-combined-current');
+  activateDeviceUser('health-user');
+  const scope = {userId:'health-user',portfolio:syncPortfolio('health-user', [{id:'p',updated_at:'same',is_default:true,payload:{}}])!};
+  const suffix = `${JSON.stringify({})}:${JSON.stringify(text.thresholdDefaults)}`;
+  const oldSection = `health:${version === 'legacy' ? '' : 'older-calculation:'}${suffix}`;
+  const old = {...payload,reports:[{...report,key:'combined',status:'short_history',reference_start:'2016-08-01',summary:'Old short Combined history'}]};
+  saveDeviceResult(scope,oldSection,old,completeHealth);
+  for(const section of ['today','preview']) saveDeviceResult(scope,section,{keep:section},()=>true);
+  const otherResults = ['today','preview'].map(section=>[resultKey(scope,section),localStorage.getItem(resultKey(scope,section))] as const);
+  const current = {...payload,reports:[{...report,key:'combined',status:'green',reference_start:'2003-06-30',proxy_before:'2016-08-01',summary:'Complete cash Combined reference'}]};
+  mock.response.mockImplementation(async()=>reply(current));
+  const mounted = render(<StrategyHealth automatic compact savedScope={scope} />);
+  expect(screen.queryByText('Old short Combined history')).toBeNull();
+  await screen.findByText('Complete cash Combined reference');
+  expect(screen.queryByText(text.lights.short_history)).toBeNull();
+  expect(mock.response).toHaveBeenCalledTimes(1);
+  const key = resultKey(scope,`health:cash-combined-current:${suffix}`);
+  const saved = localStorage.getItem(key);
+  expect(JSON.parse(saved!).result.reports[0].reference_start).toBe('2003-06-30');
+  mounted.unmount();mock.response.mockClear();
+  render(<StrategyHealth automatic compact savedScope={scope} />);
+  expect(screen.getByText('Complete cash Combined reference')).toBeTruthy();
+  expect(mock.response).not.toHaveBeenCalled();
+  expect(localStorage.getItem(key)).toBe(saved);
+  for(const [otherKey,value] of otherResults) expect(localStorage.getItem(otherKey)).toBe(value);
+});
+
+it('does not present an obsolete calculation as current when its replacement load fails', async()=>{
+  vi.stubEnv('NEXT_PUBLIC_STRATEGY_HEALTH_REVISION', 'current');
+  activateDeviceUser('health-user');
+  const scope={userId:'health-user',portfolio:syncPortfolio('health-user',[{id:'p',updated_at:'same',is_default:true,payload:{}}])!};
+  const suffix=`${JSON.stringify({})}:${JSON.stringify(text.thresholdDefaults)}`;
+  saveDeviceResult(scope,`health:previous:${suffix}`,{...payload,reports:[{...report,summary:'Obsolete saved report'}]},completeHealth);
+  mock.response.mockRejectedValue(new Error('provider failure'));
+  render(<StrategyHealth automatic savedScope={scope}/>);
+  await screen.findByText(text.refreshFailed);
+  expect(screen.queryByText('Obsolete saved report')).toBeNull();
+  expect(localStorage.getItem(resultKey(scope,`health:current:${suffix}`))).toBeNull();
+});
 
 it("waits for Run and sends saved weights with the working defaults", async () => {
   mock.response.mockResolvedValue(reply(payload));

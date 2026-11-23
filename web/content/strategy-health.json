@@ -37,6 +37,7 @@
   "noDefault": "Choose a default portfolio containing CM or IC to see its health summary.",
   "notSelected": "This selection does not contain Century Momentum or Inflation Compass.",
   "combined": "Combined portfolio",
+  "combinedShortHistory": "Common history starts {start}, limited by {sleeves}. It is shorter than the required {years} years.",
   "cm": "Century Momentum",
   "ic": "Inflation Compass",
   "open": "Open detailed analysis in Backtest",

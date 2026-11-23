@@ -437,6 +437,7 @@ def test_combined_cash_reference_aligns_holding_months_and_preserves_all_weights
     assert len(earlier) == 158
     assert earlier.iloc[0] == pytest.approx(.75 * cash.loc['2003-06-30'] + .25 * ic_returns.iloc[0])
     assert config['series'] == 'combined_health_reference'
+    assert config['limiting_components'] == [1]
     assert calls == ['Century Momentum Move to Cash', 'Inflation Compass Standard']
     # A gap cannot become a portfolio made from just its available sleeves.
     broken = ic_frame.drop(ic_frame.index[20])
@@ -474,3 +475,39 @@ def test_combined_cash_card_loses_short_history_without_changing_current_metrics
         assert extended['reports'][2]['metrics'][metric]['current']==original['reports'][2]['metrics'][metric]['current']
     assert extended['reports'][2]['metrics']['relative']==original['reports'][2]['metrics']['relative']
     assert extended['weights']==original['weights']
+
+
+def test_full_saved_portfolio_names_younger_acwi_without_dropping_sleeves(monkeypatch):
+    # The production selection also contains ACWI, IWM and Gold Cross-Asset.
+    # Long CM/IC references cannot supply pre-inception ACWI returns.
+    dates = pd.date_range('2000-01-31', '2026-11-30', freq='ME')
+    prices = pd.DataFrame({'SPY': 100 * 1.004 ** np.arange(len(dates)),
+                           'BIL': 100 * np.cumprod(1 + np.resize([-.02,.03,.01],len(dates)))}, index=dates)
+    starts = {'Century Momentum Move to Cash':'2016', 'Inflation Compass Standard':'2003',
+              'Buy and Hold ACWI':'2008', 'USD proxy IWM':'2000', 'Gold Cross-Asset':'2007'}
+    def history(definition, clock):
+        frame=prices.loc[starts[definition.label]:]
+        decisions=pd.DataFrame({'selected_asset':'BIL','trade':False},index=frame.index[:-1])
+        return ModelInput(definition.label,decisions,frame,benchmark_asset='SPY'), run_backtest(decisions,frame,1.,benchmark_asset='SPY'), []
+    earlier = pd.Series(np.resize([-.02,.03,.01],432),index=pd.date_range('1980-01-31',periods=432,freq='ME'))
+    monkeypatch.setattr(health,'model_history',history)
+    monkeypatch.setattr(health,'implementation_checks',lambda *a: {'findings':[],'proxies':[]})
+    monkeypatch.setattr(health,'reference_history',lambda label,before:(earlier,{'series':'cash-only','note':'Cash only'}) if label=='Century Momentum Move to Cash' else (None,None))
+    sleeves=[health.Sleeve(model=label,weight=weight) for label,weight in [
+        ('Century Momentum Move to Cash Israel',45),('Inflation Compass Standard Israel',20),
+        ('Buy and Hold Global Israel',20),('Buy and Hold Russell 2000 Israel',5),('Gold Cross-Asset Israel',10)]]
+    result=health.run(health.Inputs(),sleeves,clock='2026-11-23')
+    combined=result['reports'][2]
+    assert combined['status']=='short_history'
+    assert combined['reference_start'].startswith('2008-')
+    assert combined['history_limits']==[{'model':'Buy and Hold Global Israel','underlying':'Buy and Hold ACWI'}]
+    assert combined['reference_start'] in combined['summary']
+    assert 'Buy and Hold Global Israel (USD: Buy and Hold ACWI)' in combined['summary']
+    assert '20 years' in combined['summary']
+    assert combined['models']==[s.model for s in sleeves]
+    assert result['weights']==[s.model_dump() for s in sleeves]
+    monkeypatch.setattr(health,'combined_reference',lambda *args:(None,None))
+    unextended=health.run(health.Inputs(),sleeves,clock='2026-11-23')['reports'][2]
+    for metric in combined['metrics']:
+        assert combined['metrics'][metric]['current']==unextended['metrics'][metric]['current']
+    assert combined['metrics']['relative']==unextended['metrics']['relative']
