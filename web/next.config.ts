@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import { resolve } from "node:path";
+import { healthRevision } from "./build/health-revision";
 
 const development = process.env.NODE_ENV === "development";
 
@@ -14,5 +16,9 @@ const nextConfig: NextConfig = development
       },
     }
   : { output: "export", trailingSlash: true };
+
+nextConfig.env = {
+  NEXT_PUBLIC_STRATEGY_HEALTH_REVISION: healthRevision(resolve(__dirname, "..")),
+};
 
 export default nextConfig;

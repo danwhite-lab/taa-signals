@@ -63,6 +63,10 @@ def recommendations(report):
     names = ', '.join(WORDS['triggerNames'][key] for key in triggers)
     report['triggered_by'] = triggers
     report['summary'] = WORDS['lightReasons'][report['status']].format(measures=names or WORDS['history'], years=report.get('minimum_years', WORDS['thresholdDefaults']['minimum_years']))
+    if report.get('key') == 'combined' and report['status'] == 'short_history' and report.get('history_limits'):
+        limits = ', '.join(f"{row['model']} (USD: {row['underlying']})" for row in report['history_limits'])
+        report['summary'] = WORDS['combinedShortHistory'].format(
+            start=report['reference_start'], sleeves=limits, years=report['minimum_years'])
     report['findings'] = []
     report['action'] = WORDS['monitor'] if report['status'] == 'green' else WORDS['missingAction'] if report['status'] in {'insufficient', 'short_history'} else WORDS['trafficRule']
     return report
@@ -131,6 +135,7 @@ def combined_reference(histories, weights, before):
         raise ValueError('Every combined health month needs every configured sleeve.')
     combined = sum(stream * weight for stream, weight in zip(aligned, weights))
     return combined, {'series': 'combined_health_reference',
+                      'limiting_components': [i for i, stream in enumerate(streams) if stream.index[0] == start],
                       'note': ' '.join([WORDS['combinedReferenceNote'], *dict.fromkeys(notes)])}
 
 
@@ -363,6 +368,10 @@ def run(body, sleeves, current=None, clock=None):
             if report.get('proxy_before') and extension:
                 report['reference_proxy'] = extension['series']
                 report['caveats'].append({'model': report['models'][0], 'warning': extension.get('note', '')})
+                if key == 'combined':
+                    report['history_limits'] = [
+                        {'model': sleeves[indices[position]].model, 'underlying': histories[indices[position]][0].name}
+                        for position in extension.get('limiting_components', [])]
             if proxy_warning:
                 report['caveats'].append({'model': report['models'][0], 'warning': proxy_warning})
             # Prominent proxy disclosures come from the shared mapping data,
